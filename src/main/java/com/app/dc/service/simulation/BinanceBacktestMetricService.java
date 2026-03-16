@@ -1,0 +1,85 @@
+package com.app.dc.service.simulation;
+
+import com.app.dc.service.simulation.BinanceBacktestModels.BacktestResult;
+import com.app.dc.service.simulation.BinanceBacktestModels.EquityContext;
+import com.app.dc.service.simulation.BinanceBacktestModels.TradeRecord;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+
+/**
+ * 回测结果统计服务。
+ */
+@Service
+public class BinanceBacktestMetricService {
+
+    /**
+     * 初始化权益统计上下文。
+     */
+    public EquityContext initEquityContext(double initialCapital) {
+        EquityContext context = new EquityContext();
+        context.equity = initialCapital;
+        context.peakEquity = initialCapital;
+        return context;
+    }
+
+    /**
+     * 将交易结果累计到统计结果中。
+     */
+    public void applyTrade(BacktestResult result, TradeRecord tradeRecord, EquityContext context) {
+        result.tradeList.add(tradeRecord);
+        if (tradeRecord.returnPct.doubleValue() > 0) {
+            result.winCount++;
+            context.totalPositiveReturnPct += tradeRecord.returnPct.doubleValue();
+        } else if (tradeRecord.returnPct.doubleValue() < 0) {
+            result.lossCount++;
+            context.totalNegativeReturnPct += Math.abs(tradeRecord.returnPct.doubleValue());
+        } else {
+            result.flatCount++;
+        }
+
+        double nextEquity = context.equity * (1.0 + tradeRecord.returnPct.doubleValue());
+        tradeRecord.pnl = scale(nextEquity - context.equity);
+        context.equity = nextEquity;
+        context.peakEquity = Math.max(context.peakEquity, context.equity);
+        context.totalHoldBars += tradeRecord.holdBars == null ? 0 : tradeRecord.holdBars;
+        result.maxDrawdownPct = scale(calcDrawdownPct(context.peakEquity, context.equity));
+    }
+
+    /**
+     * 完成回测结果汇总。
+     */
+    public void finishResult(BacktestResult result, EquityContext context) {
+        result.finalCapital = scale(context.equity);
+        result.tradeCount = result.tradeList.size();
+        result.winRate = result.tradeCount == 0 ? BigDecimal.ZERO
+                : scale((double) result.winCount / result.tradeCount);
+        double initialCapital = result.initialCapital == null ? 0.0 : result.initialCapital.doubleValue();
+        result.totalReturnPct = initialCapital == 0.0 ? BigDecimal.ZERO
+                : scale((context.equity - initialCapital) / initialCapital);
+        result.avgReturnPct = result.tradeCount == 0 ? BigDecimal.ZERO
+                : scale(result.tradeList.stream().mapToDouble(t -> t.returnPct.doubleValue()).average().orElse(0.0));
+        result.avgHoldBars = result.tradeCount == 0 ? BigDecimal.ZERO
+                : scale((double) context.totalHoldBars / result.tradeCount);
+        result.profitFactor = context.totalNegativeReturnPct == 0.0 ? scale(999.0)
+                : scale(context.totalPositiveReturnPct / context.totalNegativeReturnPct);
+    }
+
+    /**
+     * 计算当前权益相对峰值的回撤比例。
+     */
+    public double calcDrawdownPct(double peakEquity, double currentEquity) {
+        if (peakEquity <= 0) {
+            return 0.0;
+        }
+        return (peakEquity - currentEquity) / peakEquity;
+    }
+
+    /**
+     * 统一保留小数位。
+     */
+    public BigDecimal scale(double value) {
+        return BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP);
+    }
+}

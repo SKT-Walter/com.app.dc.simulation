@@ -3,61 +3,44 @@ package com.app.dc.po.backtest;
 import java.math.BigDecimal;
 
 /**
- * 币安策略回测请求参数。
+ * Binance backtest request params.
  */
 public class BinanceBacktestParam {
 
-    /**
-     * 策略名。
-     * 可选值：binanceRange、binanceChannel、binanceTrend、range、channel、trend、all。
-     */
+    /** strategy name: binanceRange/binanceChannel/binanceTrend/range/channel/trend/all */
     public String strategyName;
 
-    /**
-     * 交易对，例如 ETHUSDT。
-     */
+    /** symbol, e.g. ETHUSDT */
     public String symbol;
 
-    /**
-     * K 线周期，例如 15m、1h、1d。
-     */
+    /** timeframe, e.g. 15m/1h/1d */
     public String text;
 
-    /**
-     * 开始日期，格式建议 yyyy-MM-dd。
-     */
+    /** begin date, format yyyy-MM-dd */
     public String beginDate;
 
-    /**
-     * 结束日期，格式建议 yyyy-MM-dd。
-     */
+    /** end date, format yyyy-MM-dd */
     public String endDate;
 
-    /**
-     * 初始资金。
-     */
+    /** initial capital */
     public BigDecimal initialCapital;
 
-    /**
-     * 单边手续费百分比，例如 0.04 表示 0.04%。
-     */
+    /** fee rate percent per side, e.g. 0.04 = 0.04% */
     public BigDecimal feeRatePct;
 
-    /**
-     * 兜底止损百分比。
-     * 当策略自身没有给出 stopPrice 时使用。
-     */
+    /** fallback stop-loss percent when strategy has no stop price */
     public BigDecimal fallbackStopLossPct;
 
-    /**
-     * 兜底止盈百分比。
-     * 当策略自身没有给出 takerPrice 时使用。
-     */
+    /** fallback take-profit percent when strategy has no taker price */
     public BigDecimal fallbackTakeProfitPct;
 
-    /**
-     * 最大持仓 bar 数。
-     * 传 0 表示不限制。
-     */
+    /** max holding bars, 0 means unlimited */
     public Integer maxHoldBars;
+
+    /**
+     * ignore sentiment guard in backtest.
+     * true: ignore sentiment block (default), only stage guard works.
+     * false: enable sentiment block.
+     */
+    public Boolean ignoreSentimentGuard = true;
 }

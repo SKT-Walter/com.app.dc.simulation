@@ -8,6 +8,7 @@ import com.app.dc.service.simulation.BinanceBacktestModels.BacktestResult;
 import com.app.dc.service.simulation.BinanceBacktestModels.EquityContext;
 import com.app.dc.service.simulation.BinanceBacktestModels.Position;
 import com.app.dc.service.simulation.BinanceBacktestModels.TradeRecord;
+import com.app.dc.service.simulation.strategy.BinanceBacktestMarketGuard;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
@@ -47,6 +48,9 @@ public class BinanceBacktestService {
 
     @Autowired
     private BinanceBacktestMetricService metricService;
+
+    @Autowired
+    private BinanceBacktestMarketGuard marketGuard;
 
     /**
      * 执行回测。
@@ -90,6 +94,8 @@ public class BinanceBacktestService {
 
         BacktestResult result = initResult(normalizedStrategy, param);
         EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue());
+        BinanceBacktestMarketGuard.GuardContext guardContext =
+                marketGuard.prepareContext(param.symbol, param.beginDate, param.endDate);
         Position position = null;
 
         for (TTbookOhlc ohlc : ohlcList) {
@@ -108,6 +114,10 @@ public class BinanceBacktestService {
 
             Signal signal = strategyService.evaluateSignal(normalizedStrategy, param.symbol, param.text, replaySeries, ohlc);
             if (signal.side == null) {
+                continue;
+            }
+            boolean ignoreSentimentGuard = Boolean.TRUE.equals(param.ignoreSentimentGuard);
+            if (marketGuard.shouldBlock(normalizedStrategy, guardContext, bar.getEndTime().toInstant(), ignoreSentimentGuard)) {
                 continue;
             }
 
@@ -166,6 +176,9 @@ public class BinanceBacktestService {
         }
         if (req.maxHoldBars == null || req.maxHoldBars < 0) {
             req.maxHoldBars = 0;
+        }
+        if (req.ignoreSentimentGuard == null) {
+            req.ignoreSentimentGuard = true;
         }
         return req;
     }

@@ -2,7 +2,9 @@ package com.app.dc.handler;
 
 import com.app.common.utils.Consts;
 import com.app.dc.po.backtest.BinanceBacktestParam;
+import com.app.dc.service.dao.BinanceBacktestResultClickHouseDao;
 import com.app.dc.service.simulation.BinanceBacktestModels;
+import com.app.dc.service.simulation.BinanceBacktestReportService;
 import com.app.dc.service.simulation.BinanceBacktestService;
 import com.gateway.connector.utils.JsonUtils;
 import com.gw.common.utils.ContentHandler;
@@ -22,6 +24,12 @@ public class BinanceBacktestHandler extends ContentHandler {
     @Autowired
     private BinanceBacktestService binanceBacktestService;
 
+    @Autowired
+    private BinanceBacktestReportService backtestReportService;
+
+    @Autowired
+    private BinanceBacktestResultClickHouseDao backtestResultClickHouseDao;
+
     /**
      * 处理外部回测请求并返回评估结果。
      */
@@ -34,7 +42,10 @@ public class BinanceBacktestHandler extends ContentHandler {
         try {
             BinanceBacktestParam param = JsonUtils.Deserialize(content, BinanceBacktestParam.class);
             BinanceBacktestModels.BacktestResponse result = binanceBacktestService.run(param);
+            String reportPath = backtestReportService.writeReport(result);
+            backtestResultClickHouseDao.insertResults(sid, reportPath, result);
             resultMap.put(Consts.DATA, result);
+            resultMap.put("report_path", reportPath);
             resultMap.put(Consts.Code, Consts.SuccessCode);
             resultMap.put(Consts.Msg, Consts.SuccessMsg);
         } catch (Exception e) {
@@ -42,7 +53,7 @@ public class BinanceBacktestHandler extends ContentHandler {
             resultMap.put(Consts.Code, Consts.NoKnowCode);
             resultMap.put(Consts.Msg, e.getMessage());
         }
-        logger.info("BinanceBacktestHandler result:{}", resultMap);
+        logger.info("BinanceBacktestHandler result:{}", JsonUtils.Serializer(resultMap));
         return resultMap;
     }
 }

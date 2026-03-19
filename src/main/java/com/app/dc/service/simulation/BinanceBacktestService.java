@@ -1,6 +1,7 @@
 package com.app.dc.service.simulation;
 
 import com.app.dc.po.Signal;
+import com.app.dc.po.Side;
 import com.app.dc.po.TTbookOhlc;
 import com.app.dc.po.backtest.BinanceBacktestParam;
 import com.app.dc.service.simulation.BinanceBacktestModels.BacktestResponse;
@@ -113,7 +114,8 @@ public class BinanceBacktestService {
             }
 
             Signal signal = strategyService.evaluateSignal(normalizedStrategy, param.symbol, param.text, replaySeries, ohlc);
-            if (signal.side == null) {
+            // NONE 表示无信号，不允许开仓或反手。
+            if (signal.side == null || signal.side == Side.NONE) {
                 continue;
             }
             boolean ignoreSentimentGuard = Boolean.TRUE.equals(param.ignoreSentimentGuard);

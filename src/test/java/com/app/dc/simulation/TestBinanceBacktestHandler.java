@@ -75,12 +75,13 @@ public class TestBinanceBacktestHandler {
         param.symbol = "ETHUSDT";
         param.text = "15m";
         param.beginDate = "2026-03-14";
-        param.endDate = "2026-03-18";
+        param.endDate = "2026-03-19";
         param.initialCapital = new BigDecimal("10000");
         param.feeRatePct = new BigDecimal("0.04");
-        param.fallbackStopLossPct = new BigDecimal("1.5");
-        param.fallbackTakeProfitPct = new BigDecimal("3.0");
-        param.maxHoldBars = 32;
+//        param.fallbackStopLossPct = new BigDecimal("1.5");
+        param.fallbackStopLossPct = new BigDecimal("6.0");
+        param.fallbackTakeProfitPct = new BigDecimal("6.0");
+//        param.maxHoldBars = 32;
         param.ignoreSentimentGuard = true;
 
         String content = JsonUtils.Serializer(param);

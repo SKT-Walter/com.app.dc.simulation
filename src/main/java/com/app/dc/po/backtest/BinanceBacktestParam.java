@@ -3,44 +3,44 @@ package com.app.dc.po.backtest;
 import java.math.BigDecimal;
 
 /**
- * Binance backtest request params.
+ * 币安回测请求参数。
  */
 public class BinanceBacktestParam {
 
-    /** strategy name: binanceRange/binanceChannel/binanceTrend/range/channel/trend/all */
+    /** 策略名：binanceRange/binanceChannel/binanceTrend/range/channel/trend/all */
     public String strategyName;
 
-    /** symbol, e.g. ETHUSDT */
+    /** 交易对，例如 ETHUSDT */
     public String symbol;
 
-    /** timeframe, e.g. 15m/1h/1d */
+    /** 周期，例如 15m/1h/1d */
     public String text;
 
-    /** begin date, format yyyy-MM-dd */
+    /** 开始日期，格式 yyyy-MM-dd */
     public String beginDate;
 
-    /** end date, format yyyy-MM-dd */
+    /** 结束日期，格式 yyyy-MM-dd */
     public String endDate;
 
-    /** initial capital */
+    /** 初始资金 */
     public BigDecimal initialCapital;
 
-    /** fee rate percent per side, e.g. 0.04 = 0.04% */
+    /** 单边手续费百分比，例如 0.04 表示 0.04% */
     public BigDecimal feeRatePct;
 
-    /** fallback stop-loss percent when strategy has no stop price */
+    /** 策略未给止损价时使用的兜底止损百分比 */
     public BigDecimal fallbackStopLossPct;
 
-    /** fallback take-profit percent when strategy has no taker price */
+    /** 策略未给止盈价时使用的兜底止盈百分比 */
     public BigDecimal fallbackTakeProfitPct;
 
-    /** max holding bars, 0 means unlimited */
+    /** 最大持仓 K 线数，0 表示不限制 */
     public Integer maxHoldBars;
 
     /**
-     * ignore sentiment guard in backtest.
-     * true: ignore sentiment block (default), only stage guard works.
-     * false: enable sentiment block.
+     * 回测时是否忽略舆情过滤。
+     * true：忽略舆情过滤（默认），仅保留阶段过滤。
+     * false：启用舆情过滤。
      */
     public Boolean ignoreSentimentGuard = true;
 }

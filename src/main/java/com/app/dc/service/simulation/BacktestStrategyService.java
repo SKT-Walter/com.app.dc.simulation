@@ -11,24 +11,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * 回测策略信号评估入口（仅做策略分发）。
- */
 @Service
-public class BinanceBacktestStrategyService {
+public class BacktestStrategyService {
 
     private final Map<String, BinanceBacktestStrategy> strategyMap = new ConcurrentHashMap<>();
 
     @Autowired
-    public BinanceBacktestStrategyService(List<BinanceBacktestStrategy> strategies) {
+    public BacktestStrategyService(List<BinanceBacktestStrategy> strategies) {
         for (BinanceBacktestStrategy strategy : strategies) {
             strategyMap.put(strategy.getName(), strategy);
         }
     }
 
-    /**
-     * 评估某根 K 线结束后的策略信号。
-     */
     public Signal evaluateSignal(String strategyName, String symbol, String text, BarSeries replaySeries,
                                  TTbookOhlc currentOhlc) {
         BinanceBacktestStrategy strategy = strategyMap.get(strategyName);

@@ -12,8 +12,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * ChatGPT 鑸嗘儏鍘嗗彶鏌ヨ鏈嶅姟锛坰imulation 鍥炴祴浣跨敤锛夈€? */
 @Service
 @Slf4j
 public class ChatGPTSentimentQueryService {
@@ -24,9 +22,6 @@ public class ChatGPTSentimentQueryService {
     @Value("${chatGPTSentimentTable:chatgpt_sentiment}")
     private String tableName;
 
-    /**
-     * 鏌ヨ鑸嗘儏鍒嗘瀽鍘嗗彶璁板綍銆?     * beginTime/endTime 鏍煎紡寤鸿: yyyy-MM-dd HH:mm:ss
-     */
     public List<TTChatGPTSentiment> querySentiment(String symbol, String beginTime, String endTime, int limit) {
         if (StringUtils.isBlank(clickHouseDBUtils.getDbSourceName())) {
             return Collections.emptyList();
@@ -58,8 +53,6 @@ public class ChatGPTSentimentQueryService {
         return clickHouseDBUtils.queryList(sql.toString(), args.toArray(), TTChatGPTSentiment.class);
     }
 
-    /**
-     * 闄愬埗琛ㄥ悕浠呭寘鍚畨鍏ㄥ瓧绗︺€?     */
     private String safeTableName(String input) {
         if (StringUtils.isBlank(input)) {
             return "chatgpt_sentiment";

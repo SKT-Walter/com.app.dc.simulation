@@ -1,7 +1,7 @@
 package com.app.dc.service.dao;
 
 import com.app.common.db.ClickHouseDBUtils;
-import com.app.dc.service.simulation.BinanceBacktestModels;
+import com.app.dc.service.simulation.BacktestModels;
 import com.gateway.connector.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -15,12 +15,9 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * 币安回测结果 ClickHouse 入库服务。
- */
 @Service
 @Slf4j
-public class BinanceBacktestResultClickHouseDao {
+public class BacktestResultClickHouseDao {
 
     @Autowired(required = false)
     private ClickHouseDBUtils clickHouseDBUtils;
@@ -28,21 +25,18 @@ public class BinanceBacktestResultClickHouseDao {
     @Value("${binanceBacktestStoreEnabled:true}")
     private boolean storeEnabled;
 
-    @Value("${binanceBacktestResultTable:binance_backtest_result}")
+    @Value("${binanceBacktestResultTable:backtest_result}")
     private String tableName;
 
-    /**
-     * 批量保存回测结果（按策略结果逐条写入）。
-     */
-    public void insertResults(String sid, String reportPath, BinanceBacktestModels.BacktestResponse response) {
+    public void insertResults(String sid, String reportPath, BacktestModels.BacktestResponse response) {
         if (!storeEnabled || response == null) {
             return;
         }
         if (!isClickHouseReady()) {
             return;
         }
-        List<BinanceBacktestModels.BacktestResult> results =
-                response.results == null ? Collections.<BinanceBacktestModels.BacktestResult>emptyList() : response.results;
+        List<BacktestModels.BacktestResult> results =
+                response.results == null ? Collections.<BacktestModels.BacktestResult>emptyList() : response.results;
         if (results.isEmpty()) {
             return;
         }
@@ -54,7 +48,7 @@ public class BinanceBacktestResultClickHouseDao {
                 + "initial_capital,final_capital,total_pnl,report_path,payload)"
                 + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
-        for (BinanceBacktestModels.BacktestResult result : results) {
+        for (BacktestModels.BacktestResult result : results) {
             try {
                 Object[] args = new Object[]{
                         Timestamp.from(Instant.now()),
@@ -79,7 +73,7 @@ public class BinanceBacktestResultClickHouseDao {
                 };
                 ClickHouseDBUtils.update(sql, args);
             } catch (Exception e) {
-                log.error("BinanceBacktestResultClickHouseDao insert error, strategy:{}, symbol:{}",
+                log.error("BacktestResultClickHouseDao insert error, strategy:{}, symbol:{}",
                         result.strategyName, result.symbol, e);
             }
         }
@@ -109,11 +103,11 @@ public class BinanceBacktestResultClickHouseDao {
 
     private String safeTableName(String input) {
         if (StringUtils.isBlank(input)) {
-            return "binance_backtest_result";
+            return "backtest_result";
         }
         String trim = input.trim();
         if (!trim.matches("[A-Za-z0-9_.]+")) {
-            return "binance_backtest_result";
+            return "backtest_result";
         }
         return trim;
     }

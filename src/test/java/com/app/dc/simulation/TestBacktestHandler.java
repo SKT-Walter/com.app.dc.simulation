@@ -1,7 +1,7 @@
 package com.app.dc.simulation;
 
 import com.app.common.utils.JsonUtils;
-import com.app.dc.po.backtest.BinanceBacktestParam;
+import com.app.dc.po.backtest.BacktestParam;
 import com.gateway.connector.tcp.client.GateWayApi;
 import com.gateway.connector.tcp.client.IEventListener;
 import org.apache.log4j.BasicConfigurator;
@@ -12,24 +12,12 @@ import org.junit.Test;
 import java.math.BigDecimal;
 import java.util.Map;
 
-/**
- * 通过网关接口调用 simulator 回测服务的测试类。
- */
-public class TestBinanceBacktestHandler {
+public class TestBacktestHandler {
 
-    /**
-     * 本地网关客户端。
-     */
     private GateWayApi clientApi;
 
-    /**
-     * 服务名需与 simulator 启动后的服务名保持一致。
-     */
     private final String serverName = "SIMSvr";
 
-    /**
-     * 初始化网关连接与日志配置。
-     */
     @Before
     public void init() {
         BasicConfigurator.configure();
@@ -43,9 +31,6 @@ public class TestBinanceBacktestHandler {
         System.out.println("connect result:" + result);
     }
 
-    /**
-     * 输出连接事件，便于排查联通性问题。
-     */
     static IEventListener eventlistener = new IEventListener() {
         @Override
         public void onEvent(int code) {
@@ -65,14 +50,12 @@ public class TestBinanceBacktestHandler {
         }
     };
 
-    /**
-     * 调用 dc.ind.backtest.binance 接口执行一次币安策略回测。
-     */
     @Test
     public void testBacktestBinanceHandler() throws Exception {
-        BinanceBacktestParam param = new BinanceBacktestParam();
-        param.strategyName = "binanceTrend";
+        BacktestParam param = new BacktestParam();
+        param.strategyName = "binanceRange";//"binanceRangeMacd";
         param.symbol = "ETHUSDT";
+        // 娉ㄩ噴宸蹭慨澶嶃€?
         param.text = "15m";
         param.beginDate = "2026-03-14";
         param.endDate = "2026-03-19";
@@ -85,7 +68,7 @@ public class TestBinanceBacktestHandler {
         param.ignoreSentimentGuard = true;
 
         String content = JsonUtils.Serializer(param);
-        Map resp = clientApi.requestSync(serverName, "dc.ind.backtest.binance", content, Map.class);
+        Map resp = clientApi.requestSync(serverName, "dc.ind.backtest", content, Map.class);
         System.out.println(JsonUtils.Serializer(resp));
     }
 }

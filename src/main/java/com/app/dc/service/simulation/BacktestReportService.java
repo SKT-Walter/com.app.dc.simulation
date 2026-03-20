@@ -1,8 +1,8 @@
 package com.app.dc.service.simulation;
 
-import com.app.dc.service.simulation.BinanceBacktestModels.BacktestResponse;
-import com.app.dc.service.simulation.BinanceBacktestModels.BacktestResult;
-import com.app.dc.service.simulation.BinanceBacktestModels.TradeRecord;
+import com.app.dc.service.simulation.BacktestModels.BacktestResponse;
+import com.app.dc.service.simulation.BacktestModels.BacktestResult;
+import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -17,13 +17,11 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.StringJoiner;
 
-/**
- * Export backtest result to markdown report.
- */
 @Service
 @Slf4j
-public class BinanceBacktestReportService {
+public class BacktestReportService {
 
     private static final DateTimeFormatter FILE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
 
@@ -36,9 +34,6 @@ public class BinanceBacktestReportService {
     @Value("${binanceBacktestReportMaxTrades:120}")
     private int reportMaxTrades;
 
-    /**
-     * Generate markdown report and return saved file path.
-     */
     public String writeReport(BacktestResponse response) {
         if (!reportEnabled || response == null) {
             return "";
@@ -51,7 +46,7 @@ public class BinanceBacktestReportService {
             Files.write(filePath, buildMarkdown(response).getBytes(StandardCharsets.UTF_8));
             return filePath.toString().replace("\\", "/");
         } catch (Exception e) {
-            log.error("BinanceBacktestReportService writeReport error", e);
+            log.error("BacktestReportService writeReport error", e);
             return "";
         }
     }
@@ -66,19 +61,25 @@ public class BinanceBacktestReportService {
 
     private String buildMarkdown(BacktestResponse response) {
         StringBuilder sb = new StringBuilder();
-        sb.append("# Binance Backtest Report").append("\n\n");
+        sb.append("# Backtest Report").append("\n\n");
         sb.append("- strategy: ").append(s(response.strategyName)).append("\n");
         sb.append("- symbol: ").append(s(response.symbol)).append("\n");
+        if (response.symbols != null && !response.symbols.isEmpty()) {
+            sb.append("- symbols: ").append(joinSymbols(response.symbols)).append("\n");
+        }
         sb.append("- timeframe: ").append(s(response.text)).append("\n");
         sb.append("- beginDate: ").append(s(response.beginDate)).append("\n");
         sb.append("- endDate: ").append(s(response.endDate)).append("\n");
         sb.append("- generatedAt: ").append(LocalDateTime.now()).append("\n\n");
 
-        List<BacktestResult> results = response.results == null ? Collections.<BacktestResult>emptyList() : response.results;
+        List<BacktestResult> results = response.results == null
+                ? Collections.<BacktestResult>emptyList()
+                : response.results;
 
         sb.append("## Summary").append("\n\n");
         List<String> summaryHeaders = new ArrayList<>();
         summaryHeaders.add("strategy/策略");
+        summaryHeaders.add("symbol/交易对");
         summaryHeaders.add("totalBars/K线数");
         summaryHeaders.add("trades/交易数");
         summaryHeaders.add("win/盈利笔数");
@@ -94,6 +95,7 @@ public class BinanceBacktestReportService {
         for (BacktestResult r : results) {
             List<String> row = new ArrayList<>();
             row.add(s(r.strategyName));
+            row.add(s(r.symbol));
             row.add(i(r.totalBars));
             row.add(i(r.tradeCount));
             row.add(i(r.winCount));
@@ -110,9 +112,10 @@ public class BinanceBacktestReportService {
         sb.append("\n");
 
         for (BacktestResult r : results) {
-            sb.append("## Trades - ").append(s(r.strategyName)).append("\n\n");
+            sb.append("## Trades - ").append(s(r.strategyName)).append(" - ").append(s(r.symbol)).append("\n\n");
             List<String> tradeHeaders = new ArrayList<>();
             tradeHeaders.add("#/序号");
+            tradeHeaders.add("symbol/交易对");
             tradeHeaders.add("side/方向");
             tradeHeaders.add("entryTime/开仓时间");
             tradeHeaders.add("exitTime/平仓时间");
@@ -132,6 +135,7 @@ public class BinanceBacktestReportService {
                 TradeRecord t = tradeList.get(idx);
                 List<String> row = new ArrayList<>();
                 row.add(String.valueOf(idx + 1));
+                row.add(s(r.symbol));
                 row.add(s(t.side));
                 row.add(s(t.entryTime));
                 row.add(s(t.exitTime));
@@ -209,10 +213,6 @@ public class BinanceBacktestReportService {
         return finalCapital.subtract(initialCapital);
     }
 
-    private String n(Double v) {
-        return v == null ? "" : String.valueOf(v);
-    }
-
     private String i(Integer v) {
         return v == null ? "0" : String.valueOf(v);
     }
@@ -244,5 +244,13 @@ public class BinanceBacktestReportService {
             return "na";
         }
         return v.trim().replaceAll("[^A-Za-z0-9._-]", "_");
+    }
+
+    private String joinSymbols(List<String> symbols) {
+        StringJoiner joiner = new StringJoiner(",");
+        for (String symbol : symbols) {
+            joiner.add(s(symbol));
+        }
+        return joiner.toString();
     }
 }

@@ -8,9 +8,6 @@ import org.ta4j.core.BarSeries;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
-/**
- * 策略计算公共方法。
- */
 public final class BinanceStrategyMath {
 
     private BinanceStrategyMath() {

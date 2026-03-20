@@ -1,8 +1,5 @@
 package com.app.dc.po.sentiment;
 
-/**
- * ChatGPT 舆情历史记录对象（供 simulation 查询使用）。
- */
 public class TTChatGPTSentiment {
     public String analysis_time;
     public String symbol;

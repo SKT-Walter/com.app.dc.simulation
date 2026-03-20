@@ -1,22 +1,16 @@
 package com.app.dc.service.simulation;
 
-import com.app.dc.service.simulation.BinanceBacktestModels.BacktestResult;
-import com.app.dc.service.simulation.BinanceBacktestModels.EquityContext;
-import com.app.dc.service.simulation.BinanceBacktestModels.TradeRecord;
+import com.app.dc.service.simulation.BacktestModels.BacktestResult;
+import com.app.dc.service.simulation.BacktestModels.EquityContext;
+import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
-/**
- * 回测结果统计服务。
- */
 @Service
-public class BinanceBacktestMetricService {
+public class BacktestMetricService {
 
-    /**
-     * 初始化权益统计上下文。
-     */
     public EquityContext initEquityContext(double initialCapital) {
         EquityContext context = new EquityContext();
         context.equity = initialCapital;
@@ -24,9 +18,6 @@ public class BinanceBacktestMetricService {
         return context;
     }
 
-    /**
-     * 将交易结果累计到统计结果中。
-     */
     public void applyTrade(BacktestResult result, TradeRecord tradeRecord, EquityContext context) {
         result.tradeList.add(tradeRecord);
         if (tradeRecord.returnPct.doubleValue() > 0) {
@@ -47,9 +38,6 @@ public class BinanceBacktestMetricService {
         result.maxDrawdownPct = scale(calcDrawdownPct(context.peakEquity, context.equity));
     }
 
-    /**
-     * 完成回测结果汇总。
-     */
     public void finishResult(BacktestResult result, EquityContext context) {
         result.finalCapital = scale(context.equity);
         result.tradeCount = result.tradeList.size();
@@ -66,9 +54,6 @@ public class BinanceBacktestMetricService {
                 : scale(context.totalPositiveReturnPct / context.totalNegativeReturnPct);
     }
 
-    /**
-     * 计算当前权益相对峰值的回撤比例。
-     */
     public double calcDrawdownPct(double peakEquity, double currentEquity) {
         if (peakEquity <= 0) {
             return 0.0;
@@ -76,9 +61,6 @@ public class BinanceBacktestMetricService {
         return (peakEquity - currentEquity) / peakEquity;
     }
 
-    /**
-     * 统一保留小数位。
-     */
     public BigDecimal scale(double value) {
         return BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP);
     }

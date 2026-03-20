@@ -6,9 +6,6 @@ import com.app.dc.po.TTbookOhlc;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.BarSeries;
 
-/**
- * 币安通道突破策略（与 indsvr 逻辑对齐）。
- */
 @Service("binanceChannel")
 public class BinanceChannelBacktestStrategy implements BinanceBacktestStrategy {
 

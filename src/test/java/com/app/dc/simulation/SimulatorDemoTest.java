@@ -1,13 +1,13 @@
 package com.app.dc.simulation;
 
 import com.app.dc.po.TTbookOhlc;
-import com.app.dc.po.backtest.BinanceBacktestParam;
-import com.app.dc.service.simulation.BinanceBacktestMetricService;
-import com.app.dc.service.simulation.BinanceBacktestModels;
-import com.app.dc.service.simulation.BinanceBacktestService;
-import com.app.dc.service.simulation.BinanceBacktestStrategyService;
-import com.app.dc.service.simulation.BinanceBacktestSupportService;
-import com.app.dc.service.simulation.BinanceBacktestTradeService;
+import com.app.dc.po.backtest.BacktestParam;
+import com.app.dc.service.simulation.BacktestMetricService;
+import com.app.dc.service.simulation.BacktestModels;
+import com.app.dc.service.simulation.BacktestService;
+import com.app.dc.service.simulation.BacktestStrategyService;
+import com.app.dc.service.simulation.BacktestSupportService;
+import com.app.dc.service.simulation.BacktestTradeService;
 import com.app.dc.service.simulation.strategy.BinanceChannelBacktestStrategy;
 import com.app.dc.service.simulation.strategy.BinanceRangeBacktestStrategy;
 import com.app.dc.service.simulation.strategy.BinanceTrendBacktestStrategy;
@@ -20,27 +20,17 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * simulator 功能演示测试。
- * 该类不依赖 ClickHouse，直接构造历史 K 线验证回测主流程是否可运行。
- */
 public class SimulatorDemoTest {
 
-    /**
-     * 直接运行该方法即可验证 simulator 核心流程。
-     */
     public static void main(String[] args) throws Exception {
         SimulatorDemoTest test = new SimulatorDemoTest();
         test.runChannelBacktestDemo();
     }
 
-    /**
-     * 使用一段人工构造的 15m K 线，验证通道策略回测可正常产出结果。
-     */
     public void runChannelBacktestDemo() throws Exception {
-        BinanceBacktestService service = buildService();
+        BacktestService service = buildService();
 
-        BinanceBacktestParam param = new BinanceBacktestParam();
+        BacktestParam param = new BacktestParam();
         param.strategyName = "binanceChannel";
         param.symbol = "ETHUSDT";
         param.text = "15m";
@@ -53,7 +43,7 @@ public class SimulatorDemoTest {
         param.maxHoldBars = 24;
 
         List<TTbookOhlc> ohlcList = buildChannelDemoBars();
-        BinanceBacktestModels.BacktestResult result = service.runSingleStrategy("binanceChannel", param, ohlcList);
+        BacktestModels.BacktestResult result = service.runSingleStrategy("binanceChannel", param, ohlcList);
 
         System.out.println("strategy=" + result.strategyName);
         System.out.println("tradeCount=" + result.tradeCount);
@@ -65,7 +55,7 @@ public class SimulatorDemoTest {
         System.out.println("finalCapital=" + result.finalCapital);
 
         if (result.tradeList != null) {
-            for (BinanceBacktestModels.TradeRecord tradeRecord : result.tradeList) {
+            for (BacktestModels.TradeRecord tradeRecord : result.tradeList) {
                 System.out.println(
                         "trade side=" + tradeRecord.side
                                 + ", entry=" + tradeRecord.entryPrice
@@ -77,25 +67,19 @@ public class SimulatorDemoTest {
         }
     }
 
-    /**
-     * 手工组装回测服务，避免依赖 Spring 上下文。
-     */
-    private BinanceBacktestService buildService() throws Exception {
-        BinanceBacktestService service = new BinanceBacktestService();
-        setField(service, "supportService", new BinanceBacktestSupportService());
-        setField(service, "strategyService", new BinanceBacktestStrategyService(Arrays.asList(
+    private BacktestService buildService() throws Exception {
+        BacktestService service = new BacktestService();
+        setField(service, "supportService", new BacktestSupportService());
+        setField(service, "strategyService", new BacktestStrategyService(Arrays.asList(
                 new BinanceChannelBacktestStrategy(),
                 new BinanceRangeBacktestStrategy(),
                 new BinanceTrendBacktestStrategy()
         )));
-        setField(service, "tradeService", new BinanceBacktestTradeService());
-        setField(service, "metricService", new BinanceBacktestMetricService());
+        setField(service, "tradeService", new BacktestTradeService());
+        setField(service, "metricService", new BacktestMetricService());
         return service;
     }
 
-    /**
-     * 构造一段先上破后下破的 15m K 线，用于触发通道策略开平仓。
-     */
     private List<TTbookOhlc> buildChannelDemoBars() {
         List<TTbookOhlc> list = new ArrayList<>();
         LocalDateTime begin = LocalDateTime.of(2025, 1, 1, 0, 0);
@@ -131,16 +115,10 @@ public class SimulatorDemoTest {
         return list;
     }
 
-    /**
-     * 统一价格精度。
-     */
     private BigDecimal price(double value) {
         return BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP);
     }
 
-    /**
-     * 通过反射注入回测服务依赖。
-     */
     private void setField(Object target, String fieldName, Object value) throws Exception {
         java.lang.reflect.Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);

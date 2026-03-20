@@ -2,25 +2,19 @@ package com.app.dc.service.simulation;
 
 import com.app.dc.po.Side;
 import com.app.dc.po.Signal;
-import com.app.dc.po.backtest.BinanceBacktestParam;
-import com.app.dc.service.simulation.BinanceBacktestModels.Position;
-import com.app.dc.service.simulation.BinanceBacktestModels.TradeRecord;
+import com.app.dc.po.backtest.BacktestParam;
+import com.app.dc.service.simulation.BacktestModels.Position;
+import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
-/**
- * 回测持仓与交易撮合服务。
- */
 @Service
-public class BinanceBacktestTradeService {
+public class BacktestTradeService {
 
-    /**
-     * 打开新仓位。
-     */
-    public Position openPosition(Signal signal, int barIndex, Bar bar, BinanceBacktestParam param) {
+    public Position openPosition(Signal signal, int barIndex, Bar bar, BacktestParam param) {
         Position position = new Position();
         position.side = signal.side;
         position.entryPrice = signal.price.doubleValue();
@@ -34,9 +28,6 @@ public class BinanceBacktestTradeService {
         return position;
     }
 
-    /**
-     * 按风控价位或最大持仓条数尝试平仓。
-     */
     public TradeRecord tryCloseByRisk(Position position, Bar currentBar, int currentIndex, double feeRatePct) {
         double high = currentBar.getHighPrice().doubleValue();
         double low = currentBar.getLowPrice().doubleValue();
@@ -81,9 +72,6 @@ public class BinanceBacktestTradeService {
         return null;
     }
 
-    /**
-     * 关闭持仓并生成交易记录。
-     */
     public TradeRecord closePosition(Position position, double exitPrice, String exitTime, String exitReason,
                                      int exitIndex, double feeRatePct) {
         TradeRecord record = new TradeRecord();
@@ -100,17 +88,11 @@ public class BinanceBacktestTradeService {
         return record;
     }
 
-    /**
-     * 判断当前信号是否与持仓方向相反。
-     */
     public boolean isOpposite(Side positionSide, Side signalSide) {
         return (positionSide == Side.BUY && signalSide == Side.SELL)
                 || (positionSide == Side.SELL && signalSide == Side.BUY);
     }
 
-    /**
-     * 解析真实止盈止损价格，优先使用策略输出，其次使用回测参数兜底。
-     */
     public Double resolveRiskPrice(BigDecimal strategyPrice, Side side, double entryPrice,
                                    double fallbackPct, boolean stopLoss) {
         if (strategyPrice != null && strategyPrice.compareTo(BigDecimal.ZERO) > 0) {
@@ -127,9 +109,6 @@ public class BinanceBacktestTradeService {
         return stopLoss ? entryPrice * (1.0 + ratio) : entryPrice * (1.0 - ratio);
     }
 
-    /**
-     * 根据方向、入场价和退出价计算净收益率。
-     */
     public double calcReturnPct(Side side, double entryPrice, double exitPrice, double feeRatePct) {
         double gross;
         if (side == Side.SELL) {
@@ -141,9 +120,6 @@ public class BinanceBacktestTradeService {
         return gross - fee;
     }
 
-    /**
-     * 统一保留小数位。
-     */
     public BigDecimal scale(double value) {
         return BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP);
     }

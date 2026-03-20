@@ -3,12 +3,12 @@ package com.app.dc.service.simulation;
 import com.app.dc.po.Signal;
 import com.app.dc.po.Side;
 import com.app.dc.po.TTbookOhlc;
-import com.app.dc.po.backtest.BinanceBacktestParam;
-import com.app.dc.service.simulation.BinanceBacktestModels.BacktestResponse;
-import com.app.dc.service.simulation.BinanceBacktestModels.BacktestResult;
-import com.app.dc.service.simulation.BinanceBacktestModels.EquityContext;
-import com.app.dc.service.simulation.BinanceBacktestModels.Position;
-import com.app.dc.service.simulation.BinanceBacktestModels.TradeRecord;
+import com.app.dc.po.backtest.BacktestParam;
+import com.app.dc.service.simulation.BacktestModels.BacktestResponse;
+import com.app.dc.service.simulation.BacktestModels.BacktestResult;
+import com.app.dc.service.simulation.BacktestModels.EquityContext;
+import com.app.dc.service.simulation.BacktestModels.Position;
+import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import com.app.dc.service.simulation.strategy.BinanceBacktestMarketGuard;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -28,66 +28,77 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * 币安策略回测门面服务。
- * 负责协调查询、策略评估、撮合与结果统计。
- */
 @Service
-public class BinanceBacktestService {
+public class BacktestService {
 
     @Autowired
-    private BinanceBacktestQueryService queryService;
+    private BacktestQueryService queryService;
 
     @Autowired
-    private BinanceBacktestSupportService supportService;
+    private BacktestSupportService supportService;
 
     @Autowired
-    private BinanceBacktestStrategyService strategyService;
+    private BacktestStrategyService strategyService;
 
     @Autowired
-    private BinanceBacktestTradeService tradeService;
+    private BacktestTradeService tradeService;
 
     @Autowired
-    private BinanceBacktestMetricService metricService;
+    private BacktestMetricService metricService;
 
     @Autowired
     private BinanceBacktestMarketGuard marketGuard;
 
-    /**
-     * 执行回测。
-     */
-    public BacktestResponse run(BinanceBacktestParam param) throws Exception {
-        BinanceBacktestParam req = normalizeParam(param);
-        List<TTbookOhlc> ohlcList = queryService.queryOhlc(req.symbol, req.text, req.beginDate, req.endDate);
+    public BacktestResponse run(BacktestParam param) throws Exception {
+        BacktestParam req = normalizeParam(param);
+        List<String> symbols = supportService.resolveSymbols(req.symbols, req.symbol);
 
         BacktestResponse response = new BacktestResponse();
-        response.symbol = req.symbol;
+        response.symbol = symbols.size() == 1 ? symbols.get(0) : "MULTI";
+        response.symbols = symbols;
         response.text = req.text;
         response.beginDate = req.beginDate;
         response.endDate = req.endDate;
         response.strategyName = req.strategyName;
 
-        if (ohlcList.isEmpty()) {
-            response.results = Collections.emptyList();
-            return response;
-        }
-
         List<BacktestResult> results = new ArrayList<>();
-        if ("all".equalsIgnoreCase(req.strategyName)) {
-            results.add(runSingleStrategy("binanceRange", req, ohlcList));
-            results.add(runSingleStrategy("binanceChannel", req, ohlcList));
-            results.add(runSingleStrategy("binanceTrend", req, ohlcList));
-        } else {
-            results.add(runSingleStrategy(req.strategyName, req, ohlcList));
+        for (String symbol : symbols) {
+            List<TTbookOhlc> ohlcList = queryService.queryOhlc(symbol, req.text, req.beginDate, req.endDate);
+            if (ohlcList.isEmpty()) {
+                continue;
+            }
+            BacktestParam symbolParam = copyParamForSymbol(req, symbol);
+            if ("all".equalsIgnoreCase(req.strategyName)) {
+                results.add(runSingleStrategy("binanceRange", symbolParam, ohlcList));
+                results.add(runSingleStrategy("binanceRangeMacd", symbolParam, ohlcList));
+                results.add(runSingleStrategy("binanceChannel", symbolParam, ohlcList));
+                results.add(runSingleStrategy("binanceTrend", symbolParam, ohlcList));
+            } else {
+                results.add(runSingleStrategy(req.strategyName, symbolParam, ohlcList));
+            }
         }
-        response.results = results;
+        response.results = results.isEmpty() ? Collections.<BacktestResult>emptyList() : results;
         return response;
     }
 
-    /**
-     * 执行单一策略回测。
-     */
-    public BacktestResult runSingleStrategy(String strategyName, BinanceBacktestParam param,
+    private BacktestParam copyParamForSymbol(BacktestParam source, String symbol) {
+        BacktestParam target = new BacktestParam();
+        target.strategyName = source.strategyName;
+        target.symbol = symbol;
+        target.symbols = symbol;
+        target.text = source.text;
+        target.beginDate = source.beginDate;
+        target.endDate = source.endDate;
+        target.initialCapital = source.initialCapital;
+        target.feeRatePct = source.feeRatePct;
+        target.fallbackStopLossPct = source.fallbackStopLossPct;
+        target.fallbackTakeProfitPct = source.fallbackTakeProfitPct;
+        target.maxHoldBars = source.maxHoldBars;
+        target.ignoreSentimentGuard = source.ignoreSentimentGuard;
+        return target;
+    }
+
+    public BacktestResult runSingleStrategy(String strategyName, BacktestParam param,
                                             List<TTbookOhlc> ohlcList) throws Exception {
         String normalizedStrategy = supportService.normalizeStrategyName(strategyName);
         Duration duration = supportService.resolveDuration(param.text);
@@ -114,7 +125,7 @@ public class BinanceBacktestService {
             }
 
             Signal signal = strategyService.evaluateSignal(normalizedStrategy, param.symbol, param.text, replaySeries, ohlc);
-            // NONE 表示无信号，不允许开仓或反手。
+            // NONE 表示无信号，不开仓也不反手。
             if (signal.side == null || signal.side == Side.NONE) {
                 continue;
             }
@@ -149,13 +160,13 @@ public class BinanceBacktestService {
         return result;
     }
 
-    /**
-     * 归一化回测请求，补足默认值。
-     */
-    public BinanceBacktestParam normalizeParam(BinanceBacktestParam param) {
-        BinanceBacktestParam req = param == null ? new BinanceBacktestParam() : param;
+    public BacktestParam normalizeParam(BacktestParam param) {
+        BacktestParam req = param == null ? new BacktestParam() : param;
         if (req.symbol == null || req.symbol.trim().isEmpty()) {
             req.symbol = "ETHUSDT";
+        }
+        if (req.symbols == null || req.symbols.trim().isEmpty()) {
+            req.symbols = req.symbol;
         }
         if (req.text == null || req.text.trim().isEmpty()) {
             req.text = "15m";
@@ -185,10 +196,7 @@ public class BinanceBacktestService {
         return req;
     }
 
-    /**
-     * 初始化单策略回测结果。
-     */
-    public BacktestResult initResult(String strategyName, BinanceBacktestParam param) {
+    public BacktestResult initResult(String strategyName, BacktestParam param) {
         BacktestResult result = new BacktestResult();
         result.strategyName = strategyName;
         result.symbol = param.symbol;
@@ -205,9 +213,6 @@ public class BinanceBacktestService {
         return result;
     }
 
-    /**
-     * 将实体 K 线转换为 ta4j Bar。
-     */
     public Bar toBar(TTbookOhlc ohlc, Duration duration) throws Exception {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
         ZonedDateTime time = ZonedDateTime.ofInstant(
@@ -215,9 +220,6 @@ public class BinanceBacktestService {
         return new BaseBar(duration, time, ohlc.open, ohlc.high, ohlc.low, ohlc.close, ohlc.volume);
     }
 
-    /**
-     * 向序列中加入新 bar，若时间重复则覆盖。
-     */
     public void addBar(BarSeries series, Bar newBar) {
         boolean replace = false;
         if (series.getBarCount() > 0) {
@@ -231,9 +233,6 @@ public class BinanceBacktestService {
         series.addBar(newBar, replace);
     }
 
-    /**
-     * 统一保留小数位。
-     */
     public BigDecimal scale(double value) {
         return BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP);
     }

@@ -6,9 +6,6 @@ import com.app.dc.po.TTbookOhlc;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.BarSeries;
 
-/**
- * 币安趋势策略（与 indsvr 逻辑对齐，MA=9/21/55）。
- */
 @Service("binanceTrend")
 public class BinanceTrendBacktestStrategy implements BinanceBacktestStrategy {
 

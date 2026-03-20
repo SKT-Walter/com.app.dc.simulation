@@ -12,9 +12,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * ChatGPT MA20 分析历史查询服务（simulation 回测使用）。
- */
 @Service
 @Slf4j
 public class ChatGPTAnalysisQueryService {
@@ -25,10 +22,6 @@ public class ChatGPTAnalysisQueryService {
     @Value("${chatGPTAnalysisTable:chatgpt_analysis_ma20}")
     private String tableName;
 
-    /**
-     * 查询 MA20 分析历史。
-     * beginTime/endTime 格式建议: yyyy-MM-dd HH:mm:ss
-     */
     public List<TTChatGPTAnalysis> queryAnalysis(String symbol, String beginTime, String endTime, int limit) {
         if (StringUtils.isBlank(clickHouseDBUtils.getDbSourceName())) {
             return Collections.emptyList();

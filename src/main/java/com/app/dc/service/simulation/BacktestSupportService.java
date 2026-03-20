@@ -4,16 +4,15 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
-/**
- * 回测公共工具服务。
- */
 @Service
-public class BinanceBacktestSupportService {
+public class BacktestSupportService {
 
-    /**
-     * 统一策略名写法。
-     */
     public String normalizeStrategyName(String strategyName) {
         if (StringUtils.isBlank(strategyName)) {
             return "all";
@@ -21,6 +20,9 @@ public class BinanceBacktestSupportService {
         String value = strategyName.trim();
         if ("range".equalsIgnoreCase(value)) {
             return "binanceRange";
+        }
+        if ("rangemacd".equalsIgnoreCase(value) || "range_macd".equalsIgnoreCase(value)) {
+            return "binanceRangeMacd";
         }
         if ("channel".equalsIgnoreCase(value)) {
             return "binanceChannel";
@@ -31,16 +33,10 @@ public class BinanceBacktestSupportService {
         return value;
     }
 
-    /**
-     * 统一周期字符串。
-     */
     public String normalizeText(String text) {
         return StringUtils.isBlank(text) ? text : text.trim().toUpperCase();
     }
 
-    /**
-     * 将周期字符串解析为 Duration。
-     */
     public Duration resolveDuration(String text) {
         String value = normalizeText(text);
         switch (value) {
@@ -63,5 +59,25 @@ public class BinanceBacktestSupportService {
             default:
                 throw new IllegalArgumentException("unsupported text: " + text);
         }
+    }
+
+    public List<String> resolveSymbols(String symbols, String fallbackSymbol) {
+        Set<String> result = new LinkedHashSet<>();
+        String raw = StringUtils.defaultIfBlank(symbols, fallbackSymbol);
+        if (StringUtils.isBlank(raw)) {
+            result.add("ETHUSDT");
+        } else {
+            String[] parts = raw.split("[|,\\s]+");
+            for (String part : parts) {
+                String item = StringUtils.trimToEmpty(part);
+                if (StringUtils.isNotBlank(item)) {
+                    result.add(item.toUpperCase(Locale.ROOT));
+                }
+            }
+        }
+        if (result.isEmpty()) {
+            result.add("ETHUSDT");
+        }
+        return new ArrayList<>(result);
     }
 }

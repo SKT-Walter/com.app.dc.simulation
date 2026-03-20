@@ -23,9 +23,6 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * 回测市场守卫：按历史 MA20 阶段与舆情风险过滤信号。
- */
 @Service
 @Slf4j
 public class BinanceBacktestMarketGuard {
@@ -56,9 +53,6 @@ public class BinanceBacktestMarketGuard {
         this.sentimentQueryService = sentimentQueryService;
     }
 
-    /**
-     * 按回测区间预加载大势和舆情数据。
-     */
     public GuardContext prepareContext(String symbol, String beginDate, String endDate) {
         String beginTime = normalizeBegin(beginDate);
         String endTime = normalizeEnd(endDate);
@@ -83,9 +77,6 @@ public class BinanceBacktestMarketGuard {
         return ctx;
     }
 
-    /**
-     * 是否应阻断当前策略信号。
-     */
     public boolean shouldBlock(String strategyName, GuardContext ctx, Instant barTime, boolean ignoreSentimentGuard) {
         if (ctx == null || barTime == null) {
             return false;

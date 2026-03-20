@@ -1,8 +1,5 @@
 package com.app.dc.po.chatGPT;
 
-/**
- * ChatGPT MA20 大势分析历史记录（simulation 查询使用）。
- */
 public class TTChatGPTAnalysis {
     public String analysis_time;
     public String symbol;

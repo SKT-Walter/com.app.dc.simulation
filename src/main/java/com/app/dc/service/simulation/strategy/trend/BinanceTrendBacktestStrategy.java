@@ -1,5 +1,7 @@
-package com.app.dc.service.simulation.strategy;
+package com.app.dc.service.simulation.strategy.trend;
 
+import com.app.dc.service.simulation.strategy.BinanceBacktestStrategy;
+import com.app.dc.service.simulation.strategy.BinanceStrategyMath;
 import com.app.dc.po.Side;
 import com.app.dc.po.Signal;
 import com.app.dc.po.TTbookOhlc;

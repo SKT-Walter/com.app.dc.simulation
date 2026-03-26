@@ -67,4 +67,22 @@ public final class BinanceStrategyMath {
     public static BigDecimal scale(double value) {
         return BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP);
     }
+
+    public static double atr(BarSeries series, int endIndex, int period) {
+        if (series == null || series.getBarCount() == 0 || endIndex <= 0) {
+            return 0.0;
+        }
+        int start = Math.max(1, endIndex - period + 1);
+        double sum = 0.0;
+        int count = 0;
+        for (int i = start; i <= endIndex; i++) {
+            double high = series.getBar(i).getHighPrice().doubleValue();
+            double low = series.getBar(i).getLowPrice().doubleValue();
+            double prevClose = series.getBar(i - 1).getClosePrice().doubleValue();
+            double tr = Math.max(high - low, Math.max(Math.abs(high - prevClose), Math.abs(low - prevClose)));
+            sum += tr;
+            count++;
+        }
+        return count == 0 ? 0.0 : sum / count;
+    }
 }

@@ -73,6 +73,14 @@ public class BacktestService {
                 results.add(runSingleStrategy("binanceRangeMacd", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceChannel", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceTrend", symbolParam, ohlcList));
+                results.add(runSingleStrategy("bollingerMeanReversion", symbolParam, ohlcList));
+//                results.add(runSingleStrategy("rsiKdjReversion", symbolParam, ohlcList));
+                results.add(runSingleStrategy("donchianReversion", symbolParam, ohlcList));
+                results.add(runSingleStrategy("vwapReversion", symbolParam, ohlcList));
+                results.add(runSingleStrategy("zscoreReversion", symbolParam, ohlcList));
+                results.add(runSingleStrategy("gridRange", symbolParam, ohlcList));
+                results.add(runSingleStrategy("atrChannelReversion", symbolParam, ohlcList));
+//                results.add(runSingleStrategy("orderBookImbalanceReversion", symbolParam, ohlcList));
             } else {
                 results.add(runSingleStrategy(req.strategyName, symbolParam, ohlcList));
             }

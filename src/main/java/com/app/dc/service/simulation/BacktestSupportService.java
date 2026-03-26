@@ -30,6 +30,30 @@ public class BacktestSupportService {
         if ("trend".equalsIgnoreCase(value)) {
             return "binanceTrend";
         }
+        if ("bollinger".equalsIgnoreCase(value) || "boll".equalsIgnoreCase(value)) {
+            return "bollingerMeanReversion";
+        }
+        if ("rsikdj".equalsIgnoreCase(value) || "rsi_kdj".equalsIgnoreCase(value)) {
+            return "rsiKdjReversion";
+        }
+        if ("donchian".equalsIgnoreCase(value)) {
+            return "donchianReversion";
+        }
+        if ("vwap".equalsIgnoreCase(value)) {
+            return "vwapReversion";
+        }
+        if ("zscore".equalsIgnoreCase(value) || "z_score".equalsIgnoreCase(value)) {
+            return "zscoreReversion";
+        }
+        if ("grid".equalsIgnoreCase(value)) {
+            return "gridRange";
+        }
+        if ("atrchannel".equalsIgnoreCase(value) || "atr_channel".equalsIgnoreCase(value)) {
+            return "atrChannelReversion";
+        }
+        if ("orderbook".equalsIgnoreCase(value) || "order_book".equalsIgnoreCase(value)) {
+            return "orderBookImbalanceReversion";
+        }
         return value;
     }
 

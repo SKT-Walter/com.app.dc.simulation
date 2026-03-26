@@ -1,5 +1,7 @@
-package com.app.dc.service.simulation.strategy;
+package com.app.dc.service.simulation.strategy.oscillation;
 
+import com.app.dc.service.simulation.strategy.BinanceBacktestStrategy;
+import com.app.dc.service.simulation.strategy.BinanceStrategyMath;
 import com.app.dc.po.Side;
 import com.app.dc.po.Signal;
 import com.app.dc.po.TTbookOhlc;
@@ -61,7 +63,7 @@ public class BinanceRangeMacdBacktestStrategy implements BinanceBacktestStrategy
         double takeBuffer = zone * TAKE_BUFFER_PCT_OF_ZONE;
 
         if (close <= low + zone) {
-            // 空头动能衰减时做多
+            // 下沿附近仅在空头动能衰减时做多。
             boolean bearishMomentumDecays = hist <= 0 && hist > histPrev;
             if (!bearishMomentumDecays) {
                 return signal;
@@ -70,7 +72,7 @@ public class BinanceRangeMacdBacktestStrategy implements BinanceBacktestStrategy
             signal.stopPrice = BinanceStrategyMath.scale(low - stopBuffer);
             signal.takerPrice = BinanceStrategyMath.scale(high - takeBuffer);
         } else if (close >= high - zone) {
-            // 多头动能衰减时做空
+            // 上沿附近仅在多头动能衰减时做空。
             boolean bullishMomentumDecays = hist >= 0 && hist < histPrev;
             if (!bullishMomentumDecays) {
                 return signal;

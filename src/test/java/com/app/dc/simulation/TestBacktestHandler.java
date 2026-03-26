@@ -27,7 +27,7 @@ public class TestBacktestHandler {
         clientApi.setEventlistener(eventlistener);
         clientApi.setGzip(true);
 
-        String result = clientApi.connect("172.16.189.26", 30044, serverName, "123456", false, 1);
+        String result = clientApi.connect("172.16.188.95", 30044, serverName, "123456", false, 1);
         System.out.println("connect result:" + result);
     }
 
@@ -53,12 +53,12 @@ public class TestBacktestHandler {
     @Test
     public void testBacktestBinanceHandler() throws Exception {
         BacktestParam param = new BacktestParam();
-        param.strategyName = "binanceRange";//"binanceRangeMacd";
+        param.strategyName = "all";//"binanceRangeMacd";
         param.symbol = "ETHUSDT";
         // 娉ㄩ噴宸蹭慨澶嶃€?
         param.text = "15m";
-        param.beginDate = "2026-03-14";
-        param.endDate = "2026-03-19";
+        param.beginDate = "2026-03-20";
+        param.endDate = "2026-03-25";
         param.initialCapital = new BigDecimal("10000");
         param.feeRatePct = new BigDecimal("0.04");
 //        param.fallbackStopLossPct = new BigDecimal("1.5");

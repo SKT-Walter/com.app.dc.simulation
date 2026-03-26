@@ -8,9 +8,9 @@ import com.app.dc.service.simulation.BacktestService;
 import com.app.dc.service.simulation.BacktestStrategyService;
 import com.app.dc.service.simulation.BacktestSupportService;
 import com.app.dc.service.simulation.BacktestTradeService;
-import com.app.dc.service.simulation.strategy.BinanceChannelBacktestStrategy;
-import com.app.dc.service.simulation.strategy.BinanceRangeBacktestStrategy;
-import com.app.dc.service.simulation.strategy.BinanceTrendBacktestStrategy;
+//import com.app.dc.service.simulation.strategy.BinanceChannelBacktestStrategy;
+//import com.app.dc.service.simulation.strategy.BinanceRangeBacktestStrategy;
+//import com.app.dc.service.simulation.strategy.BinanceTrendBacktestStrategy;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -71,9 +71,9 @@ public class SimulatorDemoTest {
         BacktestService service = new BacktestService();
         setField(service, "supportService", new BacktestSupportService());
         setField(service, "strategyService", new BacktestStrategyService(Arrays.asList(
-                new BinanceChannelBacktestStrategy(),
-                new BinanceRangeBacktestStrategy(),
-                new BinanceTrendBacktestStrategy()
+//                new BinanceChannelBacktestStrategy(),
+//                new BinanceRangeBacktestStrategy(),
+//                new BinanceTrendBacktestStrategy()
         )));
         setField(service, "tradeService", new BacktestTradeService());
         setField(service, "metricService", new BacktestMetricService());

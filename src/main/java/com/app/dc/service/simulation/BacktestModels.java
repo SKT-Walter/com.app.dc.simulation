@@ -4,6 +4,7 @@ import com.app.dc.po.Side;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 public final class BacktestModels {
 
@@ -37,6 +38,12 @@ public final class BacktestModels {
         public Integer winCount = 0;
         public Integer lossCount = 0;
         public Integer flatCount = 0;
+        public Integer stopExitCount = 0;
+        public Integer takeExitCount = 0;
+        public Integer stopExitWinCount = 0;
+        public Integer stopExitLossCount = 0;
+        public Integer takeExitWinCount = 0;
+        public Integer takeExitLossCount = 0;
         public BigDecimal winRate = BigDecimal.ZERO;
         public BigDecimal totalReturnPct = BigDecimal.ZERO;
         public BigDecimal avgReturnPct = BigDecimal.ZERO;
@@ -44,6 +51,7 @@ public final class BacktestModels {
         public BigDecimal maxDrawdownPct = BigDecimal.ZERO;
         public BigDecimal avgHoldBars = BigDecimal.ZERO;
         public List<TradeRecord> tradeList;
+        public Map<String, Integer> rejectReasonCounts;
     }
 
     public static class TradeRecord {

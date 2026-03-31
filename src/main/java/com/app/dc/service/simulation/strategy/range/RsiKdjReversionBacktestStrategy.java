@@ -1,4 +1,4 @@
-package com.app.dc.service.simulation.strategy.oscillation;
+package com.app.dc.service.simulation.strategy.range;
 
 import com.app.dc.service.simulation.strategy.BinanceBacktestStrategy;
 import com.app.dc.service.simulation.strategy.BinanceStrategyMath;

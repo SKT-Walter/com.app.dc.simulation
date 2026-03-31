@@ -54,11 +54,14 @@ public class TestBacktestHandler {
     public void testBacktestBinanceHandler() throws Exception {
         BacktestParam param = new BacktestParam();
         param.strategyName = "all";//"binanceRangeMacd";
-        param.symbol = "ETHUSDT";
+//        param.strategyName = "trendPullbackRecovery";
+//        param.strategyName = "binanceRange";
+//        param.symbol = "ETHUSDT";
+        param.symbols = "ETHUSDT,SOLUSDT,ADAUSDT,BNBUSDT";
         // 娉ㄩ噴宸蹭慨澶嶃€?
-        param.text = "15m";
-        param.beginDate = "2026-03-20";
-        param.endDate = "2026-03-25";
+        param.text = "15M";
+        param.beginDate = "2026-03-28";
+        param.endDate = "2026-03-31";
         param.initialCapital = new BigDecimal("10000");
         param.feeRatePct = new BigDecimal("0.04");
 //        param.fallbackStopLossPct = new BigDecimal("1.5");

@@ -26,6 +26,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 
 @Service
@@ -70,16 +71,24 @@ public class BacktestService {
             BacktestParam symbolParam = copyParamForSymbol(req, symbol);
             if ("all".equalsIgnoreCase(req.strategyName)) {
                 results.add(runSingleStrategy("binanceRange", symbolParam, ohlcList));
+                results.add(runSingleStrategy("binanceRangeGuarded", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceRangeMacd", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceChannel", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceTrend", symbolParam, ohlcList));
+                results.add(runSingleStrategy("trendPullbackRecovery", symbolParam, ohlcList));
                 results.add(runSingleStrategy("bollingerMeanReversion", symbolParam, ohlcList));
+                results.add(runSingleStrategy("bollingerPullbackBias", symbolParam, ohlcList));
+                results.add(runSingleStrategy("breakoutRetestContinuation", symbolParam, ohlcList));
+                results.add(runSingleStrategy("compressionBreak", symbolParam, ohlcList));
+                results.add(runSingleStrategy("failedBreakReversal", symbolParam, ohlcList));
+                results.add(runSingleStrategy("impulseReclaim", symbolParam, ohlcList));
 //                results.add(runSingleStrategy("rsiKdjReversion", symbolParam, ohlcList));
                 results.add(runSingleStrategy("donchianReversion", symbolParam, ohlcList));
                 results.add(runSingleStrategy("vwapReversion", symbolParam, ohlcList));
                 results.add(runSingleStrategy("zscoreReversion", symbolParam, ohlcList));
                 results.add(runSingleStrategy("gridRange", symbolParam, ohlcList));
                 results.add(runSingleStrategy("atrChannelReversion", symbolParam, ohlcList));
+                results.add(runSingleStrategy("atrChannelBiasReversion", symbolParam, ohlcList));
 //                results.add(runSingleStrategy("orderBookImbalanceReversion", symbolParam, ohlcList));
             } else {
                 results.add(runSingleStrategy(req.strategyName, symbolParam, ohlcList));
@@ -111,6 +120,7 @@ public class BacktestService {
         String normalizedStrategy = supportService.normalizeStrategyName(strategyName);
         Duration duration = supportService.resolveDuration(param.text);
         BarSeries replaySeries = new BaseBarSeries(param.symbol + "-" + param.text + "-" + normalizedStrategy);
+        strategyService.getStrategy(normalizedStrategy).resetRejectStats(param.symbol);
 
         BacktestResult result = initResult(normalizedStrategy, param);
         EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue());
@@ -165,6 +175,8 @@ public class BacktestService {
         }
 
         metricService.finishResult(result, equityContext);
+        result.rejectReasonCounts = new LinkedHashMap<>(
+                strategyService.getStrategy(normalizedStrategy).snapshotRejectStats(param.symbol));
         return result;
     }
 

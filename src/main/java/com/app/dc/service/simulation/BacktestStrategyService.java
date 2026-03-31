@@ -25,10 +25,15 @@ public class BacktestStrategyService {
 
     public Signal evaluateSignal(String strategyName, String symbol, String text, BarSeries replaySeries,
                                  TTbookOhlc currentOhlc) {
+        BinanceBacktestStrategy strategy = getStrategy(strategyName);
+        return strategy.evaluate(symbol, text, replaySeries, currentOhlc);
+    }
+
+    public BinanceBacktestStrategy getStrategy(String strategyName) {
         BinanceBacktestStrategy strategy = strategyMap.get(strategyName);
         if (strategy == null) {
             throw new IllegalArgumentException("unsupported strategyName: " + strategyName);
         }
-        return strategy.evaluate(symbol, text, replaySeries, currentOhlc);
+        return strategy;
     }
 }

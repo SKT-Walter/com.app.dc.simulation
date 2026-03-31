@@ -155,13 +155,18 @@ public class BinanceBacktestMarketGuard {
         if ("binanceChannel".equalsIgnoreCase(name)) {
             return "channel";
         }
-        if ("binanceTrend".equalsIgnoreCase(name)) {
+        if ("binanceTrend".equalsIgnoreCase(name)
+                || "trendPullbackRecovery".equalsIgnoreCase(name)) {
             return "trend";
         }
         // 鍏朵綑闇囪崱绫荤瓥鐣ョ粺涓€鎸?range 鍦烘櫙杩囨护
         if ("binanceRange".equalsIgnoreCase(name)
                 || "binanceRangeMacd".equalsIgnoreCase(name)
                 || "bollingerMeanReversion".equalsIgnoreCase(name)
+                || "breakoutRetestContinuation".equalsIgnoreCase(name)
+                || "compressionBreak".equalsIgnoreCase(name)
+                || "failedBreakReversal".equalsIgnoreCase(name)
+                || "impulseReclaim".equalsIgnoreCase(name)
                 || "rsiKdjReversion".equalsIgnoreCase(name)
                 || "donchianReversion".equalsIgnoreCase(name)
                 || "vwapReversion".equalsIgnoreCase(name)

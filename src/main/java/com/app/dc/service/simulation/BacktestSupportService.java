@@ -21,6 +21,9 @@ public class BacktestSupportService {
         if ("range".equalsIgnoreCase(value)) {
             return "binanceRange";
         }
+        if ("rangeguarded".equalsIgnoreCase(value) || "range_guarded".equalsIgnoreCase(value)) {
+            return "binanceRangeGuarded";
+        }
         if ("rangemacd".equalsIgnoreCase(value) || "range_macd".equalsIgnoreCase(value)) {
             return "binanceRangeMacd";
         }
@@ -30,8 +33,39 @@ public class BacktestSupportService {
         if ("trend".equalsIgnoreCase(value)) {
             return "binanceTrend";
         }
+        if ("trendpullbackrecovery".equalsIgnoreCase(value)
+                || "trend_pullback_recovery".equalsIgnoreCase(value)
+                || "tpr".equalsIgnoreCase(value)) {
+            return "trendPullbackRecovery";
+        }
         if ("bollinger".equalsIgnoreCase(value) || "boll".equalsIgnoreCase(value)) {
             return "bollingerMeanReversion";
+        }
+        if ("bollingerbias".equalsIgnoreCase(value)
+                || "bollinger_pullback_bias".equalsIgnoreCase(value)
+                || "bollingerpullbackbias".equalsIgnoreCase(value)
+                || "boll_bias".equalsIgnoreCase(value)) {
+            return "bollingerPullbackBias";
+        }
+        if ("breakoutretestcontinuation".equalsIgnoreCase(value)
+                || "breakout_retest_continuation".equalsIgnoreCase(value)
+                || "brc".equalsIgnoreCase(value)) {
+            return "breakoutRetestContinuation";
+        }
+        if ("compressionbreak".equalsIgnoreCase(value)
+                || "compression_break".equalsIgnoreCase(value)
+                || "cmp".equalsIgnoreCase(value)) {
+            return "compressionBreak";
+        }
+        if ("failedbreakreversal".equalsIgnoreCase(value)
+                || "failed_break_reversal".equalsIgnoreCase(value)
+                || "fbr".equalsIgnoreCase(value)) {
+            return "failedBreakReversal";
+        }
+        if ("impulsereclaim".equalsIgnoreCase(value)
+                || "impulse_reclaim".equalsIgnoreCase(value)
+                || "imp".equalsIgnoreCase(value)) {
+            return "impulseReclaim";
         }
         if ("rsikdj".equalsIgnoreCase(value) || "rsi_kdj".equalsIgnoreCase(value)) {
             return "rsiKdjReversion";
@@ -50,6 +84,12 @@ public class BacktestSupportService {
         }
         if ("atrchannel".equalsIgnoreCase(value) || "atr_channel".equalsIgnoreCase(value)) {
             return "atrChannelReversion";
+        }
+        if ("atrchannelbias".equalsIgnoreCase(value)
+                || "atr_channel_bias".equalsIgnoreCase(value)
+                || "atrchannelbiasreversion".equalsIgnoreCase(value)
+                || "atr_bias".equalsIgnoreCase(value)) {
+            return "atrChannelBiasReversion";
         }
         if ("orderbook".equalsIgnoreCase(value) || "order_book".equalsIgnoreCase(value)) {
             return "orderBookImbalanceReversion";

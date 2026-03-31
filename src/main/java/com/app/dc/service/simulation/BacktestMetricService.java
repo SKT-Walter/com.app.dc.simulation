@@ -20,12 +20,30 @@ public class BacktestMetricService {
 
     public void applyTrade(BacktestResult result, TradeRecord tradeRecord, EquityContext context) {
         result.tradeList.add(tradeRecord);
+        boolean stopExit = tradeRecord.exitReason != null && tradeRecord.exitReason.startsWith("stop");
+        boolean takeExit = tradeRecord.exitReason != null && tradeRecord.exitReason.startsWith("take");
+        if (stopExit) {
+            result.stopExitCount++;
+        } else if (takeExit) {
+            result.takeExitCount++;
+        }
+
         if (tradeRecord.returnPct.doubleValue() > 0) {
             result.winCount++;
             context.totalPositiveReturnPct += tradeRecord.returnPct.doubleValue();
+            if (stopExit) {
+                result.stopExitWinCount++;
+            } else if (takeExit) {
+                result.takeExitWinCount++;
+            }
         } else if (tradeRecord.returnPct.doubleValue() < 0) {
             result.lossCount++;
             context.totalNegativeReturnPct += Math.abs(tradeRecord.returnPct.doubleValue());
+            if (stopExit) {
+                result.stopExitLossCount++;
+            } else if (takeExit) {
+                result.takeExitLossCount++;
+            }
         } else {
             result.flatCount++;
         }

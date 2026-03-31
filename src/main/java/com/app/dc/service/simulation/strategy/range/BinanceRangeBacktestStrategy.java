@@ -1,4 +1,4 @@
-package com.app.dc.service.simulation.strategy.oscillation;
+package com.app.dc.service.simulation.strategy.range;
 
 import com.app.dc.service.simulation.strategy.BinanceBacktestStrategy;
 import com.app.dc.service.simulation.strategy.BinanceStrategyMath;
@@ -46,15 +46,16 @@ public class BinanceRangeBacktestStrategy implements BinanceBacktestStrategy {
         double range = Math.max(0.0, high - low);
         double stopBuffer = range * STOP_BUFFER_PCT_OF_RANGE;
         double takeBuffer = zone * TAKE_BUFFER_PCT_OF_ZONE;
+        double mid = low + range * 0.5;
 
         if (close <= low + zone) {
             signal.side = Side.BUY;
             signal.stopPrice = BinanceStrategyMath.scale(low - stopBuffer);
-            signal.takerPrice = BinanceStrategyMath.scale(high - takeBuffer);
+            signal.takerPrice = BinanceStrategyMath.scale(mid - takeBuffer);
         } else if (close >= high - zone) {
             signal.side = Side.SELL;
             signal.stopPrice = BinanceStrategyMath.scale(high + stopBuffer);
-            signal.takerPrice = BinanceStrategyMath.scale(low + takeBuffer);
+            signal.takerPrice = BinanceStrategyMath.scale(mid + takeBuffer);
         }
         return signal;
     }

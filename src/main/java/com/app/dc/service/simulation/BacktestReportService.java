@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,7 +17,11 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.StringJoiner;
 
 @Service
@@ -51,12 +56,41 @@ public class BacktestReportService {
         }
     }
 
+    public String writeCompareReport(BacktestResponse response) {
+        if (!reportEnabled || response == null) {
+            return "";
+        }
+        try {
+            String markdown = buildCompareMarkdown(response);
+            if (markdown.isEmpty()) {
+                return "";
+            }
+            Path dir = Paths.get(reportDir);
+            Files.createDirectories(dir);
+            String fileName = buildCompareFileName(response);
+            Path filePath = dir.resolve(fileName);
+            Files.write(filePath, markdown.getBytes(StandardCharsets.UTF_8));
+            return filePath.toString().replace("\\", "/");
+        } catch (Exception e) {
+            log.error("BacktestReportService writeCompareReport error", e);
+            return "";
+        }
+    }
+
     private String buildFileName(BacktestResponse response) {
         String strategy = safeFilePart(response.strategyName);
         String symbol = safeFilePart(response.symbol);
         String text = safeFilePart(response.text);
         String time = LocalDateTime.now().format(FILE_TIME);
         return strategy + "_" + symbol + "_" + text + "_" + time + ".md";
+    }
+
+    private String buildCompareFileName(BacktestResponse response) {
+        String strategy = safeFilePart(response.strategyName);
+        String symbol = safeFilePart(response.symbol);
+        String text = safeFilePart(response.text);
+        String time = LocalDateTime.now().format(FILE_TIME);
+        return strategy + "_" + symbol + "_" + text + "_" + time + "_compare.md";
     }
 
     private String buildMarkdown(BacktestResponse response) {
@@ -75,24 +109,38 @@ public class BacktestReportService {
         List<BacktestResult> results = response.results == null
                 ? Collections.<BacktestResult>emptyList()
                 : response.results;
+        List<BacktestResult> sortedResults = new ArrayList<>(results);
+        sortedResults.sort(Comparator.comparing(this::safeTotalPnl).reversed()
+                .thenComparing(result -> s(result.strategyName))
+                .thenComparing(result -> s(result.symbol)));
+        List<BacktestResult> symbolSortedResults = new ArrayList<>(results);
+        symbolSortedResults.sort(Comparator.comparing((BacktestResult result) -> s(result.symbol))
+                .thenComparing(this::safeTotalPnl, Comparator.reverseOrder())
+                .thenComparing(result -> s(result.strategyName)));
 
         sb.append("## Summary").append("\n\n");
         List<String> summaryHeaders = new ArrayList<>();
-        summaryHeaders.add("strategy/策略");
-        summaryHeaders.add("symbol/交易对");
-        summaryHeaders.add("totalBars/K线数");
-        summaryHeaders.add("trades/交易数");
-        summaryHeaders.add("win/盈利笔数");
-        summaryHeaders.add("loss/亏损笔数");
-        summaryHeaders.add("flat/持平笔数");
-        summaryHeaders.add("winRate/胜率");
-        summaryHeaders.add("totalReturnPct/总收益率");
-        summaryHeaders.add("totalPnl/总盈亏");
-        summaryHeaders.add("maxDrawdownPct/最大回撤");
-        summaryHeaders.add("finalCapital/最终资金");
+        summaryHeaders.add("strategy/strategy");
+        summaryHeaders.add("symbol/symbol");
+        summaryHeaders.add("totalBars/bars");
+        summaryHeaders.add("trades/trades");
+        summaryHeaders.add("win/win");
+        summaryHeaders.add("loss/loss");
+        summaryHeaders.add("flat/flat");
+        summaryHeaders.add("stopExit/stopExit");
+        summaryHeaders.add("stopExitWin/stopExitWin");
+        summaryHeaders.add("stopExitLoss/stopExitLoss");
+        summaryHeaders.add("takeExit/takeExit");
+        summaryHeaders.add("takeExitWin/takeExitWin");
+        summaryHeaders.add("takeExitLoss/takeExitLoss");
+        summaryHeaders.add("winRate/winRate");
+        summaryHeaders.add("totalReturnPct/totalReturnPct");
+        summaryHeaders.add("totalPnl/totalPnl");
+        summaryHeaders.add("maxDrawdownPct/maxDrawdownPct");
+        summaryHeaders.add("finalCapital/finalCapital");
 
         List<List<String>> summaryRows = new ArrayList<>();
-        for (BacktestResult r : results) {
+        for (BacktestResult r : sortedResults) {
             List<String> row = new ArrayList<>();
             row.add(s(r.strategyName));
             row.add(s(r.symbol));
@@ -101,6 +149,12 @@ public class BacktestReportService {
             row.add(i(r.winCount));
             row.add(i(r.lossCount));
             row.add(i(r.flatCount));
+            row.add(i(r.stopExitCount));
+            row.add(i(r.stopExitWinCount));
+            row.add(i(r.stopExitLossCount));
+            row.add(i(r.takeExitCount));
+            row.add(i(r.takeExitWinCount));
+            row.add(i(r.takeExitLossCount));
             row.add(n(r.winRate));
             row.add(n(r.totalReturnPct));
             row.add(n(calcTotalPnl(r.initialCapital, r.finalCapital)));
@@ -111,22 +165,80 @@ public class BacktestReportService {
         appendAlignedTable(sb, summaryHeaders, summaryRows);
         sb.append("\n");
 
-        for (BacktestResult r : results) {
+        sb.append("## Profitable Summary").append("\n\n");
+        List<List<String>> profitableRows = new ArrayList<>();
+        for (BacktestResult r : sortedResults) {
+            BigDecimal totalPnl = calcTotalPnl(r.initialCapital, r.finalCapital);
+            if (totalPnl == null || totalPnl.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            List<String> row = new ArrayList<>();
+            row.add(s(r.strategyName));
+            row.add(s(r.symbol));
+            row.add(i(r.totalBars));
+            row.add(i(r.tradeCount));
+            row.add(i(r.winCount));
+            row.add(i(r.lossCount));
+            row.add(i(r.flatCount));
+            row.add(i(r.stopExitCount));
+            row.add(i(r.stopExitWinCount));
+            row.add(i(r.stopExitLossCount));
+            row.add(i(r.takeExitCount));
+            row.add(i(r.takeExitWinCount));
+            row.add(i(r.takeExitLossCount));
+            row.add(n(r.winRate));
+            row.add(n(r.totalReturnPct));
+            row.add(n(totalPnl));
+            row.add(n(r.maxDrawdownPct));
+            row.add(n(r.finalCapital));
+            profitableRows.add(row);
+        }
+        appendAlignedTable(sb, summaryHeaders, profitableRows);
+        sb.append("\n");
+
+        sb.append("## Summary By Symbol").append("\n\n");
+        List<List<String>> symbolSummaryRows = new ArrayList<>();
+        for (BacktestResult r : symbolSortedResults) {
+            List<String> row = new ArrayList<>();
+            row.add(s(r.strategyName));
+            row.add(s(r.symbol));
+            row.add(i(r.totalBars));
+            row.add(i(r.tradeCount));
+            row.add(i(r.winCount));
+            row.add(i(r.lossCount));
+            row.add(i(r.flatCount));
+            row.add(i(r.stopExitCount));
+            row.add(i(r.stopExitWinCount));
+            row.add(i(r.stopExitLossCount));
+            row.add(i(r.takeExitCount));
+            row.add(i(r.takeExitWinCount));
+            row.add(i(r.takeExitLossCount));
+            row.add(n(r.winRate));
+            row.add(n(r.totalReturnPct));
+            row.add(n(calcTotalPnl(r.initialCapital, r.finalCapital)));
+            row.add(n(r.maxDrawdownPct));
+            row.add(n(r.finalCapital));
+            symbolSummaryRows.add(row);
+        }
+        appendAlignedTable(sb, summaryHeaders, symbolSummaryRows);
+        sb.append("\n");
+
+        for (BacktestResult r : sortedResults) {
             sb.append("## Trades - ").append(s(r.strategyName)).append(" - ").append(s(r.symbol)).append("\n\n");
             List<String> tradeHeaders = new ArrayList<>();
-            tradeHeaders.add("#/序号");
-            tradeHeaders.add("symbol/交易对");
-            tradeHeaders.add("side/方向");
-            tradeHeaders.add("entryTime/开仓时间");
-            tradeHeaders.add("exitTime/平仓时间");
-            tradeHeaders.add("entryPrice/开仓价");
-            tradeHeaders.add("exitPrice/平仓价");
-            tradeHeaders.add("stopPrice/止损价");
-            tradeHeaders.add("takePrice/止盈价");
-            tradeHeaders.add("holdBars/持仓K线数");
-            tradeHeaders.add("returnPct/收益率");
-            tradeHeaders.add("pnl/盈亏");
-            tradeHeaders.add("exitReason/平仓原因");
+            tradeHeaders.add("#/index");
+            tradeHeaders.add("symbol/symbol");
+            tradeHeaders.add("side/side");
+            tradeHeaders.add("entryTime/entryTime");
+            tradeHeaders.add("exitTime/exitTime");
+            tradeHeaders.add("entryPrice/entryPrice");
+            tradeHeaders.add("exitPrice/exitPrice");
+            tradeHeaders.add("stopPrice/stopPrice");
+            tradeHeaders.add("takePrice/takePrice");
+            tradeHeaders.add("holdBars/holdBars");
+            tradeHeaders.add("returnPct/returnPct");
+            tradeHeaders.add("pnl/pnl");
+            tradeHeaders.add("exitReason/exitReason");
 
             List<List<String>> tradeRows = new ArrayList<>();
             List<TradeRecord> tradeList = r.tradeList == null ? Collections.<TradeRecord>emptyList() : r.tradeList;
@@ -156,8 +268,157 @@ public class BacktestReportService {
                         .append(" not shown (limit=").append(max).append(")\n");
             }
             sb.append("\n");
+
+            if (r.rejectReasonCounts != null && !r.rejectReasonCounts.isEmpty()) {
+                sb.append("### Reject Reasons").append("\n\n");
+                List<String> rejectHeaders = new ArrayList<>();
+                rejectHeaders.add("reason/reason");
+                rejectHeaders.add("count/count");
+                List<List<String>> rejectRows = new ArrayList<>();
+                for (Entry<String, Integer> entry : r.rejectReasonCounts.entrySet()) {
+                    List<String> row = new ArrayList<>();
+                    row.add(s(entry.getKey()));
+                    row.add(i(entry.getValue()));
+                    rejectRows.add(row);
+                }
+                appendAlignedTable(sb, rejectHeaders, rejectRows);
+                sb.append("\n");
+            }
         }
         return sb.toString();
+    }
+
+    private String buildCompareMarkdown(BacktestResponse response) {
+        List<BacktestResult> results = response.results == null
+                ? Collections.<BacktestResult>emptyList()
+                : response.results;
+        Map<String, Map<String, BacktestResult>> bySymbol = new LinkedHashMap<>();
+        for (BacktestResult result : results) {
+            if (result == null || result.symbol == null || result.strategyName == null) {
+                continue;
+            }
+            bySymbol.computeIfAbsent(result.symbol, key -> new LinkedHashMap<>())
+                    .put(result.strategyName, result);
+        }
+
+        List<CompareRow> compareRows = new ArrayList<>();
+        for (Map.Entry<String, Map<String, BacktestResult>> entry : bySymbol.entrySet()) {
+            BacktestResult base = entry.getValue().get("binanceRange");
+            BacktestResult guarded = entry.getValue().get("binanceRangeGuarded");
+            if (base == null || guarded == null) {
+                continue;
+            }
+            compareRows.add(buildCompareRow(entry.getKey(), base, guarded));
+        }
+        if (compareRows.isEmpty()) {
+            return "";
+        }
+        compareRows.sort(Comparator.comparing(row -> row.symbol));
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("# Backtest Compare Report").append("\n\n");
+        sb.append("- baseStrategy: ").append("binanceRange").append("\n");
+        sb.append("- candidateStrategy: ").append("binanceRangeGuarded").append("\n");
+        sb.append("- symbol: ").append(s(response.symbol)).append("\n");
+        if (response.symbols != null && !response.symbols.isEmpty()) {
+            sb.append("- symbols: ").append(joinSymbols(response.symbols)).append("\n");
+        }
+        sb.append("- timeframe: ").append(s(response.text)).append("\n");
+        sb.append("- beginDate: ").append(s(response.beginDate)).append("\n");
+        sb.append("- endDate: ").append(s(response.endDate)).append("\n");
+        sb.append("- generatedAt: ").append(LocalDateTime.now()).append("\n\n");
+
+        sb.append("## Compare Summary").append("\n\n");
+        List<String> headers = new ArrayList<>();
+        headers.add("symbol/symbol");
+        headers.add("baseTrades");
+        headers.add("guardedTrades");
+        headers.add("tradesDelta");
+        headers.add("baseStopExit");
+        headers.add("guardedStopExit");
+        headers.add("stopExitDelta");
+        headers.add("baseStopExitLoss");
+        headers.add("guardedStopExitLoss");
+        headers.add("stopExitLossDelta");
+        headers.add("baseTakeExit");
+        headers.add("guardedTakeExit");
+        headers.add("takeExitDelta");
+        headers.add("baseWinRate");
+        headers.add("guardedWinRate");
+        headers.add("winRateDelta");
+        headers.add("baseReturnPct");
+        headers.add("guardedReturnPct");
+        headers.add("returnDelta");
+        headers.add("baseDrawdown");
+        headers.add("guardedDrawdown");
+        headers.add("drawdownDelta");
+        headers.add("basePnl");
+        headers.add("guardedPnl");
+        headers.add("pnlDelta");
+
+        List<List<String>> rows = new ArrayList<>();
+        for (CompareRow row : compareRows) {
+            List<String> cells = new ArrayList<>();
+            cells.add(s(row.symbol));
+            cells.add(i(row.baseTrades));
+            cells.add(i(row.guardedTrades));
+            cells.add(i(row.tradesDelta));
+            cells.add(i(row.baseStopExitCount));
+            cells.add(i(row.guardedStopExitCount));
+            cells.add(i(row.stopExitDelta));
+            cells.add(i(row.baseStopExitLossCount));
+            cells.add(i(row.guardedStopExitLossCount));
+            cells.add(i(row.stopExitLossDelta));
+            cells.add(i(row.baseTakeExitCount));
+            cells.add(i(row.guardedTakeExitCount));
+            cells.add(i(row.takeExitDelta));
+            cells.add(n(row.baseWinRate));
+            cells.add(n(row.guardedWinRate));
+            cells.add(n(row.winRateDelta));
+            cells.add(n(row.baseReturnPct));
+            cells.add(n(row.guardedReturnPct));
+            cells.add(n(row.returnDelta));
+            cells.add(n(row.baseDrawdownPct));
+            cells.add(n(row.guardedDrawdownPct));
+            cells.add(n(row.drawdownDelta));
+            cells.add(n(row.basePnl));
+            cells.add(n(row.guardedPnl));
+            cells.add(n(row.pnlDelta));
+            rows.add(cells);
+        }
+        appendAlignedTable(sb, headers, rows);
+        sb.append("\n");
+        return sb.toString();
+    }
+
+    private CompareRow buildCompareRow(String symbol, BacktestResult base, BacktestResult guarded) {
+        CompareRow row = new CompareRow();
+        row.symbol = symbol;
+        row.baseTrades = nzInt(base.tradeCount);
+        row.guardedTrades = nzInt(guarded.tradeCount);
+        row.tradesDelta = row.guardedTrades - row.baseTrades;
+        row.baseStopExitCount = nzInt(base.stopExitCount);
+        row.guardedStopExitCount = nzInt(guarded.stopExitCount);
+        row.stopExitDelta = row.guardedStopExitCount - row.baseStopExitCount;
+        row.baseStopExitLossCount = nzInt(base.stopExitLossCount);
+        row.guardedStopExitLossCount = nzInt(guarded.stopExitLossCount);
+        row.stopExitLossDelta = row.guardedStopExitLossCount - row.baseStopExitLossCount;
+        row.baseTakeExitCount = nzInt(base.takeExitCount);
+        row.guardedTakeExitCount = nzInt(guarded.takeExitCount);
+        row.takeExitDelta = row.guardedTakeExitCount - row.baseTakeExitCount;
+        row.baseWinRate = nz(base.winRate);
+        row.guardedWinRate = nz(guarded.winRate);
+        row.winRateDelta = scale(row.guardedWinRate.subtract(row.baseWinRate));
+        row.baseReturnPct = nz(base.totalReturnPct);
+        row.guardedReturnPct = nz(guarded.totalReturnPct);
+        row.returnDelta = scale(row.guardedReturnPct.subtract(row.baseReturnPct));
+        row.baseDrawdownPct = nz(base.maxDrawdownPct);
+        row.guardedDrawdownPct = nz(guarded.maxDrawdownPct);
+        row.drawdownDelta = scale(row.guardedDrawdownPct.subtract(row.baseDrawdownPct));
+        row.basePnl = nz(calcTotalPnl(base.initialCapital, base.finalCapital));
+        row.guardedPnl = nz(calcTotalPnl(guarded.initialCapital, guarded.finalCapital));
+        row.pnlDelta = scale(row.guardedPnl.subtract(row.basePnl));
+        return row;
     }
 
     private void appendAlignedTable(StringBuilder sb, List<String> headers, List<List<String>> rows) {
@@ -213,8 +474,28 @@ public class BacktestReportService {
         return finalCapital.subtract(initialCapital);
     }
 
+    private BigDecimal safeTotalPnl(BacktestResult result) {
+        if (result == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal totalPnl = calcTotalPnl(result.initialCapital, result.finalCapital);
+        return totalPnl == null ? BigDecimal.ZERO : totalPnl;
+    }
+
     private String i(Integer v) {
         return v == null ? "0" : String.valueOf(v);
+    }
+
+    private Integer nzInt(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private BigDecimal nz(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private BigDecimal scale(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value.setScale(6, RoundingMode.HALF_UP);
     }
 
     private String safeCell(String value) {
@@ -252,5 +533,33 @@ public class BacktestReportService {
             joiner.add(s(symbol));
         }
         return joiner.toString();
+    }
+
+    private static class CompareRow {
+        private String symbol;
+        private Integer baseTrades;
+        private Integer guardedTrades;
+        private Integer tradesDelta;
+        private Integer baseStopExitCount;
+        private Integer guardedStopExitCount;
+        private Integer stopExitDelta;
+        private Integer baseStopExitLossCount;
+        private Integer guardedStopExitLossCount;
+        private Integer stopExitLossDelta;
+        private Integer baseTakeExitCount;
+        private Integer guardedTakeExitCount;
+        private Integer takeExitDelta;
+        private BigDecimal baseWinRate;
+        private BigDecimal guardedWinRate;
+        private BigDecimal winRateDelta;
+        private BigDecimal baseReturnPct;
+        private BigDecimal guardedReturnPct;
+        private BigDecimal returnDelta;
+        private BigDecimal baseDrawdownPct;
+        private BigDecimal guardedDrawdownPct;
+        private BigDecimal drawdownDelta;
+        private BigDecimal basePnl;
+        private BigDecimal guardedPnl;
+        private BigDecimal pnlDelta;
     }
 }

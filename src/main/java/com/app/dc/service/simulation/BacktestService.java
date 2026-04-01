@@ -75,6 +75,11 @@ public class BacktestService {
                 results.add(runSingleStrategy("binanceRangeMacd", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceChannel", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceTrend", symbolParam, ohlcList));
+                results.add(runSingleStrategy("breakoutRetestContinuationTrend", symbolParam, ohlcList));
+                results.add(runSingleStrategy("emaPullbackBuy", symbolParam, ohlcList));
+                results.add(runSingleStrategy("trendRestart", symbolParam, ohlcList));
+                results.add(runSingleStrategy("smallRangeBreakout", symbolParam, ohlcList));
+                results.add(runSingleStrategy("strongMomentumContinuation", symbolParam, ohlcList));
                 results.add(runSingleStrategy("trendPullbackRecovery", symbolParam, ohlcList));
                 results.add(runSingleStrategy("bollingerMeanReversion", symbolParam, ohlcList));
                 results.add(runSingleStrategy("bollingerPullbackBias", symbolParam, ohlcList));

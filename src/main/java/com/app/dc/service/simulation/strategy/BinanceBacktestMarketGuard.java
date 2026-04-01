@@ -156,6 +156,11 @@ public class BinanceBacktestMarketGuard {
             return "channel";
         }
         if ("binanceTrend".equalsIgnoreCase(name)
+                || "breakoutRetestContinuationTrend".equalsIgnoreCase(name)
+                || "emaPullbackBuy".equalsIgnoreCase(name)
+                || "trendRestart".equalsIgnoreCase(name)
+                || "smallRangeBreakout".equalsIgnoreCase(name)
+                || "strongMomentumContinuation".equalsIgnoreCase(name)
                 || "trendPullbackRecovery".equalsIgnoreCase(name)) {
             return "trend";
         }

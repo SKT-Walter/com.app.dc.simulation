@@ -33,6 +33,36 @@ public class BacktestSupportService {
         if ("trend".equalsIgnoreCase(value)) {
             return "binanceTrend";
         }
+        if ("breakoutretestcontinuationtrend".equalsIgnoreCase(value)
+                || "breakout_retest_continuation_trend".equalsIgnoreCase(value)
+                || "breakoutretestcontinuationsignal".equalsIgnoreCase(value)
+                || "brct".equalsIgnoreCase(value)) {
+            return "breakoutRetestContinuationTrend";
+        }
+        if ("emapullbackbuy".equalsIgnoreCase(value)
+                || "ema_pullback_buy".equalsIgnoreCase(value)
+                || "emapullbackbuysignal".equalsIgnoreCase(value)
+                || "epb".equalsIgnoreCase(value)) {
+            return "emaPullbackBuy";
+        }
+        if ("trendrestart".equalsIgnoreCase(value)
+                || "trend_restart".equalsIgnoreCase(value)
+                || "trendrestartsignal".equalsIgnoreCase(value)
+                || "trs".equalsIgnoreCase(value)) {
+            return "trendRestart";
+        }
+        if ("smallrangebreakout".equalsIgnoreCase(value)
+                || "small_range_breakout".equalsIgnoreCase(value)
+                || "smallrangebreakoutsignal".equalsIgnoreCase(value)
+                || "srb".equalsIgnoreCase(value)) {
+            return "smallRangeBreakout";
+        }
+        if ("strongmomentumcontinuation".equalsIgnoreCase(value)
+                || "strong_momentum_continuation".equalsIgnoreCase(value)
+                || "strongmomentumcontinuationsignal".equalsIgnoreCase(value)
+                || "smc".equalsIgnoreCase(value)) {
+            return "strongMomentumContinuation";
+        }
         if ("trendpullbackrecovery".equalsIgnoreCase(value)
                 || "trend_pullback_recovery".equalsIgnoreCase(value)
                 || "tpr".equalsIgnoreCase(value)) {

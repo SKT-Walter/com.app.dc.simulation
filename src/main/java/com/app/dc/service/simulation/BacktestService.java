@@ -1,23 +1,17 @@
 package com.app.dc.service.simulation;
 
-import com.app.dc.po.Side;
 import com.app.dc.po.TTbookOhlc;
 import com.app.dc.po.backtest.BacktestParam;
 import com.app.dc.service.simulation.BacktestModels.BacktestResponse;
 import com.app.dc.service.simulation.BacktestModels.BacktestResult;
-import com.app.dc.service.simulation.BacktestModels.EquityContext;
-import com.app.dc.service.simulation.BacktestModels.Position;
 import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import com.app.dc.service.simulation.runtime.StrategyBacktestTaskDao;
 import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
 import com.app.dc.service.simulation.runtime.VersionedBacktestRunner;
-import com.app.dc.service.simulation.strategy.BinanceBacktestMarketGuard;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
-import org.ta4j.core.BarSeries;
 import org.ta4j.core.BaseBar;
-import org.ta4j.core.BaseBarSeries;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -28,7 +22,6 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 
 @Service
@@ -39,18 +32,6 @@ public class BacktestService {
 
     @Autowired
     private BacktestSupportService supportService;
-
-    @Autowired
-    private BacktestStrategyService strategyService;
-
-    @Autowired
-    private BacktestTradeService tradeService;
-
-    @Autowired
-    private BacktestMetricService metricService;
-
-    @Autowired
-    private BinanceBacktestMarketGuard marketGuard;
 
     @Autowired
     private StrategyBacktestTaskDao strategyBacktestTaskDao;
@@ -123,75 +104,6 @@ public class BacktestService {
         return target;
     }
 
-    public BacktestResult runSingleStrategy(String strategyName, BacktestParam param,
-                                            List<TTbookOhlc> ohlcList) throws Exception {
-        String normalizedStrategy = supportService.normalizeStrategyName(strategyName);
-        Duration duration = supportService.resolveDuration(param.text);
-        BarSeries replaySeries = new BaseBarSeries(param.symbol + "-" + param.text + "-" + normalizedStrategy);
-        strategyService.getStrategy(normalizedStrategy).resetRejectStats(param.symbol);
-
-        BacktestResult result = initResult(normalizedStrategy, param);
-        EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue());
-        BinanceBacktestMarketGuard.GuardContext guardContext =
-                marketGuard.prepareContext(param.symbol, param.beginDate, param.endDate);
-        Position position = null;
-
-        for (TTbookOhlc ohlc : ohlcList) {
-            Bar bar = toBar(ohlc, duration);
-            addBar(replaySeries, bar);
-            result.totalBars = replaySeries.getBarCount();
-
-            if (position != null && position.entryIndex < replaySeries.getEndIndex()) {
-                TradeRecord riskClosed = tradeService.tryCloseByRisk(position, bar, replaySeries.getEndIndex(),
-                        param.feeRatePct.doubleValue());
-                if (riskClosed != null) {
-                    metricService.applyTrade(result, riskClosed, equityContext);
-                    position = null;
-                }
-            }
-
-            com.app.dc.po.Signal signal = strategyService.evaluateSignal(normalizedStrategy, param.symbol, param.text, replaySeries, ohlc);
-            if (signal.side == null || signal.side == Side.NONE) {
-                continue;
-            }
-            signal.strategyName = normalizedStrategy;
-            signal.algoName = signal.strategyName;
-            signal.strategyVersion = param.strategyVersion;
-            signal.scene = param.scene;
-            signal.strategyPayload = param.strategyPayload;
-            boolean ignoreSentimentGuard = Boolean.TRUE.equals(param.ignoreSentimentGuard);
-            if (marketGuard.shouldBlock(normalizedStrategy, guardContext, bar.getEndTime().toInstant(), ignoreSentimentGuard)) {
-                continue;
-            }
-
-            if (position == null) {
-                position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param);
-                continue;
-            }
-
-            if (tradeService.isOpposite(position.side, signal.side)) {
-                TradeRecord reversed = tradeService.closePosition(position, bar.getClosePrice().doubleValue(),
-                        bar.getEndTime().toString(), "reverse_signal", replaySeries.getEndIndex(),
-                        param.feeRatePct.doubleValue());
-                metricService.applyTrade(result, reversed, equityContext);
-                position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param);
-            }
-        }
-
-        if (position != null) {
-            Bar lastBar = replaySeries.getLastBar();
-            TradeRecord ended = tradeService.closePosition(position, lastBar.getClosePrice().doubleValue(),
-                    lastBar.getEndTime().toString(), "end_of_test", replaySeries.getEndIndex(),
-                    param.feeRatePct.doubleValue());
-            metricService.applyTrade(result, ended, equityContext);
-        }
-
-        metricService.finishResult(result, equityContext);
-        result.rejectReasonCounts = new LinkedHashMap<String, Integer>(
-                strategyService.getStrategy(normalizedStrategy).snapshotRejectStats(param.symbol));
-        return result;
-    }
-
     public BacktestParam normalizeParam(BacktestParam param) {
         BacktestParam req = param == null ? new BacktestParam() : param;
         if (req.symbol == null || req.symbol.trim().isEmpty()) {
@@ -255,19 +167,6 @@ public class BacktestService {
         ZonedDateTime time = ZonedDateTime.ofInstant(
                 Instant.ofEpochMilli(sdf.parse(ohlc.starttime).getTime()), ZoneId.systemDefault());
         return new BaseBar(duration, time, ohlc.open, ohlc.high, ohlc.low, ohlc.close, ohlc.volume);
-    }
-
-    public void addBar(BarSeries series, Bar newBar) {
-        boolean replace = false;
-        if (series.getBarCount() > 0) {
-            ZonedDateTime lastBarTime = series.getLastBar().getEndTime();
-            if (newBar.getEndTime().equals(lastBarTime)) {
-                replace = true;
-            } else if (newBar.getEndTime().isBefore(lastBarTime)) {
-                return;
-            }
-        }
-        series.addBar(newBar, replace);
     }
 
     public BigDecimal scale(double value) {

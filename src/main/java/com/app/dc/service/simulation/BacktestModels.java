@@ -13,6 +13,10 @@ public final class BacktestModels {
 
     public static class BacktestResponse {
         public String strategyName;
+        public String strategyVersion;
+        public String baselineVersion;
+        public String runtimeType;
+        public String scene;
         public String symbol;
         public List<String> symbols;
         public String text;
@@ -23,6 +27,12 @@ public final class BacktestModels {
 
     public static class BacktestResult {
         public String strategyName;
+        public String strategyVersion;
+        public String baselineVersion;
+        public String runtimeType;
+        public String scene;
+        public String strategyPayload;
+        public BigDecimal forwardScore = BigDecimal.ZERO;
         public String symbol;
         public String text;
         public String beginDate;

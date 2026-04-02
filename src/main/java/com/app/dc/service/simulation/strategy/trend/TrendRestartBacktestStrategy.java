@@ -59,7 +59,7 @@ public class TrendRestartBacktestStrategy extends AbstractTrendBacktestStrategy 
                     signal.side = Side.BUY;
                     signal.stopPrice = BinanceStrategyMath.scale(stop);
                     signal.takerPrice = BinanceStrategyMath.scale(target);
-                    signal.algoName = "TRS_LONG";
+                    BinanceStrategyMath.bindStrategyIdentity(signal, getName());
                     return signal;
                 }
             }
@@ -78,7 +78,7 @@ public class TrendRestartBacktestStrategy extends AbstractTrendBacktestStrategy 
                     signal.side = Side.SELL;
                     signal.stopPrice = BinanceStrategyMath.scale(stop);
                     signal.takerPrice = BinanceStrategyMath.scale(target);
-                    signal.algoName = "TRS_SHORT";
+                    BinanceStrategyMath.bindStrategyIdentity(signal, getName());
                     return signal;
                 }
             }

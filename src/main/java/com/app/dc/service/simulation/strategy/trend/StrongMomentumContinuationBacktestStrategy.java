@@ -53,7 +53,7 @@ public class StrongMomentumContinuationBacktestStrategy extends AbstractTrendBac
             signal.side = Side.BUY;
             signal.stopPrice = BinanceStrategyMath.scale(stop);
             signal.takerPrice = BinanceStrategyMath.scale(target);
-            signal.algoName = "SMC_LONG";
+            BinanceStrategyMath.bindStrategyIdentity(signal, getName());
             return signal;
         }
 
@@ -63,7 +63,7 @@ public class StrongMomentumContinuationBacktestStrategy extends AbstractTrendBac
             signal.side = Side.SELL;
             signal.stopPrice = BinanceStrategyMath.scale(stop);
             signal.takerPrice = BinanceStrategyMath.scale(target);
-            signal.algoName = "SMC_SHORT";
+            BinanceStrategyMath.bindStrategyIdentity(signal, getName());
             return signal;
         }
         return signal;

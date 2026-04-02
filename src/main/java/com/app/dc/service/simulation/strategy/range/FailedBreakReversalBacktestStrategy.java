@@ -45,7 +45,7 @@ public class FailedBreakReversalBacktestStrategy extends AbstractSceneRangeBackt
                 signal.side = Side.SELL;
                 signal.stopPrice = BinanceStrategyMath.scale(stop);
                 signal.takerPrice = BinanceStrategyMath.scale(target);
-                signal.algoName = "FBR_SHORT";
+                BinanceStrategyMath.bindStrategyIdentity(signal, getName());
                 return signal;
             }
         }
@@ -59,7 +59,7 @@ public class FailedBreakReversalBacktestStrategy extends AbstractSceneRangeBackt
                 signal.side = Side.BUY;
                 signal.stopPrice = BinanceStrategyMath.scale(stop);
                 signal.takerPrice = BinanceStrategyMath.scale(target);
-                signal.algoName = "FBR_LONG";
+                BinanceStrategyMath.bindStrategyIdentity(signal, getName());
             }
         }
         return signal;

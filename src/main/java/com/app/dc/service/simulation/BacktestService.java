@@ -1,6 +1,5 @@
 package com.app.dc.service.simulation;
 
-import com.app.dc.po.Signal;
 import com.app.dc.po.Side;
 import com.app.dc.po.TTbookOhlc;
 import com.app.dc.po.backtest.BacktestParam;
@@ -9,6 +8,9 @@ import com.app.dc.service.simulation.BacktestModels.BacktestResult;
 import com.app.dc.service.simulation.BacktestModels.EquityContext;
 import com.app.dc.service.simulation.BacktestModels.Position;
 import com.app.dc.service.simulation.BacktestModels.TradeRecord;
+import com.app.dc.service.simulation.runtime.StrategyBacktestTaskDao;
+import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
+import com.app.dc.service.simulation.runtime.VersionedBacktestRunner;
 import com.app.dc.service.simulation.strategy.BinanceBacktestMarketGuard;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -50,8 +52,28 @@ public class BacktestService {
     @Autowired
     private BinanceBacktestMarketGuard marketGuard;
 
+    @Autowired
+    private StrategyBacktestTaskDao strategyBacktestTaskDao;
+
+    @Autowired
+    private VersionedBacktestRunner versionedBacktestRunner;
+
     public BacktestResponse run(BacktestParam param) throws Exception {
         BacktestParam req = normalizeParam(param);
+        if (req.strategyName == null || req.strategyName.trim().isEmpty()) {
+            throw new IllegalArgumentException("strategyName is required");
+        }
+        if (req.strategyVersion == null || req.strategyVersion.trim().isEmpty()) {
+            throw new IllegalArgumentException("strategyVersion is required");
+        }
+        StrategyCandidateRow candidate = strategyBacktestTaskDao.loadCandidate(req.strategyName, req.strategyVersion);
+        if (candidate == null) {
+            throw new IllegalArgumentException("strategy candidate not found: " + req.strategyName + "@" + req.strategyVersion);
+        }
+        req.runtimeType = candidate.runtimeType;
+        req.scene = candidate.scene;
+        req.strategyPayload = candidate.payload;
+
         List<String> symbols = supportService.resolveSymbols(req.symbols, req.symbol);
 
         BacktestResponse response = new BacktestResponse();
@@ -60,44 +82,20 @@ public class BacktestService {
         response.text = req.text;
         response.beginDate = req.beginDate;
         response.endDate = req.endDate;
-        response.strategyName = req.strategyName;
+        response.strategyName = candidate.strategyName;
+        response.strategyVersion = candidate.strategyVersion;
+        response.baselineVersion = req.baselineVersion;
+        response.runtimeType = candidate.runtimeType;
+        response.scene = candidate.scene;
 
-        List<BacktestResult> results = new ArrayList<>();
+        List<BacktestResult> results = new ArrayList<BacktestResult>();
         for (String symbol : symbols) {
             List<TTbookOhlc> ohlcList = queryService.queryOhlc(symbol, req.text, req.beginDate, req.endDate);
             if (ohlcList.isEmpty()) {
                 continue;
             }
             BacktestParam symbolParam = copyParamForSymbol(req, symbol);
-            if ("all".equalsIgnoreCase(req.strategyName)) {
-                results.add(runSingleStrategy("binanceRange", symbolParam, ohlcList));
-                results.add(runSingleStrategy("binanceRangeGuarded", symbolParam, ohlcList));
-                results.add(runSingleStrategy("binanceRangeMacd", symbolParam, ohlcList));
-                results.add(runSingleStrategy("binanceChannel", symbolParam, ohlcList));
-                results.add(runSingleStrategy("binanceTrend", symbolParam, ohlcList));
-                results.add(runSingleStrategy("breakoutRetestContinuationTrend", symbolParam, ohlcList));
-                results.add(runSingleStrategy("emaPullbackBuy", symbolParam, ohlcList));
-                results.add(runSingleStrategy("trendRestart", symbolParam, ohlcList));
-                results.add(runSingleStrategy("smallRangeBreakout", symbolParam, ohlcList));
-                results.add(runSingleStrategy("strongMomentumContinuation", symbolParam, ohlcList));
-                results.add(runSingleStrategy("trendPullbackRecovery", symbolParam, ohlcList));
-                results.add(runSingleStrategy("bollingerMeanReversion", symbolParam, ohlcList));
-                results.add(runSingleStrategy("bollingerPullbackBias", symbolParam, ohlcList));
-                results.add(runSingleStrategy("breakoutRetestContinuation", symbolParam, ohlcList));
-                results.add(runSingleStrategy("compressionBreak", symbolParam, ohlcList));
-                results.add(runSingleStrategy("failedBreakReversal", symbolParam, ohlcList));
-                results.add(runSingleStrategy("impulseReclaim", symbolParam, ohlcList));
-//                results.add(runSingleStrategy("rsiKdjReversion", symbolParam, ohlcList));
-                results.add(runSingleStrategy("donchianReversion", symbolParam, ohlcList));
-                results.add(runSingleStrategy("vwapReversion", symbolParam, ohlcList));
-                results.add(runSingleStrategy("zscoreReversion", symbolParam, ohlcList));
-                results.add(runSingleStrategy("gridRange", symbolParam, ohlcList));
-                results.add(runSingleStrategy("atrChannelReversion", symbolParam, ohlcList));
-                results.add(runSingleStrategy("atrChannelBiasReversion", symbolParam, ohlcList));
-//                results.add(runSingleStrategy("orderBookImbalanceReversion", symbolParam, ohlcList));
-            } else {
-                results.add(runSingleStrategy(req.strategyName, symbolParam, ohlcList));
-            }
+            results.add(versionedBacktestRunner.run(candidate, symbolParam, ohlcList));
         }
         response.results = results.isEmpty() ? Collections.<BacktestResult>emptyList() : results;
         return response;
@@ -106,6 +104,11 @@ public class BacktestService {
     private BacktestParam copyParamForSymbol(BacktestParam source, String symbol) {
         BacktestParam target = new BacktestParam();
         target.strategyName = source.strategyName;
+        target.strategyVersion = source.strategyVersion;
+        target.baselineVersion = source.baselineVersion;
+        target.runtimeType = source.runtimeType;
+        target.scene = source.scene;
+        target.strategyPayload = source.strategyPayload;
         target.symbol = symbol;
         target.symbols = symbol;
         target.text = source.text;
@@ -147,11 +150,15 @@ public class BacktestService {
                 }
             }
 
-            Signal signal = strategyService.evaluateSignal(normalizedStrategy, param.symbol, param.text, replaySeries, ohlc);
-            // NONE 表示无信号，不开仓也不反手。
+            com.app.dc.po.Signal signal = strategyService.evaluateSignal(normalizedStrategy, param.symbol, param.text, replaySeries, ohlc);
             if (signal.side == null || signal.side == Side.NONE) {
                 continue;
             }
+            signal.strategyName = normalizedStrategy;
+            signal.algoName = signal.strategyName;
+            signal.strategyVersion = param.strategyVersion;
+            signal.scene = param.scene;
+            signal.strategyPayload = param.strategyPayload;
             boolean ignoreSentimentGuard = Boolean.TRUE.equals(param.ignoreSentimentGuard);
             if (marketGuard.shouldBlock(normalizedStrategy, guardContext, bar.getEndTime().toInstant(), ignoreSentimentGuard)) {
                 continue;
@@ -180,7 +187,7 @@ public class BacktestService {
         }
 
         metricService.finishResult(result, equityContext);
-        result.rejectReasonCounts = new LinkedHashMap<>(
+        result.rejectReasonCounts = new LinkedHashMap<String, Integer>(
                 strategyService.getStrategy(normalizedStrategy).snapshotRejectStats(param.symbol));
         return result;
     }
@@ -197,9 +204,6 @@ public class BacktestService {
             req.text = "15m";
         }
         req.text = supportService.normalizeText(req.text);
-        if (req.strategyName == null || req.strategyName.trim().isEmpty()) {
-            req.strategyName = "all";
-        }
         if (req.initialCapital == null || req.initialCapital.compareTo(BigDecimal.ZERO) <= 0) {
             req.initialCapital = BigDecimal.valueOf(10000);
         }
@@ -218,12 +222,20 @@ public class BacktestService {
         if (req.ignoreSentimentGuard == null) {
             req.ignoreSentimentGuard = true;
         }
+        if (req.runtimeType == null || req.runtimeType.trim().isEmpty()) {
+            req.runtimeType = "JAR";
+        }
         return req;
     }
 
     public BacktestResult initResult(String strategyName, BacktestParam param) {
         BacktestResult result = new BacktestResult();
         result.strategyName = strategyName;
+        result.strategyVersion = param.strategyVersion;
+        result.baselineVersion = param.baselineVersion;
+        result.runtimeType = param.runtimeType;
+        result.scene = param.scene;
+        result.strategyPayload = param.strategyPayload;
         result.symbol = param.symbol;
         result.text = param.text;
         result.beginDate = param.beginDate;
@@ -234,7 +246,7 @@ public class BacktestService {
         result.fallbackStopLossPct = scale(param.fallbackStopLossPct.doubleValue());
         result.fallbackTakeProfitPct = scale(param.fallbackTakeProfitPct.doubleValue());
         result.maxHoldBars = param.maxHoldBars;
-        result.tradeList = new ArrayList<>();
+        result.tradeList = new ArrayList<TradeRecord>();
         return result;
     }
 

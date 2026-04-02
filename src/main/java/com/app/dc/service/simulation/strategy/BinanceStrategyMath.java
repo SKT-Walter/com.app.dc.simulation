@@ -17,10 +17,22 @@ public final class BinanceStrategyMath {
         Signal signal = new Signal();
         signal.symbol = symbol;
         signal.text = text == null ? null : text.toLowerCase();
-        signal.algoName = "AI";
+        bindStrategyIdentity(signal, "AI");
         signal.ocType = OCType.OPEN;
         signal.price = currentOhlc.close;
         return signal;
+    }
+
+    public static void bindStrategyIdentity(Signal signal, String strategyName) {
+        if (signal == null || strategyName == null) {
+            return;
+        }
+        String normalized = strategyName.trim();
+        if (normalized.isEmpty()) {
+            return;
+        }
+        signal.strategyName = normalized;
+        signal.algoName = signal.strategyName;
     }
 
     public static double highestHigh(BarSeries series, int endIndex, int lookback) {

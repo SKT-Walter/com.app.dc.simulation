@@ -57,7 +57,7 @@ public class BreakoutRetestContinuationTrendBacktestStrategy extends AbstractTre
                     signal.side = Side.BUY;
                     signal.stopPrice = BinanceStrategyMath.scale(stop);
                     signal.takerPrice = BinanceStrategyMath.scale(target);
-                    signal.algoName = "BRC_LONG";
+                    BinanceStrategyMath.bindStrategyIdentity(signal, getName());
                     return signal;
                 }
             }
@@ -75,7 +75,7 @@ public class BreakoutRetestContinuationTrendBacktestStrategy extends AbstractTre
                     signal.side = Side.SELL;
                     signal.stopPrice = BinanceStrategyMath.scale(stop);
                     signal.takerPrice = BinanceStrategyMath.scale(target);
-                    signal.algoName = "BRC_SHORT";
+                    BinanceStrategyMath.bindStrategyIdentity(signal, getName());
                     return signal;
                 }
             }

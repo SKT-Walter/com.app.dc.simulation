@@ -52,7 +52,7 @@ public class SmallRangeBreakoutBacktestStrategy extends AbstractTrendBacktestStr
                 signal.side = Side.BUY;
                 signal.stopPrice = BinanceStrategyMath.scale(stop);
                 signal.takerPrice = BinanceStrategyMath.scale(target);
-                signal.algoName = "SRB_LONG";
+                BinanceStrategyMath.bindStrategyIdentity(signal, getName());
             }
         } else if (c < recentLow && isBearBar(series, end) && closeInLowerHalf(series, end)) {
             double stop = recentHigh + atr * STOP_ATR_BUFFER;
@@ -61,7 +61,7 @@ public class SmallRangeBreakoutBacktestStrategy extends AbstractTrendBacktestStr
                 signal.side = Side.SELL;
                 signal.stopPrice = BinanceStrategyMath.scale(stop);
                 signal.takerPrice = BinanceStrategyMath.scale(target);
-                signal.algoName = "SRB_SHORT";
+                BinanceStrategyMath.bindStrategyIdentity(signal, getName());
             }
         }
         return signal;

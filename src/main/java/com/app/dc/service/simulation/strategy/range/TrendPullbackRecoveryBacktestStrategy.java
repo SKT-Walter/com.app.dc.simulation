@@ -148,7 +148,7 @@ public class TrendPullbackRecoveryBacktestStrategy implements BinanceBacktestStr
         signal.side = Side.BUY;
         signal.stopPrice = BinanceStrategyMath.scale(stop);
         signal.takerPrice = BinanceStrategyMath.scale(target);
-        signal.algoName = "TPR_LONG";
+        BinanceStrategyMath.bindStrategyIdentity(signal, getName());
         signal.remark = String.format(
                 "side=BUY close=%.6f emaFast=%.6f emaTrend=%.6f emaSlow=%.6f atr=%.6f rsi=%.2f pullbackAtr=%.2f stop=%.6f tp=%.6f score=%d",
                 close, emaFast, emaTrend, emaSlow, atr, rsi, pullbackAtr, stop, target, score
@@ -218,7 +218,7 @@ public class TrendPullbackRecoveryBacktestStrategy implements BinanceBacktestStr
         signal.side = Side.SELL;
         signal.stopPrice = BinanceStrategyMath.scale(stop);
         signal.takerPrice = BinanceStrategyMath.scale(target);
-        signal.algoName = "TPR_SHORT";
+        BinanceStrategyMath.bindStrategyIdentity(signal, getName());
         signal.remark = String.format(
                 "side=SELL close=%.6f emaFast=%.6f emaTrend=%.6f emaSlow=%.6f atr=%.6f rsi=%.2f reboundAtr=%.2f stop=%.6f tp=%.6f score=%d",
                 close, emaFast, emaTrend, emaSlow, atr, rsi, reboundAtr, stop, target, score

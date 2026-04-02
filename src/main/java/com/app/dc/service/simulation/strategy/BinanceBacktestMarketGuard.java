@@ -231,7 +231,7 @@ public class BinanceBacktestMarketGuard {
             return Instant.parse(text);
         } catch (Exception ignore) {
         }
-        List<DateTimeFormatter> formatters = List.of(
+        List<DateTimeFormatter> formatters = Arrays.asList(
                 DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"),
                 DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
         );

@@ -50,7 +50,7 @@ public class ImpulseReclaimBacktestStrategy extends AbstractSceneRangeBacktestSt
                     signal.side = Side.BUY;
                     signal.stopPrice = BinanceStrategyMath.scale(stop);
                     signal.takerPrice = BinanceStrategyMath.scale(target);
-                    signal.algoName = "IMP_LONG";
+                    BinanceStrategyMath.bindStrategyIdentity(signal, getName());
                     return signal;
                 }
             }
@@ -68,7 +68,7 @@ public class ImpulseReclaimBacktestStrategy extends AbstractSceneRangeBacktestSt
                     signal.side = Side.SELL;
                     signal.stopPrice = BinanceStrategyMath.scale(stop);
                     signal.takerPrice = BinanceStrategyMath.scale(target);
-                    signal.algoName = "IMP_SHORT";
+                    BinanceStrategyMath.bindStrategyIdentity(signal, getName());
                 }
             }
         }

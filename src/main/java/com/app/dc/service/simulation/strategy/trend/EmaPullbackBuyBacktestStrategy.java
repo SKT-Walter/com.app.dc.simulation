@@ -55,7 +55,7 @@ public class EmaPullbackBuyBacktestStrategy extends AbstractTrendBacktestStrateg
         signal.side = Side.BUY;
         signal.stopPrice = BinanceStrategyMath.scale(stop);
         signal.takerPrice = BinanceStrategyMath.scale(target);
-        signal.algoName = "EPB_LONG";
+        BinanceStrategyMath.bindStrategyIdentity(signal, getName());
         return signal;
     }
 }

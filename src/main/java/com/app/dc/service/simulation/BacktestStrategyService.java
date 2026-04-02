@@ -26,7 +26,12 @@ public class BacktestStrategyService {
     public Signal evaluateSignal(String strategyName, String symbol, String text, BarSeries replaySeries,
                                  TTbookOhlc currentOhlc) {
         BinanceBacktestStrategy strategy = getStrategy(strategyName);
-        return strategy.evaluate(symbol, text, replaySeries, currentOhlc);
+        Signal signal = strategy.evaluate(symbol, text, replaySeries, currentOhlc);
+        if (signal != null) {
+            signal.strategyName = strategyName;
+            signal.algoName = signal.strategyName;
+        }
+        return signal;
     }
 
     public BinanceBacktestStrategy getStrategy(String strategyName) {

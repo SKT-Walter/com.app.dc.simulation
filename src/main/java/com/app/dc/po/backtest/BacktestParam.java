@@ -6,6 +6,16 @@ public class BacktestParam {
 
     public String strategyName;
 
+    public String strategyVersion;
+
+    public String baselineVersion;
+
+    public String runtimeType;
+
+    public String scene;
+
+    public String strategyPayload;
+
     public String symbol;
 
     public String symbols;

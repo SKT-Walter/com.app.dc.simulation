@@ -43,10 +43,11 @@ public class BacktestResultClickHouseDao {
 
         String table = safeTableName(tableName);
         String sql = "INSERT INTO " + table
-                + " (run_time,sid,strategy_name,symbol,text,begin_date,end_date,"
-                + "trade_count,win_count,loss_count,flat_count,win_rate,total_return_pct,max_drawdown_pct,"
-                + "initial_capital,final_capital,total_pnl,report_path,payload)"
-                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                + " (run_time,sid,strategy_name,strategy_version,baseline_version,runtime_type,scene,"
+                + "symbol,text,begin_date,end_date,trade_count,win_count,loss_count,flat_count,"
+                + "win_rate,total_return_pct,max_drawdown_pct,initial_capital,final_capital,total_pnl,"
+                + "forward_score,report_path,payload)"
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
         for (BacktestModels.BacktestResult result : results) {
             try {
@@ -54,6 +55,10 @@ public class BacktestResultClickHouseDao {
                         Timestamp.from(Instant.now()),
                         safe(sid),
                         safe(result.strategyName),
+                        safe(result.strategyVersion),
+                        safe(result.baselineVersion),
+                        safe(result.runtimeType),
+                        safe(result.scene),
                         safe(result.symbol),
                         safe(result.text),
                         safe(result.beginDate),
@@ -68,6 +73,7 @@ public class BacktestResultClickHouseDao {
                         nzDouble(result.initialCapital),
                         nzDouble(result.finalCapital),
                         calcTotalPnl(result.initialCapital, result.finalCapital),
+                        nzDouble(result.forwardScore),
                         safe(reportPath),
                         JsonUtils.Serializer(result)
                 };

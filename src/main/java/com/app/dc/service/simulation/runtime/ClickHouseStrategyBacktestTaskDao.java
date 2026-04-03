@@ -7,8 +7,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 
@@ -30,23 +28,25 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
         if (!ready()) {
             return Collections.emptyList();
         }
+        String versionExpr = "tuple(update_time, multiIf(status='SUCCESS', 3, status='FAILED', 3, status='RUNNING', 2, 1))";
         String sql = "select "
                 + "id as id,"
-                + "strategy_name as strategyName,"
-                + "strategy_version as strategyVersion,"
-                + "baseline_version as baselineVersion,"
-                + "runtime_type as runtimeType,"
-                + "task_type as taskType,"
-                + "fit_window_days as fitWindowDays,"
-                + "validate_window_days as validateWindowDays,"
-                + "forward_window_days as forwardWindowDays,"
-                + "priority as priority,"
-                + "status as status,"
-                + "toString(create_time) as createTime,"
-                + "toString(update_time) as updateTime,"
-                + "payload as payload "
+                + "argMax(strategy_name, " + versionExpr + ") as strategyName,"
+                + "argMax(strategy_version, " + versionExpr + ") as strategyVersion,"
+                + "argMax(baseline_version, " + versionExpr + ") as baselineVersion,"
+                + "argMax(runtime_type, " + versionExpr + ") as runtimeType,"
+                + "argMax(task_type, " + versionExpr + ") as taskType,"
+                + "argMax(fit_window_days, " + versionExpr + ") as fitWindowDays,"
+                + "argMax(validate_window_days, " + versionExpr + ") as validateWindowDays,"
+                + "argMax(forward_window_days, " + versionExpr + ") as forwardWindowDays,"
+                + "argMax(priority, " + versionExpr + ") as priority,"
+                + "argMax(status, " + versionExpr + ") as status,"
+                + "toString(argMax(create_time, " + versionExpr + ")) as createTime,"
+                + "toString(argMax(update_time, " + versionExpr + ")) as updateTime,"
+                + "argMax(payload, " + versionExpr + ") as payload "
                 + "from " + safe(taskTable)
-                + " where status='PENDING' order by priority asc, create_time asc limit " + Math.max(1, limit);
+                + " group by id having argMax(status, " + versionExpr + ")='PENDING'"
+                + " order by priority asc, createTime asc limit " + Math.max(1, limit);
         try {
             List<StrategyBacktestTaskRow> rows = ClickHouseDBUtils.queryList(sql, new Object[]{}, StrategyBacktestTaskRow.class);
             return rows == null ? Collections.<StrategyBacktestTaskRow>emptyList() : rows;
@@ -111,13 +111,21 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 + " (id, strategy_name, strategy_version, baseline_version, runtime_type, task_type, "
                 + "fit_window_days, validate_window_days, forward_window_days, priority, status, create_time, update_time, payload) "
                 + "select id, strategy_name, strategy_version, baseline_version, runtime_type, task_type, "
-                + "fit_window_days, validate_window_days, forward_window_days, priority, ?, create_time, ?, ? "
-                + "from " + safe(taskTable) + " where id=? order by update_time desc limit 1";
+                + "fit_window_days, validate_window_days, forward_window_days, priority, '"
+                + escape(status) + "', create_time, now(), '" + escape(payload == null ? "" : payload) + "' "
+                + "from " + safe(taskTable) + " where id='" + escape(id) + "' order by update_time desc limit 1";
         try {
-            ClickHouseDBUtils.update(sql, new Object[]{status, Timestamp.from(Instant.now()), payload == null ? "" : payload, id});
+            ClickHouseDBUtils.update(sql, new Object[]{});
         } catch (Exception e) {
             log.error("updateStatus error, id:{}, status:{}", id, status, e);
         }
+    }
+
+    private String escape(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\").replace("'", "''");
     }
 
     private boolean ready() {

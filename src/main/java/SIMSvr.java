@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import com.gw.common.utils.Consts;
 import com.gw.common.utils.ServerGwWrapper;
@@ -12,6 +13,7 @@ import com.gw.common.utils.ServerGwWrapper;
 @SpringBootApplication
 @ComponentScan({ "com.gw.common.utils", "com.app.dc", "com.app.common.db" })
 @EnableAutoConfiguration
+@EnableScheduling
 public class SIMSvr {
     public static void main(String[] args) throws Exception {
         BasicConfigurator.configure();

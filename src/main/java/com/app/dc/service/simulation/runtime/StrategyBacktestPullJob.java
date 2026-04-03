@@ -42,6 +42,9 @@ public class StrategyBacktestPullJob {
     @Autowired
     private BacktestResultClickHouseDao backtestResultClickHouseDao;
 
+    @Autowired
+    private StrategyAutoPublishService strategyAutoPublishService;
+
     @Scheduled(cron = "${strategy.backtest.task.cron:0 */1 * * * ?}")
     public void run() {
         if (!enabled) {
@@ -66,6 +69,8 @@ public class StrategyBacktestPullJob {
             String reportPath = backtestReportService.writeReport(response);
             String compareReportPath = backtestReportService.writeCompareReport(response);
             backtestResultClickHouseDao.insertResults(task.id, reportPath, response);
+            StrategyAutoPublishDecision publishDecision =
+                    strategyAutoPublishService.maybePublish(task, candidate, response);
 
             Map<String, Object> taskResult = new LinkedHashMap<String, Object>();
             taskResult.put("taskId", task.id);
@@ -76,6 +81,14 @@ public class StrategyBacktestPullJob {
             taskResult.put("reportPath", reportPath);
             taskResult.put("compareReportPath", compareReportPath);
             taskResult.put("resultCount", response.results == null ? 0 : response.results.size());
+            taskResult.put("autoPublishAction", publishDecision.action);
+            taskResult.put("autoPublished", publishDecision.published);
+            taskResult.put("autoPublishReason", publishDecision.reason);
+            taskResult.put("baselineVersion", publishDecision.baselineVersion);
+            taskResult.put("currentTotalPnl", publishDecision.currentTotalPnl);
+            taskResult.put("currentForwardScore", publishDecision.currentForwardScore);
+            taskResult.put("baselineTotalPnl", publishDecision.baselineTotalPnl);
+            taskResult.put("baselineForwardScore", publishDecision.baselineForwardScore);
             taskDao.markSuccess(task.id, JsonUtils.Serializer(taskResult));
         } catch (Exception e) {
             log.error("StrategyBacktestPullJob handleTask error, task:{}", task == null ? null : task.id, e);

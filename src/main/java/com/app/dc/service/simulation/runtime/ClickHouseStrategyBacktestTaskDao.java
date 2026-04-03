@@ -48,8 +48,8 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 + "argMax(payload, versionKey) as payload "
                 + "from (" + baseSql + ")"
                 + " group by id";
-        String sql = "select * from (" + innerSql + ") where status='PENDING'"
-                + " order by priority asc, createTime asc limit " + Math.max(1, limit);
+        String sql = "select * from (" + innerSql + ") latest where latest.status='PENDING'"
+                + " order by latest.priority asc, latest.createTime asc limit " + Math.max(1, limit);
         try {
             List<StrategyBacktestTaskRow> rows = ClickHouseDBUtils.queryList(sql, new Object[]{}, StrategyBacktestTaskRow.class);
             return rows == null ? Collections.<StrategyBacktestTaskRow>emptyList() : rows;

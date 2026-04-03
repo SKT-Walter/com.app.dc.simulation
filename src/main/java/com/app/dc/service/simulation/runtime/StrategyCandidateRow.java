@@ -17,6 +17,7 @@ public class StrategyCandidateRow {
     public String runtimeType;
     public String artifactUri;
     public String entryClass;
+    public String description;
     public String payload;
 
     public StrategyDefinition toDefinition() {

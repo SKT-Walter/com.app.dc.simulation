@@ -28,24 +28,27 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
         if (!ready()) {
             return Collections.emptyList();
         }
-        String versionExpr = "tuple(update_time, multiIf(status='SUCCESS', 3, status='FAILED', 3, status='RUNNING', 2, 1))";
-        String sql = "select "
+        String baseSql = "select *, "
+                + "tuple(update_time, multiIf(status='SUCCESS', 3, status='FAILED', 3, status='RUNNING', 2, 1)) as versionKey "
+                + "from " + safe(taskTable);
+        String innerSql = "select "
                 + "id as id,"
-                + "argMax(strategy_name, " + versionExpr + ") as strategyName,"
-                + "argMax(strategy_version, " + versionExpr + ") as strategyVersion,"
-                + "argMax(baseline_version, " + versionExpr + ") as baselineVersion,"
-                + "argMax(runtime_type, " + versionExpr + ") as runtimeType,"
-                + "argMax(task_type, " + versionExpr + ") as taskType,"
-                + "argMax(fit_window_days, " + versionExpr + ") as fitWindowDays,"
-                + "argMax(validate_window_days, " + versionExpr + ") as validateWindowDays,"
-                + "argMax(forward_window_days, " + versionExpr + ") as forwardWindowDays,"
-                + "argMax(priority, " + versionExpr + ") as priority,"
-                + "argMax(status, " + versionExpr + ") as status,"
-                + "toString(argMax(create_time, " + versionExpr + ")) as createTime,"
-                + "toString(argMax(update_time, " + versionExpr + ")) as updateTime,"
-                + "argMax(payload, " + versionExpr + ") as payload "
-                + "from " + safe(taskTable)
-                + " group by id having argMax(status, " + versionExpr + ")='PENDING'"
+                + "argMax(strategy_name, versionKey) as strategyName,"
+                + "argMax(strategy_version, versionKey) as strategyVersion,"
+                + "argMax(baseline_version, versionKey) as baselineVersion,"
+                + "argMax(runtime_type, versionKey) as runtimeType,"
+                + "argMax(task_type, versionKey) as taskType,"
+                + "argMax(fit_window_days, versionKey) as fitWindowDays,"
+                + "argMax(validate_window_days, versionKey) as validateWindowDays,"
+                + "argMax(forward_window_days, versionKey) as forwardWindowDays,"
+                + "argMax(priority, versionKey) as priority,"
+                + "argMax(status, versionKey) as status,"
+                + "toString(argMax(create_time, versionKey)) as createTime,"
+                + "toString(argMax(update_time, versionKey)) as updateTime,"
+                + "argMax(payload, versionKey) as payload "
+                + "from (" + baseSql + ")"
+                + " group by id";
+        String sql = "select * from (" + innerSql + ") where status='PENDING'"
                 + " order by priority asc, createTime asc limit " + Math.max(1, limit);
         try {
             List<StrategyBacktestTaskRow> rows = ClickHouseDBUtils.queryList(sql, new Object[]{}, StrategyBacktestTaskRow.class);
@@ -86,6 +89,7 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 + "runtime_type as runtimeType,"
                 + "artifact_uri as artifactUri,"
                 + "entry_class as entryClass,"
+                + "description as description,"
                 + "payload as payload "
                 + "from " + safe(candidateTable)
                 + " where strategy_name=? and strategy_version=? order by create_time desc limit 1";

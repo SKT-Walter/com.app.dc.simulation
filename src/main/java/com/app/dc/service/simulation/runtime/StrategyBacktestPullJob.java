@@ -57,6 +57,9 @@ public class StrategyBacktestPullJob {
     private StrategyAutoPublishService strategyAutoPublishService;
 
     @Autowired
+    private BinanceKlineAutofillService binanceKlineAutofillService;
+
+    @Autowired
     @Qualifier("strategyBacktestTaskExecutor")
     private ThreadPoolTaskExecutor strategyBacktestTaskExecutor;
 
@@ -178,6 +181,7 @@ public class StrategyBacktestPullJob {
                     e.getReason(),
                     buildSuspendPayload(task, e),
                     CLICKHOUSE_TIME.format(LocalDateTime.now().plusMinutes(30)));
+            binanceKlineAutofillService.triggerIfNeeded(task, e);
             log.info("StrategyBacktestPullJob task status -> SUSPENDED, task:{}, thread:{}, nextRetryTime:{}",
                     task == null ? null : task.id,
                     threadName,

@@ -16,6 +16,12 @@ public class StrategyBacktestExecutorConfig {
     @Value("${strategy.backtest.threadNamePrefix:strategy-backtest-}")
     private String threadNamePrefix;
 
+    @Value("${strategy.backtest.kline-autofill.parallelism:2}")
+    private int klineAutofillParallelism;
+
+    @Value("${strategy.backtest.kline-autofill.threadNamePrefix:strategy-kline-autofill-}")
+    private String klineAutofillThreadNamePrefix;
+
     @Bean(name = "strategyBacktestTaskExecutor")
     public ThreadPoolTaskExecutor strategyBacktestTaskExecutor() {
         int poolSize = Math.max(1, parallelism);
@@ -24,6 +30,21 @@ public class StrategyBacktestExecutorConfig {
         executor.setMaxPoolSize(poolSize);
         executor.setQueueCapacity(poolSize);
         executor.setThreadNamePrefix(threadNamePrefix);
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.initialize();
+        return executor;
+    }
+
+    @Bean(name = "strategyBacktestKlineAutofillExecutor")
+    public ThreadPoolTaskExecutor strategyBacktestKlineAutofillExecutor() {
+        int poolSize = Math.max(1, klineAutofillParallelism);
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(poolSize);
+        executor.setMaxPoolSize(poolSize);
+        executor.setQueueCapacity(poolSize);
+        executor.setThreadNamePrefix(klineAutofillThreadNamePrefix);
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(60);
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());

@@ -30,6 +30,10 @@ public class BacktestParam {
 
     public BigDecimal feeRatePct;
 
+    public BigDecimal entryMakerFeeRatePct;
+
+    public BigDecimal exitTakerFeeRatePct;
+
     public BigDecimal fallbackStopLossPct;
 
     public BigDecimal fallbackTakeProfitPct;

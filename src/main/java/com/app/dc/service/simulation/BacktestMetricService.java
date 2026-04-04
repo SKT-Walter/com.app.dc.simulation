@@ -1,5 +1,6 @@
 package com.app.dc.service.simulation;
 
+import com.app.dc.service.simulation.BacktestModels;
 import com.app.dc.service.simulation.BacktestModels.BacktestResult;
 import com.app.dc.service.simulation.BacktestModels.EquityContext;
 import com.app.dc.service.simulation.BacktestModels.TradeRecord;
@@ -19,6 +20,15 @@ public class BacktestMetricService {
     }
 
     public void applyTrade(BacktestResult result, TradeRecord tradeRecord, EquityContext context) {
+        if (tradeRecord.tradeNo == null) {
+            tradeRecord.tradeNo = result.tradeList.size() + 1;
+        }
+        if (tradeRecord.symbol == null || tradeRecord.symbol.trim().isEmpty()) {
+            tradeRecord.symbol = result.symbol;
+        }
+        if (tradeRecord.text == null || tradeRecord.text.trim().isEmpty()) {
+            tradeRecord.text = result.text;
+        }
         result.tradeList.add(tradeRecord);
         boolean stopExit = tradeRecord.exitReason != null && tradeRecord.exitReason.startsWith("stop");
         boolean takeExit = tradeRecord.exitReason != null && tradeRecord.exitReason.startsWith("take");
@@ -50,10 +60,26 @@ public class BacktestMetricService {
 
         double nextEquity = context.equity * (1.0 + tradeRecord.returnPct.doubleValue());
         tradeRecord.pnl = scale(nextEquity - context.equity);
+        tradeRecord.equityAfter = scale(nextEquity);
+        tradeRecord.cumulativePnl = result.initialCapital == null
+                ? BigDecimal.ZERO
+                : scale(nextEquity - result.initialCapital.doubleValue());
         context.equity = nextEquity;
         context.peakEquity = Math.max(context.peakEquity, context.equity);
         context.totalHoldBars += tradeRecord.holdBars == null ? 0 : tradeRecord.holdBars;
-        result.maxDrawdownPct = scale(calcDrawdownPct(context.peakEquity, context.equity));
+        result.entryFeeTotal = add(result.entryFeeTotal, tradeRecord.entryFee);
+        result.exitFeeTotal = add(result.exitFeeTotal, tradeRecord.exitFee);
+        result.totalFee = add(result.totalFee, tradeRecord.totalFee);
+        double currentDrawdown = calcDrawdownPct(context.peakEquity, context.equity);
+        result.maxDrawdownPct = scale(Math.max(result.maxDrawdownPct.doubleValue(), currentDrawdown));
+        if (result.equityCurve != null) {
+            BacktestModels.EquityPoint point = new BacktestModels.EquityPoint();
+            point.time = tradeRecord.exitTime;
+            point.equity = scale(nextEquity);
+            point.deltaPnl = tradeRecord.pnl;
+            point.cumulativePnl = tradeRecord.cumulativePnl;
+            result.equityCurve.add(point);
+        }
     }
 
     public void finishResult(BacktestResult result, EquityContext context) {
@@ -82,5 +108,10 @@ public class BacktestMetricService {
 
     public BigDecimal scale(double value) {
         return BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal add(BigDecimal left, BigDecimal right) {
+        return (left == null ? BigDecimal.ZERO : left).add(right == null ? BigDecimal.ZERO : right)
+                .setScale(6, RoundingMode.HALF_UP);
     }
 }

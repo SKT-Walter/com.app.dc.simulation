@@ -56,6 +56,11 @@ public final class BacktestModels {
         public BigDecimal initialCapital;
         public BigDecimal finalCapital;
         public BigDecimal feeRatePct;
+        public BigDecimal entryMakerFeeRatePct = BigDecimal.ZERO;
+        public BigDecimal exitTakerFeeRatePct = BigDecimal.ZERO;
+        public BigDecimal entryFeeTotal = BigDecimal.ZERO;
+        public BigDecimal exitFeeTotal = BigDecimal.ZERO;
+        public BigDecimal totalFee = BigDecimal.ZERO;
         public BigDecimal fallbackStopLossPct;
         public BigDecimal fallbackTakeProfitPct;
         public Integer maxHoldBars;
@@ -77,6 +82,7 @@ public final class BacktestModels {
         public BigDecimal maxDrawdownPct = BigDecimal.ZERO;
         public BigDecimal avgHoldBars = BigDecimal.ZERO;
         public List<TradeRecord> tradeList;
+        public List<EquityPoint> equityCurve;
         public Map<String, Integer> rejectReasonCounts;
         public List<BacktestSliceResult> sliceResults;
     }
@@ -106,28 +112,54 @@ public final class BacktestModels {
     }
 
     public static class TradeRecord {
+        public Integer tradeNo;
+        public String symbol;
+        public String text;
         public String side;
+        public String signalTime;
+        public BigDecimal signalPrice;
         public String entryTime;
         public String exitTime;
         public BigDecimal entryPrice;
         public BigDecimal exitPrice;
         public BigDecimal stopPrice;
         public BigDecimal takePrice;
+        public BigDecimal qty;
         public Integer holdBars;
+        public String entryReason;
         public String exitReason;
+        public BigDecimal grossReturnPct;
         public BigDecimal returnPct;
         public BigDecimal pnl;
+        public BigDecimal entryFeeRatePct;
+        public BigDecimal exitFeeRatePct;
+        public BigDecimal entryFee;
+        public BigDecimal exitFee;
+        public BigDecimal totalFee;
+        public BigDecimal equityAfter;
+        public BigDecimal cumulativePnl;
     }
 
     public static class Position {
         public Side side;
         public double entryPrice;
         public String entryTime;
+        public String signalTime;
+        public double signalPrice;
+        public double entryCapital;
+        public double qty;
         public int entryIndex;
         public Double stopPrice;
         public Double takePrice;
         public int maxHoldBars;
         public int currentHoldBars;
+    }
+
+    public static class EquityPoint {
+        public String time;
+        public BigDecimal equity = BigDecimal.ZERO;
+        public BigDecimal deltaPnl = BigDecimal.ZERO;
+        public BigDecimal cumulativePnl = BigDecimal.ZERO;
     }
 
     public static class EquityContext {

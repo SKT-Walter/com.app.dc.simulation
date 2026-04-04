@@ -31,25 +31,7 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
         if (!ready() || StringUtils.isBlank(strategyName)) {
             return null;
         }
-        String sql = "select "
-                + "id as id,"
-                + "strategy_name as strategyName,"
-                + "strategy_version as strategyVersion,"
-                + "category as category,"
-                + "scene as scene,"
-                + "runtime_type as runtimeType,"
-                + "symbol_scope as symbolScope,"
-                + "text_scope as textScope,"
-                + "artifact_uri as artifactUri,"
-                + "entry_class as entryClass,"
-                + "parameters_json as parametersJson,"
-                + "status as status,"
-                + "toString(effective_time) as effectiveTime,"
-                + "toString(retire_time) as retireTime,"
-                + "source as source,"
-                + "payload as payload,"
-                + "description as description "
-                + "from " + safe(registryTable, "dc.strategy_live_registry")
+        String sql = registryQuery()
                 + " where lower(strategy_name)=lower(?) and status='ACTIVE'"
                 + " and (retire_time is null or retire_time > now())"
                 + " order by effective_time desc limit 1";
@@ -62,6 +44,28 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
             return rows.get(0);
         } catch (Exception e) {
             log.error("loadCurrentActive error, strategy:{}", strategyName, e);
+            return null;
+        }
+    }
+
+    @Override
+    public StrategyLiveRegistryPublishRow loadExactActive(String strategyName, String strategyVersion) {
+        if (!ready() || StringUtils.isBlank(strategyName) || StringUtils.isBlank(strategyVersion)) {
+            return null;
+        }
+        String sql = registryQuery()
+                + " where lower(strategy_name)=lower(?) and lower(strategy_version)=lower(?) and status='ACTIVE'"
+                + " and (retire_time is null or retire_time > now())"
+                + " order by effective_time desc limit 1";
+        try {
+            List<StrategyLiveRegistryPublishRow> rows = ClickHouseDBUtils.queryList(sql,
+                    new Object[]{strategyName, strategyVersion}, StrategyLiveRegistryPublishRow.class);
+            if (rows == null || rows.isEmpty()) {
+                return null;
+            }
+            return rows.get(0);
+        } catch (Exception e) {
+            log.error("loadExactActive error, strategy:{}@{}", strategyName, strategyVersion, e);
             return null;
         }
     }
@@ -101,6 +105,38 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
             return rows.get(0);
         } catch (Exception e) {
             log.error("loadLatestSummary error, strategy:{}, version:{}", strategyName, strategyVersion, e);
+            return null;
+        }
+    }
+
+    @Override
+    public StrategyReleaseEventRecord loadLatestReleaseEvent(String strategyName, String strategyVersion) {
+        if (!ready() || StringUtils.isBlank(strategyName) || StringUtils.isBlank(strategyVersion)) {
+            return null;
+        }
+        String sql = "select "
+                + "id as id,"
+                + "toString(event_time) as eventTime,"
+                + "strategy_name as strategyName,"
+                + "from_version as fromVersion,"
+                + "to_version as toVersion,"
+                + "runtime_type as runtimeType,"
+                + "event_type as eventType,"
+                + "reason as reason,"
+                + "source as source,"
+                + "payload as payload "
+                + "from " + safe(releaseEventTable, "dc.strategy_release_event")
+                + " where lower(strategy_name)=lower(?) and lower(to_version)=lower(?)"
+                + " order by event_time desc limit 1";
+        try {
+            List<StrategyReleaseEventRecord> rows = ClickHouseDBUtils.queryList(sql,
+                    new Object[]{strategyName, strategyVersion}, StrategyReleaseEventRecord.class);
+            if (rows == null || rows.isEmpty()) {
+                return null;
+            }
+            return rows.get(0);
+        } catch (Exception e) {
+            log.error("loadLatestReleaseEvent error, strategy:{}@{}", strategyName, strategyVersion, e);
             return null;
         }
     }
@@ -203,6 +239,28 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
 
     private boolean ready() {
         return clickHouseDBUtils != null && StringUtils.isNotBlank(clickHouseDBUtils.getDbSourceName());
+    }
+
+    private String registryQuery() {
+        return "select "
+                + "id as id,"
+                + "strategy_name as strategyName,"
+                + "strategy_version as strategyVersion,"
+                + "category as category,"
+                + "scene as scene,"
+                + "runtime_type as runtimeType,"
+                + "symbol_scope as symbolScope,"
+                + "text_scope as textScope,"
+                + "artifact_uri as artifactUri,"
+                + "entry_class as entryClass,"
+                + "parameters_json as parametersJson,"
+                + "status as status,"
+                + "toString(effective_time) as effectiveTime,"
+                + "toString(retire_time) as retireTime,"
+                + "source as source,"
+                + "payload as payload,"
+                + "description as description "
+                + "from " + safe(registryTable, "dc.strategy_live_registry");
     }
 
     private String safe(String value, String defaultValue) {

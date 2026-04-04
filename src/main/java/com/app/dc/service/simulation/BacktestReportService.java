@@ -1,9 +1,21 @@
 package com.app.dc.service.simulation;
 
+import com.app.dc.po.TTbookOhlc;
 import com.app.dc.service.simulation.BacktestModels.BacktestResponse;
 import com.app.dc.service.simulation.BacktestModels.BacktestResult;
+import com.app.dc.service.simulation.BacktestModels.BacktestSliceResult;
+import com.app.dc.service.simulation.BacktestModels.EquityPoint;
 import com.app.dc.service.simulation.BacktestModels.TradeRecord;
+import com.app.dc.service.simulation.runtime.StrategyAutoPublishDao;
+import com.app.dc.service.simulation.runtime.StrategyAutoPublishDecision;
+import com.app.dc.service.simulation.runtime.StrategyBacktestTaskDao;
+import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
+import com.app.dc.service.simulation.runtime.StrategyLiveRegistryPublishRow;
+import com.app.dc.service.simulation.runtime.StrategyReleaseEventRecord;
+import com.gateway.connector.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -13,15 +25,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.StringJoiner;
 
 @Service
@@ -29,6 +44,7 @@ import java.util.StringJoiner;
 public class BacktestReportService {
 
     private static final DateTimeFormatter FILE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
+    private static final int REPLAY_MAX_CANDLES = 240;
 
     @Value("${binanceBacktestReportEnabled:true}")
     private boolean reportEnabled;
@@ -36,20 +52,32 @@ public class BacktestReportService {
     @Value("${binanceBacktestReportDir:./src/docs}")
     private String reportDir;
 
-    @Value("${binanceBacktestReportMaxTrades:120}")
-    private int reportMaxTrades;
+    @Autowired
+    private BacktestQueryService backtestQueryService;
+
+    @Autowired
+    private StrategyBacktestTaskDao strategyBacktestTaskDao;
+
+    @Autowired
+    private StrategyAutoPublishDao strategyAutoPublishDao;
 
     public String writeReport(BacktestResponse response) {
+        return writeReport(null, response, null);
+    }
+
+    public String writeReport(String sid, BacktestResponse response, StrategyAutoPublishDecision publishDecision) {
         if (!reportEnabled || response == null) {
             return "";
         }
         try {
             Path dir = Paths.get(reportDir);
             Files.createDirectories(dir);
-            String fileName = buildFileName(response);
-            Path filePath = dir.resolve(fileName);
-            Files.write(filePath, buildMarkdown(response).getBytes(StandardCharsets.UTF_8));
-            return filePath.toString().replace("\\", "/");
+            String base = buildBaseName(response);
+            Map<String, Object> report = buildReport(sid, response, publishDecision);
+            Files.write(dir.resolve(base + ".json"), JsonUtils.Serializer(report).getBytes(StandardCharsets.UTF_8));
+            Files.write(dir.resolve(base + ".html"), buildHtml(report).getBytes(StandardCharsets.UTF_8));
+            Files.write(dir.resolve(base + ".md"), buildMarkdown(report).getBytes(StandardCharsets.UTF_8));
+            return dir.resolve(base + ".html").toString().replace("\\", "/");
         } catch (Exception e) {
             log.error("BacktestReportService writeReport error", e);
             return "";
@@ -57,527 +85,1222 @@ public class BacktestReportService {
     }
 
     public String writeCompareReport(BacktestResponse response) {
-        if (!reportEnabled || response == null) {
-            return "";
+        return "";
+    }
+
+    private Map<String, Object> buildReport(String sid, BacktestResponse response, StrategyAutoPublishDecision decision) {
+        Map<String, Object> report = new LinkedHashMap<String, Object>();
+        StrategyCandidateRow candidate = strategyBacktestTaskDao.loadCandidate(response.strategyName, response.strategyVersion);
+        StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadExactActive(response.strategyName, response.strategyVersion);
+        StrategyReleaseEventRecord release = strategyAutoPublishDao.loadLatestReleaseEvent(response.strategyName, response.strategyVersion);
+        report.put("reportMeta", buildMeta(sid, response));
+        report.put("summary", buildSummary(response));
+        report.put("gates", buildGates(response, candidate, active, release, decision));
+        report.put("results", buildResults(response));
+        return report;
+    }
+
+    private Map<String, Object> buildMeta(String sid, BacktestResponse response) {
+        Map<String, Object> meta = new LinkedHashMap<String, Object>();
+        meta.put("reportId", buildBaseName(response));
+        meta.put("sid", defaultIfBlank(sid, ""));
+        meta.put("generatedAt", LocalDateTime.now().toString());
+        meta.put("strategyName", s(response.strategyName));
+        meta.put("strategyVersion", s(response.strategyVersion));
+        meta.put("strategyLabel", strategyLabel(response.strategyName, response.strategyVersion));
+        meta.put("symbol", s(response.symbol));
+        meta.put("symbols", response.symbols == null ? Collections.emptyList() : response.symbols);
+        meta.put("text", s(response.text));
+        meta.put("beginDate", s(response.beginDate));
+        meta.put("endDate", s(response.endDate));
+        meta.put("windowMode", s(response.windowMode));
+        meta.put("currency", "USDT");
+        return meta;
+    }
+
+    private Map<String, Object> buildSummary(BacktestResponse response) {
+        Map<String, Object> summary = new LinkedHashMap<String, Object>();
+        summary.put("currency", "USDT");
+        summary.put("fitPnl", scale(response.fitPnl));
+        summary.put("validatePnl", scale(response.validatePnl));
+        summary.put("forwardPnl", scale(response.forwardPnl));
+        summary.put("totalPnl", scale(response.totalPnl));
+        summary.put("sliceCount", nzInt(response.sliceCount));
+
+        int tradeCount = 0;
+        BigDecimal finalCapital = BigDecimal.ZERO;
+        BigDecimal maxDrawdownPct = BigDecimal.ZERO;
+        BigDecimal entryFeeTotal = BigDecimal.ZERO;
+        BigDecimal exitFeeTotal = BigDecimal.ZERO;
+        BigDecimal totalFee = BigDecimal.ZERO;
+        BigDecimal avgForwardScore = avgForwardScore(response.results);
+        List<BacktestResult> rows = response.results == null ? Collections.<BacktestResult>emptyList() : response.results;
+        for (BacktestResult result : rows) {
+            tradeCount += nzInt(result.tradeCount);
+            finalCapital = finalCapital.add(nz(result.finalCapital));
+            maxDrawdownPct = maxDrawdownPct.max(nz(result.maxDrawdownPct));
+            entryFeeTotal = entryFeeTotal.add(nz(result.entryFeeTotal));
+            exitFeeTotal = exitFeeTotal.add(nz(result.exitFeeTotal));
+            totalFee = totalFee.add(nz(result.totalFee));
         }
-        try {
-            String markdown = buildCompareMarkdown(response);
-            if (markdown.isEmpty()) {
-                return "";
+        summary.put("tradeCount", tradeCount);
+        summary.put("forwardScore", scale(avgForwardScore));
+        summary.put("finalCapital", scale(finalCapital));
+        summary.put("maxDrawdownPct", scale(maxDrawdownPct));
+        summary.put("entryFeeTotal", scale(entryFeeTotal));
+        summary.put("exitFeeTotal", scale(exitFeeTotal));
+        summary.put("totalFee", scale(totalFee));
+        return summary;
+    }
+
+    private Map<String, Object> buildGates(BacktestResponse response,
+                                           StrategyCandidateRow candidate,
+                                           StrategyLiveRegistryPublishRow active,
+                                           StrategyReleaseEventRecord release,
+                                           StrategyAutoPublishDecision decision) {
+        Map<String, Object> gates = new LinkedHashMap<String, Object>();
+        boolean overfitPass = response.overfitPass != null && response.overfitPass.intValue() > 0;
+        String overfitReason = StringUtils.defaultIfBlank(response.overfitReason, overfitPass ? "通过过拟合检查" : "未通过过拟合检查");
+        boolean publishEligible = isPublishEligible(response, candidate);
+        String publishReason = publishReason(response, candidate);
+
+        gates.put("overfitPass", overfitPass ? 1 : 0);
+        gates.put("overfitReason", translateReason(overfitReason));
+        gates.put("publishEligible", publishEligible ? 1 : 0);
+        gates.put("publishReason", publishReason);
+
+        if (active != null) {
+            gates.put("liveRegistryEntered", 1);
+            gates.put("liveRegistryReason", "已进入实盘");
+            gates.put("liveStrategyLabel", strategyLabel(active.strategyName, active.strategyVersion));
+            gates.put("liveEffectiveTime", s(active.effectiveTime));
+            gates.put("liveStatus", s(active.status));
+            return gates;
+        }
+
+        gates.put("liveRegistryEntered", 0);
+        gates.put("liveStrategyLabel", strategyLabel(response.strategyName, response.strategyVersion));
+        gates.put("liveEffectiveTime", "");
+        gates.put("liveStatus", "");
+
+        String liveReason = "";
+        if (decision != null && StringUtils.isNotBlank(decision.reason)) {
+            liveReason = translateReason(decision.reason);
+        } else if (release != null && StringUtils.isNotBlank(release.reason)) {
+            liveReason = translateReason(release.reason);
+        } else if (!publishEligible) {
+            liveReason = publishReason;
+        } else {
+            liveReason = "尚未执行自动发布";
+        }
+        gates.put("liveRegistryReason", liveReason);
+        return gates;
+    }
+
+    private List<Map<String, Object>> buildResults(BacktestResponse response) {
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        List<BacktestResult> items = response.results == null ? Collections.<BacktestResult>emptyList() : new ArrayList<BacktestResult>(response.results);
+        items.sort(Comparator.comparing((BacktestResult x) -> s(x.symbol)).thenComparing(x -> s(x.text)));
+        for (BacktestResult item : items) {
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            row.put("symbol", s(item.symbol));
+            row.put("text", s(item.text));
+            row.put("beginDate", s(item.beginDate));
+            row.put("endDate", s(item.endDate));
+            row.put("summary", buildResultSummary(item));
+            row.put("equityCurve", buildEquityCurve(item));
+            row.put("sliceDetails", buildSliceDetails(item));
+            row.put("tradeDetails", buildTradeDetails(item));
+            row.put("rejectReasons", buildRejectReasons(item));
+            row.put("symbolReplay", buildReplay(item));
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private Map<String, Object> buildResultSummary(BacktestResult result) {
+        Map<String, Object> summary = new LinkedHashMap<String, Object>();
+        summary.put("currency", "USDT");
+        summary.put("tradeCount", nzInt(result.tradeCount));
+        summary.put("winCount", nzInt(result.winCount));
+        summary.put("lossCount", nzInt(result.lossCount));
+        summary.put("flatCount", nzInt(result.flatCount));
+        summary.put("stopExitCount", nzInt(result.stopExitCount));
+        summary.put("takeExitCount", nzInt(result.takeExitCount));
+        summary.put("sliceCount", nzInt(result.sliceCount));
+        summary.put("fitPnl", scale(result.fitPnl));
+        summary.put("validatePnl", scale(result.validatePnl));
+        summary.put("forwardPnl", scale(result.forwardPnl));
+        summary.put("totalPnl", scale(result.totalPnl));
+        summary.put("forwardScore", scale(result.forwardScore));
+        summary.put("finalCapital", scale(result.finalCapital));
+        summary.put("winRate", scale(result.winRate));
+        summary.put("totalReturnPct", scale(result.totalReturnPct));
+        summary.put("maxDrawdownPct", scale(result.maxDrawdownPct));
+        summary.put("entryFeeTotal", scale(result.entryFeeTotal));
+        summary.put("exitFeeTotal", scale(result.exitFeeTotal));
+        summary.put("totalFee", scale(result.totalFee));
+        summary.put("entryMakerFeeRatePct", scale(result.entryMakerFeeRatePct));
+        summary.put("exitTakerFeeRatePct", scale(result.exitTakerFeeRatePct));
+        return summary;
+    }
+
+    private List<Map<String, Object>> buildEquityCurve(BacktestResult result) {
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        List<EquityPoint> curve = result.equityCurve == null ? Collections.<EquityPoint>emptyList() : result.equityCurve;
+        if (!curve.isEmpty()) {
+            for (EquityPoint point : curve) {
+                rows.add(equityPoint(displayTime(point.time), point.equity, point.deltaPnl, point.cumulativePnl));
             }
-            Path dir = Paths.get(reportDir);
-            Files.createDirectories(dir);
-            String fileName = buildCompareFileName(response);
-            Path filePath = dir.resolve(fileName);
-            Files.write(filePath, markdown.getBytes(StandardCharsets.UTF_8));
-            return filePath.toString().replace("\\", "/");
-        } catch (Exception e) {
-            log.error("BacktestReportService writeCompareReport error", e);
-            return "";
+            return rows;
         }
+        BigDecimal initial = scale(result.initialCapital);
+        rows.add(equityPoint(displayTime(result.beginDate), initial, BigDecimal.ZERO, BigDecimal.ZERO));
+        BigDecimal cumulative = BigDecimal.ZERO;
+        List<TradeRecord> trades = result.tradeList == null ? Collections.<TradeRecord>emptyList() : result.tradeList;
+        for (TradeRecord trade : trades) {
+            cumulative = cumulative.add(nz(trade.pnl));
+            BigDecimal equity = trade.equityAfter == null ? initial.add(cumulative) : trade.equityAfter;
+            rows.add(equityPoint(displayTime(trade.exitTime), equity, trade.pnl, trade.cumulativePnl == null ? cumulative : trade.cumulativePnl));
+        }
+        if (trades.isEmpty()) {
+            rows.add(equityPoint(displayTime(result.endDate), scale(result.finalCapital), BigDecimal.ZERO, BigDecimal.ZERO));
+        }
+        return rows;
     }
 
-    private String buildFileName(BacktestResponse response) {
-        String strategy = safeFilePart(strategyLabel(response.strategyName, response.strategyVersion));
-        String symbol = safeFilePart(response.symbol);
-        String text = safeFilePart(response.text);
-        String time = LocalDateTime.now().format(FILE_TIME);
-        return strategy + "_" + symbol + "_" + text + "_" + time + ".md";
+    private Map<String, Object> equityPoint(String time, BigDecimal equity, BigDecimal deltaPnl, BigDecimal cumulativePnl) {
+        Map<String, Object> point = new LinkedHashMap<String, Object>();
+        point.put("time", time);
+        point.put("equity", scale(equity));
+        point.put("deltaPnl", scale(deltaPnl));
+        point.put("cumulativePnl", scale(cumulativePnl));
+        point.put("currency", "USDT");
+        return point;
     }
 
-    private String buildCompareFileName(BacktestResponse response) {
-        String strategy = safeFilePart(strategyLabel(response.strategyName, response.strategyVersion));
-        String symbol = safeFilePart(response.symbol);
-        String text = safeFilePart(response.text);
-        String time = LocalDateTime.now().format(FILE_TIME);
-        return strategy + "_" + symbol + "_" + text + "_" + time + "_compare.md";
+    private List<Map<String, Object>> buildSliceDetails(BacktestResult result) {
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        if (result.sliceResults == null) {
+            return rows;
+        }
+        for (BacktestSliceResult slice : result.sliceResults) {
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            row.put("sliceNo", nzInt(slice.sliceNo));
+            row.put("fitBegin", s(slice.fitBegin));
+            row.put("fitEnd", s(slice.fitEnd));
+            row.put("validateBegin", s(slice.validateBegin));
+            row.put("validateEnd", s(slice.validateEnd));
+            row.put("forwardBegin", s(slice.forwardBegin));
+            row.put("forwardEnd", s(slice.forwardEnd));
+            row.put("fitPnl", scale(slice.fitPnl));
+            row.put("validatePnl", scale(slice.validatePnl));
+            row.put("forwardPnl", scale(slice.forwardPnl));
+            row.put("fitTradeCount", nzInt(slice.fitTradeCount));
+            row.put("validateTradeCount", nzInt(slice.validateTradeCount));
+            row.put("forwardTradeCount", nzInt(slice.forwardTradeCount));
+            rows.add(row);
+        }
+        return rows;
     }
 
-    private String buildMarkdown(BacktestResponse response) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("# Backtest Report").append("\n\n");
-        sb.append("- strategy: ").append(strategyLabel(response.strategyName, response.strategyVersion)).append("\n");
-        sb.append("- symbol: ").append(s(response.symbol)).append("\n");
-        if (response.symbols != null && !response.symbols.isEmpty()) {
-            sb.append("- symbols: ").append(joinSymbols(response.symbols)).append("\n");
+    private List<Map<String, Object>> buildTradeDetails(BacktestResult result) {
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        List<TradeRecord> trades = result.tradeList == null ? Collections.<TradeRecord>emptyList() : result.tradeList;
+        int seq = 1;
+        for (TradeRecord trade : trades) {
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            row.put("tradeNo", trade.tradeNo == null ? seq : trade.tradeNo);
+            row.put("symbol", s(result.symbol));
+            row.put("text", s(result.text));
+            row.put("side", s(trade.side));
+            row.put("signalTime", displayTime(trade.signalTime));
+            row.put("signalPrice", scale(trade.signalPrice));
+            row.put("entryTime", displayTime(trade.entryTime));
+            row.put("entryPrice", scale(trade.entryPrice));
+            row.put("exitTime", displayTime(trade.exitTime));
+            row.put("exitPrice", scale(trade.exitPrice));
+            row.put("stopPrice", scale(trade.stopPrice));
+            row.put("takePrice", scale(trade.takePrice));
+            row.put("qty", scale(trade.qty));
+            row.put("holdBars", nzInt(trade.holdBars));
+            row.put("entryReason", s(trade.entryReason));
+            row.put("exitReason", s(trade.exitReason));
+            row.put("grossReturnPct", scale(trade.grossReturnPct));
+            row.put("returnPct", scale(trade.returnPct));
+            row.put("pnl", scale(trade.pnl));
+            row.put("entryFeeRatePct", scale(trade.entryFeeRatePct));
+            row.put("exitFeeRatePct", scale(trade.exitFeeRatePct));
+            row.put("entryFee", scale(trade.entryFee));
+            row.put("exitFee", scale(trade.exitFee));
+            row.put("totalFee", scale(trade.totalFee));
+            row.put("equityAfter", scale(trade.equityAfter));
+            row.put("cumulativePnl", scale(trade.cumulativePnl));
+            row.put("currency", "USDT");
+            rows.add(row);
+            seq++;
         }
-        sb.append("- timeframe: ").append(s(response.text)).append("\n");
-        sb.append("- beginDate: ").append(s(response.beginDate)).append("\n");
-        sb.append("- endDate: ").append(s(response.endDate)).append("\n");
-        sb.append("- generatedAt: ").append(LocalDateTime.now()).append("\n\n");
+        return rows;
+    }
 
-        List<BacktestResult> results = response.results == null
-                ? Collections.<BacktestResult>emptyList()
-                : response.results;
-        List<BacktestResult> sortedResults = new ArrayList<>(results);
-        sortedResults.sort(Comparator.comparing(this::safeTotalPnl).reversed()
-                .thenComparing(result -> strategyLabel(result.strategyName, result.strategyVersion))
-                .thenComparing(result -> s(result.symbol)));
-        List<BacktestResult> symbolSortedResults = new ArrayList<>(results);
-        symbolSortedResults.sort(Comparator.comparing((BacktestResult result) -> s(result.symbol))
-                .thenComparing(this::safeTotalPnl, Comparator.reverseOrder())
-                .thenComparing(result -> strategyLabel(result.strategyName, result.strategyVersion)));
-
-        sb.append("## Summary").append("\n\n");
-        List<String> summaryHeaders = new ArrayList<>();
-        summaryHeaders.add("strategy/strategy");
-        summaryHeaders.add("symbol/symbol");
-        summaryHeaders.add("totalBars/bars");
-        summaryHeaders.add("trades/trades");
-        summaryHeaders.add("win/win");
-        summaryHeaders.add("loss/loss");
-        summaryHeaders.add("flat/flat");
-        summaryHeaders.add("stopExit/stopExit");
-        summaryHeaders.add("stopExitWin/stopExitWin");
-        summaryHeaders.add("stopExitLoss/stopExitLoss");
-        summaryHeaders.add("takeExit/takeExit");
-        summaryHeaders.add("takeExitWin/takeExitWin");
-        summaryHeaders.add("takeExitLoss/takeExitLoss");
-        summaryHeaders.add("winRate/winRate");
-        summaryHeaders.add("totalReturnPct/totalReturnPct");
-        summaryHeaders.add("totalPnl/totalPnl");
-        summaryHeaders.add("maxDrawdownPct/maxDrawdownPct");
-        summaryHeaders.add("finalCapital/finalCapital");
-
-        List<List<String>> summaryRows = new ArrayList<>();
-        for (BacktestResult r : sortedResults) {
-            List<String> row = new ArrayList<>();
-            row.add(strategyLabel(r.strategyName, r.strategyVersion));
-            row.add(s(r.symbol));
-            row.add(i(r.totalBars));
-            row.add(i(r.tradeCount));
-            row.add(i(r.winCount));
-            row.add(i(r.lossCount));
-            row.add(i(r.flatCount));
-            row.add(i(r.stopExitCount));
-            row.add(i(r.stopExitWinCount));
-            row.add(i(r.stopExitLossCount));
-            row.add(i(r.takeExitCount));
-            row.add(i(r.takeExitWinCount));
-            row.add(i(r.takeExitLossCount));
-            row.add(n(r.winRate));
-            row.add(n(r.totalReturnPct));
-            row.add(n(calcTotalPnl(r.initialCapital, r.finalCapital)));
-            row.add(n(r.maxDrawdownPct));
-            row.add(n(r.finalCapital));
-            summaryRows.add(row);
+    private List<Map<String, Object>> buildRejectReasons(BacktestResult result) {
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        if (result.rejectReasonCounts == null) {
+            return rows;
         }
-        appendAlignedTable(sb, summaryHeaders, summaryRows);
-        sb.append("\n");
+        for (Map.Entry<String, Integer> entry : result.rejectReasonCounts.entrySet()) {
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            row.put("reason", translateReason(s(entry.getKey())));
+            row.put("count", nzInt(entry.getValue()));
+            rows.add(row);
+        }
+        rows.sort(Comparator.comparing((Map<String, Object> item) -> (Integer) item.get("count")).reversed());
+        return rows;
+    }
 
-        sb.append("## Profitable Summary").append("\n\n");
-        List<List<String>> profitableRows = new ArrayList<>();
-        for (BacktestResult r : sortedResults) {
-            BigDecimal totalPnl = calcTotalPnl(r.initialCapital, r.finalCapital);
-            if (totalPnl == null || totalPnl.compareTo(BigDecimal.ZERO) <= 0) {
+    private Map<String, Object> buildReplay(BacktestResult result) {
+        Map<String, Object> replay = new LinkedHashMap<String, Object>();
+        ReplayWindow window = replayWindow(result);
+        replay.put("securityID", s(result.symbol));
+        replay.put("text", s(result.text));
+        replay.put("replayBegin", window.begin);
+        replay.put("replayEnd", window.end);
+        replay.put("phaseWindow", buildPhaseWindow(window));
+        List<TTbookOhlc> rawCandles = backtestQueryService.queryOhlc(result.symbol, result.text, window.begin, window.end);
+        List<TTbookOhlc> candlesForChart = shrinkCandles(rawCandles, REPLAY_MAX_CANDLES);
+
+        List<Map<String, Object>> candles = new ArrayList<Map<String, Object>>();
+        for (TTbookOhlc row : candlesForChart) {
+            Map<String, Object> candle = new LinkedHashMap<String, Object>();
+            candle.put("time", displayTime(row.starttime));
+            candle.put("open", scale(row.open));
+            candle.put("high", scale(row.high));
+            candle.put("low", scale(row.low));
+            candle.put("close", scale(row.close));
+            candles.add(candle);
+        }
+
+        List<Map<String, Object>> opens = new ArrayList<Map<String, Object>>();
+        List<Map<String, Object>> closes = new ArrayList<Map<String, Object>>();
+        List<Map<String, Object>> stops = new ArrayList<Map<String, Object>>();
+        List<Map<String, Object>> takes = new ArrayList<Map<String, Object>>();
+        List<TradeRecord> trades = result.tradeList == null ? Collections.<TradeRecord>emptyList() : result.tradeList;
+        for (TradeRecord trade : trades) {
+            if (!inReplayWindow(window, trade.entryTime) && !inReplayWindow(window, trade.exitTime)) {
                 continue;
             }
-            List<String> row = new ArrayList<>();
-            row.add(strategyLabel(r.strategyName, r.strategyVersion));
-            row.add(s(r.symbol));
-            row.add(i(r.totalBars));
-            row.add(i(r.tradeCount));
-            row.add(i(r.winCount));
-            row.add(i(r.lossCount));
-            row.add(i(r.flatCount));
-            row.add(i(r.stopExitCount));
-            row.add(i(r.stopExitWinCount));
-            row.add(i(r.stopExitLossCount));
-            row.add(i(r.takeExitCount));
-            row.add(i(r.takeExitWinCount));
-            row.add(i(r.takeExitLossCount));
-            row.add(n(r.winRate));
-            row.add(n(r.totalReturnPct));
-            row.add(n(totalPnl));
-            row.add(n(r.maxDrawdownPct));
-            row.add(n(r.finalCapital));
-            profitableRows.add(row);
-        }
-        appendAlignedTable(sb, summaryHeaders, profitableRows);
-        sb.append("\n");
-
-        sb.append("## Summary By Symbol").append("\n\n");
-        List<List<String>> symbolSummaryRows = new ArrayList<>();
-        for (BacktestResult r : symbolSortedResults) {
-            List<String> row = new ArrayList<>();
-            row.add(strategyLabel(r.strategyName, r.strategyVersion));
-            row.add(s(r.symbol));
-            row.add(i(r.totalBars));
-            row.add(i(r.tradeCount));
-            row.add(i(r.winCount));
-            row.add(i(r.lossCount));
-            row.add(i(r.flatCount));
-            row.add(i(r.stopExitCount));
-            row.add(i(r.stopExitWinCount));
-            row.add(i(r.stopExitLossCount));
-            row.add(i(r.takeExitCount));
-            row.add(i(r.takeExitWinCount));
-            row.add(i(r.takeExitLossCount));
-            row.add(n(r.winRate));
-            row.add(n(r.totalReturnPct));
-            row.add(n(calcTotalPnl(r.initialCapital, r.finalCapital)));
-            row.add(n(r.maxDrawdownPct));
-            row.add(n(r.finalCapital));
-            symbolSummaryRows.add(row);
-        }
-        appendAlignedTable(sb, summaryHeaders, symbolSummaryRows);
-        sb.append("\n");
-
-        for (BacktestResult r : sortedResults) {
-            sb.append("## Trades - ").append(strategyLabel(r.strategyName, r.strategyVersion))
-                    .append(" - ").append(s(r.symbol)).append("\n\n");
-            List<String> tradeHeaders = new ArrayList<>();
-            tradeHeaders.add("#/index");
-            tradeHeaders.add("symbol/symbol");
-            tradeHeaders.add("side/side");
-            tradeHeaders.add("entryTime/entryTime");
-            tradeHeaders.add("exitTime/exitTime");
-            tradeHeaders.add("entryPrice/entryPrice");
-            tradeHeaders.add("exitPrice/exitPrice");
-            tradeHeaders.add("stopPrice/stopPrice");
-            tradeHeaders.add("takePrice/takePrice");
-            tradeHeaders.add("holdBars/holdBars");
-            tradeHeaders.add("returnPct/returnPct");
-            tradeHeaders.add("pnl/pnl");
-            tradeHeaders.add("exitReason/exitReason");
-
-            List<List<String>> tradeRows = new ArrayList<>();
-            List<TradeRecord> tradeList = r.tradeList == null ? Collections.<TradeRecord>emptyList() : r.tradeList;
-            int max = Math.min(Math.max(reportMaxTrades, 0), tradeList.size());
-            for (int idx = 0; idx < max; idx++) {
-                TradeRecord t = tradeList.get(idx);
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(idx + 1));
-                row.add(s(r.symbol));
-                row.add(s(t.side));
-                row.add(s(t.entryTime));
-                row.add(s(t.exitTime));
-                row.add(n(t.entryPrice));
-                row.add(n(t.exitPrice));
-                row.add(n(t.stopPrice));
-                row.add(n(t.takePrice));
-                row.add(i(t.holdBars));
-                row.add(n(t.returnPct));
-                row.add(n(t.pnl));
-                row.add(s(t.exitReason));
-                tradeRows.add(row);
+            opens.add(replayPoint("open", trade.entryTime, trade.entryPrice, trade));
+            closes.add(replayPoint("close", trade.exitTime, trade.exitPrice, trade));
+            if (trade.stopPrice != null && trade.stopPrice.compareTo(BigDecimal.ZERO) > 0) {
+                stops.add(replayPoint("stop", trade.entryTime, trade.stopPrice, trade));
             }
-            appendAlignedTable(sb, tradeHeaders, tradeRows);
-            if (tradeList.size() > max) {
-                sb.append("\n");
-                sb.append("> trade rows truncated: ").append(tradeList.size() - max)
-                        .append(" not shown (limit=").append(max).append(")\n");
+            if (trade.takePrice != null && trade.takePrice.compareTo(BigDecimal.ZERO) > 0) {
+                takes.add(replayPoint("take", trade.entryTime, trade.takePrice, trade));
             }
-            sb.append("\n");
+        }
 
-            if (r.rejectReasonCounts != null && !r.rejectReasonCounts.isEmpty()) {
-                sb.append("### Reject Reasons").append("\n\n");
-                List<String> rejectHeaders = new ArrayList<>();
-                rejectHeaders.add("reason/reason");
-                rejectHeaders.add("count/count");
-                List<List<String>> rejectRows = new ArrayList<>();
-                for (Entry<String, Integer> entry : r.rejectReasonCounts.entrySet()) {
-                    List<String> row = new ArrayList<>();
-                    row.add(s(entry.getKey()));
-                    row.add(i(entry.getValue()));
-                    rejectRows.add(row);
+        replay.put("candles", candles);
+        replay.put("openPoints", opens);
+        replay.put("closePoints", closes);
+        replay.put("stopLines", stops);
+        replay.put("takeLines", takes);
+        return replay;
+    }
+
+    private Map<String, Object> replayPoint(String type, String time, BigDecimal price, TradeRecord trade) {
+        Map<String, Object> point = new LinkedHashMap<String, Object>();
+        point.put("type", type);
+        point.put("time", displayTime(time));
+        point.put("price", scale(price));
+        point.put("side", s(trade.side));
+        point.put("tradeNo", trade.tradeNo == null ? 0 : trade.tradeNo);
+        point.put("label", buildReplayLabel(type, trade));
+        return point;
+    }
+
+    private String buildReplayLabel(String type, TradeRecord trade) {
+        if ("open".equals(type)) {
+            return "\u5f00\u4ed3#" + (trade.tradeNo == null ? "" : trade.tradeNo);
+        }
+        if ("close".equals(type)) {
+            return "\u5e73\u4ed3#" + (trade.tradeNo == null ? "" : trade.tradeNo);
+        }
+        if ("stop".equals(type)) {
+            return "\u6b62\u635f\u4ef7";
+        }
+        if ("take".equals(type)) {
+            return "\u6b62\u76c8\u4ef7";
+        }
+        return type;
+    }
+
+    private ReplayWindow replayWindow(BacktestResult result) {
+        if (result != null && result.sliceResults != null && !result.sliceResults.isEmpty()) {
+            BacktestSliceResult last = result.sliceResults.get(result.sliceResults.size() - 1);
+            String fitBegin = defaultIfBlank(last.fitBegin, result.beginDate);
+            String fitEnd = defaultIfBlank(last.fitEnd, fitBegin);
+            String validateBegin = defaultIfBlank(last.validateBegin, fitEnd);
+            String validateEnd = defaultIfBlank(last.validateEnd, validateBegin);
+            String forwardBegin = defaultIfBlank(last.forwardBegin, validateEnd);
+            String forwardEnd = defaultIfBlank(last.forwardEnd, result.endDate);
+            return new ReplayWindow(fitBegin, forwardEnd, fitBegin, fitEnd, validateBegin, validateEnd, forwardBegin, forwardEnd);
+        }
+        String begin = s(result == null ? null : result.beginDate);
+        String end = s(result == null ? null : result.endDate);
+        return new ReplayWindow(begin, end, begin, end, begin, end, begin, end);
+    }
+
+    private Map<String, Object> buildPhaseWindow(ReplayWindow window) {
+        Map<String, Object> phaseWindow = new LinkedHashMap<String, Object>();
+        if (window == null) {
+            return phaseWindow;
+        }
+        phaseWindow.put("fitBegin", s(window.fitBegin));
+        phaseWindow.put("fitEnd", s(window.fitEnd));
+        phaseWindow.put("validateBegin", s(window.validateBegin));
+        phaseWindow.put("validateEnd", s(window.validateEnd));
+        phaseWindow.put("forwardBegin", s(window.forwardBegin));
+        phaseWindow.put("forwardEnd", s(window.forwardEnd));
+        return phaseWindow;
+    }
+    private boolean inReplayWindow(ReplayWindow window, String time) {
+        if (window == null || StringUtils.isBlank(time)) {
+            return false;
+        }
+        long ts = toEpochMillis(time);
+        long begin = toEpochMillis(window.begin);
+        long end = toEpochMillis(window.end);
+        if (ts < 0 || begin < 0 || end < 0) {
+            return true;
+        }
+        return ts >= begin && ts <= end + 86_400_000L;
+    }
+
+    private List<TTbookOhlc> shrinkCandles(List<TTbookOhlc> candles, int limit) {
+        if (candles == null || candles.size() <= limit) {
+            return candles == null ? Collections.<TTbookOhlc>emptyList() : candles;
+        }
+        List<TTbookOhlc> rows = new ArrayList<TTbookOhlc>();
+        int step = (int) Math.ceil((double) candles.size() / (double) limit);
+        for (int i = 0; i < candles.size(); i += step) {
+            rows.add(candles.get(i));
+        }
+        TTbookOhlc tail = candles.get(candles.size() - 1);
+        if (rows.isEmpty() || rows.get(rows.size() - 1) != tail) {
+            rows.add(tail);
+        }
+        return rows;
+    }
+
+    private String buildHtml(Map<String, Object> report) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> meta = (Map<String, Object>) report.get("reportMeta");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> summary = (Map<String, Object>) report.get("summary");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> gates = (Map<String, Object>) report.get("gates");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> results = (List<Map<String, Object>>) report.get("results");
+
+        StringBuilder html = new StringBuilder();
+        html.append("<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"UTF-8\">")
+                .append("<title>").append(escape(s(meta.get("strategyLabel")))).append(" \u56de\u6d4b\u62a5\u544a</title>")
+                .append("<style>")
+                .append("body{font-family:'Microsoft YaHei',sans-serif;background:#f5f7fb;color:#1f2937;margin:0;padding:24px;}")
+                .append(".page{max-width:1440px;margin:0 auto;}")
+                .append(".hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border-radius:20px;padding:28px 32px;margin-bottom:20px;}")
+                .append(".hero h1{margin:0 0 8px;font-size:30px;}")
+                .append(".hero p{margin:6px 0 0;color:#dbeafe;}")
+                .append(".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:18px 0;}")
+                .append(".card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:18px;box-shadow:0 8px 24px rgba(15,23,42,.06);}")
+                .append(".card h3{margin:0 0 10px;font-size:16px;color:#111827;}")
+                .append(".metric-label{font-size:12px;color:#6b7280;margin-bottom:8px;}")
+                .append(".metric-value{font-size:26px;font-weight:700;}")
+                .append(".pass{color:#047857;}.fail{color:#b91c1c;}.warn{color:#b45309;}")
+                .append(".section{margin-top:22px;}")
+                .append(".section h2{margin:0 0 14px;font-size:22px;}")
+                .append(".muted{color:#6b7280;}")
+                .append(".table-wrap{overflow:auto;border:1px solid #e5e7eb;border-radius:14px;background:#fff;}")
+                .append("table{width:100%;border-collapse:collapse;font-size:13px;}")
+                .append("th,td{padding:10px 12px;border-bottom:1px solid #eef2f7;text-align:left;white-space:nowrap;}")
+                .append("th{background:#f8fafc;color:#475569;position:sticky;top:0;}")
+                .append("tr:nth-child(even) td{background:#fcfdff;}")
+                .append(".svg-box{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:12px;}")
+                .append(".tips{background:#fff7ed;border:1px solid #fdba74;color:#9a3412;border-radius:14px;padding:14px 16px;}")
+                .append("</style></head><body><div class=\"page\">");
+
+        html.append("<div class=\"hero\"><h1>")
+                .append(escape(s(meta.get("strategyLabel"))))
+                .append(" \u4e2d\u6587\u56de\u6d4b\u62a5\u544a</h1><p>\u6807\u7684\uff1a")
+                .append(escape(joinSymbols(meta.get("symbols"))))
+                .append(" / \u5468\u671f\uff1a")
+                .append(escape(s(meta.get("text"))))
+                .append(" / \u65f6\u95f4\u7a97\u53e3\uff1a")
+                .append(escape(s(meta.get("beginDate"))))
+                .append(" ~ ")
+                .append(escape(s(meta.get("endDate"))))
+                .append(" / \u6a21\u5f0f\uff1a")
+                .append(escape(s(meta.get("windowMode"))))
+                .append("</p><p>\u751f\u6210\u65f6\u95f4\uff1a")
+                .append(escape(s(meta.get("generatedAt"))))
+                .append("</p></div>");
+
+        html.append("<div class=\"section\"><h2>\u7ed3\u8bba\u603b\u89c8</h2><div class=\"grid\">")
+                .append(statusCard("\u8fc7\u62df\u5408\u68c0\u67e5", isTrue(gates.get("overfitPass")) ? "\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5" : "\u672a\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5", s(gates.get("overfitReason")), isTrue(gates.get("overfitPass")) ? "pass" : "fail"))
+                .append(statusCard("\u76c8\u5229\u53d1\u5e03\u95e8\u69db", isTrue(gates.get("publishEligible")) ? "\u6ee1\u8db3\u4e0a\u7ebf\u524d\u76c8\u5229\u95e8\u69db" : "\u4e0d\u6ee1\u8db3\u4e0a\u7ebf\u524d\u76c8\u5229\u95e8\u69db", s(gates.get("publishReason")), isTrue(gates.get("publishEligible")) ? "pass" : "warn"))
+                .append(statusCard("\u5b9e\u76d8\u51c6\u5165\u7ed3\u679c", isTrue(gates.get("liveRegistryEntered")) ? "\u5df2\u8fdb\u5165\u5b9e\u76d8" : "\u672a\u8fdb\u5165\u5b9e\u76d8", isTrue(gates.get("liveRegistryEntered")) ? "\u5199\u5165\u7248\u672c\uff1a" + safeCell(gates.get("liveStrategyLabel")) + " / \u751f\u6548\u65f6\u95f4\uff1a" + safeCell(gates.get("liveEffectiveTime")) + " / \u72b6\u6001\uff1a" + safeCell(gates.get("liveStatus")) : s(gates.get("liveRegistryReason")), isTrue(gates.get("liveRegistryEntered")) ? "pass" : "fail"))
+                .append("</div></div>");
+
+        html.append("<div class=\"section\"><h2>\u6c47\u603b\u6307\u6807</h2><div class=\"grid\">")
+                .append(metric("Fit \u6536\u76ca", summary.get("fitPnl")))
+                .append(metric("Validate \u6536\u76ca", summary.get("validatePnl")))
+                .append(metric("Forward \u6536\u76ca", summary.get("forwardPnl")))
+                .append(metric("\u603b\u6536\u76ca", summary.get("totalPnl")))
+                .append(metric("Forward Score", summary.get("forwardScore")))
+                .append(metric("\u4ea4\u6613\u7b14\u6570", summary.get("tradeCount")))
+                .append(metric("\u6700\u5927\u56de\u64a4", summary.get("maxDrawdownPct")))
+                .append(metric("\u603b\u624b\u7eed\u8d39", summary.get("totalFee")))
+                .append("</div></div>");
+
+        html.append("<div class=\"section\"><div class=\"tips\">")
+                .append(isTrue(gates.get("liveRegistryEntered")) ? "\u8be5\u7b56\u7565\u5df2\u6ee1\u8db3\u56de\u6d4b\u4e0e\u53d1\u5e03\u95e8\u69db\uff0c\u5e76\u5df2\u8fdb\u5165 live_registry\u3002" : "\u8be5\u7b56\u7565\u672a\u8fdb\u5165\u5b9e\u76d8\uff0c\u539f\u56e0\uff1a" + escape(s(gates.get("liveRegistryReason"))))
+                .append("</div></div>");
+
+        for (Map<String, Object> item : results) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> itemSummary = (Map<String, Object>) item.get("summary");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> equityCurve = (List<Map<String, Object>>) item.get("equityCurve");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> replay = (Map<String, Object>) item.get("symbolReplay");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> slices = (List<Map<String, Object>>) item.get("sliceDetails");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> trades = (List<Map<String, Object>>) item.get("tradeDetails");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rejectReasons = (List<Map<String, Object>>) item.get("rejectReasons");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> phaseWindow = replay == null ? null : (Map<String, Object>) replay.get("phaseWindow");
+
+            html.append("<div class=\"section\"><h2>").append(escape(s(item.get("symbol")))).append(" / ").append(escape(s(item.get("text")))).append("</h2><div class=\"grid\">")
+                    .append(metric("\u6700\u7ec8\u8d44\u91d1", itemSummary.get("finalCapital")))
+                    .append(metric("\u80dc\u7387%", itemSummary.get("winRate")))
+                    .append(metric("Maker \u624b\u7eed\u8d39", itemSummary.get("entryFeeTotal")))
+                    .append(metric("Taker \u624b\u7eed\u8d39", itemSummary.get("exitFeeTotal")))
+                    .append("</div></div>");
+
+            html.append("<div class=\"section\"><h2>\u8d26\u6237\u4f59\u989d\u53d8\u52a8\u66f2\u7ebf</h2><div class=\"svg-box\">").append(renderEquitySvg(equityCurve, phaseWindow)).append("</div></div>");
+            html.append("<div class=\"section\"><h2>\u5355\u54c1\u79cd\u56fe\u5f62\u590d\u76d8</h2><div class=\"svg-box\">").append(renderReplaySvg(replay)).append("</div></div>");
+            html.append("<div class=\"section\"><h2>Walk-forward \u5207\u7247\u660e\u7ec6</h2>").append(renderTable(new String[]{"\u5207\u7247", "Fit \u5f00\u59cb", "Fit \u7ed3\u675f", "Validate \u6536\u76ca", "Forward \u6536\u76ca", "Validate \u4ea4\u6613\u6570", "Forward \u4ea4\u6613\u6570"}, slices, new String[]{"sliceNo", "fitBegin", "fitEnd", "validatePnl", "forwardPnl", "validateTradeCount", "forwardTradeCount"})).append("</div>");
+            html.append("<div class=\"section\"><h2>\u5355\u7b14\u4ea4\u6613\u660e\u7ec6</h2>").append(renderTable(new String[]{"\u7f16\u53f7", "\u65b9\u5411", "\u5f00\u4ed3\u65f6\u95f4", "\u5f00\u4ed3\u4ef7", "\u5e73\u4ed3\u65f6\u95f4", "\u5e73\u4ed3\u4ef7", "\u6536\u76ca", "\u624b\u7eed\u8d39", "\u9000\u51fa\u539f\u56e0"}, trades, new String[]{"tradeNo", "side", "entryTime", "entryPrice", "exitTime", "exitPrice", "pnl", "totalFee", "exitReason"})).append("</div>");
+            html.append("<div class=\"section\"><h2>\u62d2\u5355\u539f\u56e0\u7edf\u8ba1</h2>").append(renderTable(new String[]{"\u539f\u56e0", "\u6b21\u6570"}, rejectReasons, new String[]{"reason", "count"})).append("</div>");
+        }
+
+        html.append("</div></body></html>");
+        return html.toString();
+    }
+    private String statusCard(String title, String value, String desc, String clazz) {
+        StringBuilder html = new StringBuilder();
+        html.append("<div class=\"card\"><h3>").append(escape(title)).append("</h3>")
+                .append("<div class=\"metric-value ").append(clazz).append("\">").append(escape(value)).append("</div>")
+                .append("<div class=\"muted\" style=\"margin-top:10px;line-height:1.7;\">").append(escape(desc)).append("</div>")
+                .append("</div>");
+        return html.toString();
+    }
+
+    private String metric(String label, Object value) {
+        return "<div class=\"card\"><div class=\"metric-label\">" + escape(label)
+                + "</div><div class=\"metric-value\">" + escape(s(value))
+                + "</div></div>";
+    }
+
+    private String renderTable(String[] headers, List<Map<String, Object>> rows, String[] keys) {
+        StringBuilder html = new StringBuilder();
+        html.append("<div class=\"table-wrap\"><table><thead><tr>");
+        for (String header : headers) {
+            html.append("<th>").append(escape(header)).append("</th>");
+        }
+        html.append("</tr></thead><tbody>");
+        if (rows == null || rows.isEmpty()) {
+            html.append("<tr><td colspan=\"").append(headers.length).append("\">\u6682\u65e0\u6570\u636e</td></tr>");
+        } else {
+            for (Map<String, Object> row : rows) {
+                html.append("<tr>");
+                for (String key : keys) {
+                    html.append("<td>").append(safeCell(row.get(key))).append("</td>");
                 }
-                appendAlignedTable(sb, rejectHeaders, rejectRows);
-                sb.append("\n");
+                html.append("</tr>");
             }
         }
-        return sb.toString();
+        html.append("</tbody></table></div>");
+        return html.toString();
     }
 
-    private String buildCompareMarkdown(BacktestResponse response) {
-        List<BacktestResult> results = response.results == null
-                ? Collections.<BacktestResult>emptyList()
-                : response.results;
-        Map<String, Map<String, BacktestResult>> bySymbol = new LinkedHashMap<>();
+    private String renderEquitySvg(List<Map<String, Object>> points, Map<String, Object> phaseWindow) {
+        if (points == null || points.isEmpty()) {
+            return "<div class=\"muted\">\u6682\u65e0\u6743\u76ca\u66f2\u7ebf\u6570\u636e</div>";
+        }
+        int width = 1180;
+        int height = 320;
+        int paddingLeft = 60;
+        int paddingRight = 20;
+        int paddingTop = 40;
+        int paddingBottom = 40;
+        BigDecimal min = null;
+        BigDecimal max = null;
+        for (Map<String, Object> point : points) {
+            BigDecimal v = n(point.get("equity"));
+            min = min == null ? v : min.min(v);
+            max = max == null ? v : max.max(v);
+        }
+        if (min == null || max == null) {
+            min = BigDecimal.ZERO;
+            max = BigDecimal.ONE;
+        }
+        if (min.compareTo(max) == 0) {
+            max = max.add(BigDecimal.ONE);
+        }
+        StringBuilder polyline = new StringBuilder();
+        for (int i = 0; i < points.size(); i++) {
+            Map<String, Object> point = points.get(i);
+            double x = projectX(i, points.size(), width, paddingLeft, paddingRight);
+            double y = projectY(n(point.get("equity")), min, max, height, paddingTop, paddingBottom);
+            if (polyline.length() > 0) {
+                polyline.append(" ");
+            }
+            polyline.append(format(x)).append(",").append(format(y));
+        }
+        String startLabel = safeCell(points.get(0).get("time"));
+        String endLabel = safeCell(points.get(points.size() - 1).get("time"));
+        long rangeBegin = toEpochMillis(s(points.get(0).get("time")));
+        long rangeEnd = toEpochMillis(s(points.get(points.size() - 1).get("time")));
+
+        return "<svg viewBox=\"0 0 " + width + " " + height + "\" width=\"100%\" height=\"320\">"
+                + "<rect x=\"0\" y=\"0\" width=\"" + width + "\" height=\"" + height + "\" fill=\"#ffffff\"/>"
+                + renderPhaseDecorationsByTime(phaseWindow, rangeBegin, rangeEnd, width, height, paddingLeft, paddingRight, paddingTop, paddingBottom)
+                + "<line x1=\"" + paddingLeft + "\" y1=\"" + (height - paddingBottom) + "\" x2=\"" + (width - paddingRight) + "\" y2=\"" + (height - paddingBottom) + "\" stroke=\"#cbd5e1\"/>"
+                + "<line x1=\"" + paddingLeft + "\" y1=\"" + paddingTop + "\" x2=\"" + paddingLeft + "\" y2=\"" + (height - paddingBottom) + "\" stroke=\"#cbd5e1\"/>"
+                + "<polyline fill=\"none\" stroke=\"#2563eb\" stroke-width=\"3\" points=\"" + polyline + "\"/>"
+                + "<text x=\"" + paddingLeft + "\" y=\"" + (height - 12) + "\" font-size=\"12\" fill=\"#64748b\">" + startLabel + "</text>"
+                + "<text x=\"" + (width - 220) + "\" y=\"" + (height - 12) + "\" font-size=\"12\" fill=\"#64748b\">" + endLabel + "</text>"
+                + "<text x=\"10\" y=\"" + paddingTop + "\" font-size=\"12\" fill=\"#64748b\">" + safeCell(scale(max)) + " USDT</text>"
+                + "<text x=\"10\" y=\"" + (height - paddingBottom) + "\" font-size=\"12\" fill=\"#64748b\">" + safeCell(scale(min)) + " USDT</text>"
+                + "</svg>";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String renderReplaySvg(Map<String, Object> replay) {
+        if (replay == null) {
+            return "<div class=\"muted\">\u6682\u65e0\u56fe\u5f62\u590d\u76d8\u6570\u636e</div>";
+        }
+        List<Map<String, Object>> candles = (List<Map<String, Object>>) replay.get("candles");
+        if (candles == null || candles.isEmpty()) {
+            return "<div class=\"muted\">\u6682\u65e0\u56fe\u5f62\u590d\u76d8\u6570\u636e</div>";
+        }
+
+        int width = 1180;
+        int height = 420;
+        int paddingLeft = 70;
+        int paddingRight = 20;
+        int paddingTop = 40;
+        int paddingBottom = 40;
+
+        BigDecimal min = null;
+        BigDecimal max = null;
+        for (Map<String, Object> candle : candles) {
+            BigDecimal high = n(candle.get("high"));
+            BigDecimal low = n(candle.get("low"));
+            min = min == null ? low : min.min(low);
+            max = max == null ? high : max.max(high);
+        }
+        List<Map<String, Object>> openPoints = (List<Map<String, Object>>) replay.get("openPoints");
+        List<Map<String, Object>> closePoints = (List<Map<String, Object>>) replay.get("closePoints");
+        List<Map<String, Object>> stopLines = (List<Map<String, Object>>) (replay.containsKey("stopLines") ? replay.get("stopLines") : replay.get("stopPoints"));
+        List<Map<String, Object>> takeLines = (List<Map<String, Object>>) (replay.containsKey("takeLines") ? replay.get("takeLines") : replay.get("takePoints"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> phaseWindow = (Map<String, Object>) replay.get("phaseWindow");
+
+        for (List<Map<String, Object>> marks : new List[]{openPoints, closePoints, stopLines, takeLines}) {
+            if (marks == null) {
+                continue;
+            }
+            for (Map<String, Object> mark : marks) {
+                BigDecimal price = n(mark.get("price"));
+                min = min == null ? price : min.min(price);
+                max = max == null ? price : max.max(price);
+            }
+        }
+        if (min == null || max == null) {
+            min = BigDecimal.ZERO;
+            max = BigDecimal.ONE;
+        }
+        if (min.compareTo(max) == 0) {
+            max = max.add(BigDecimal.ONE);
+        }
+
+        StringBuilder body = new StringBuilder();
+        double candleWidth = Math.max(2D, ((double) (width - paddingLeft - paddingRight) / Math.max(1, candles.size())) * 0.7D);
+        for (int i = 0; i < candles.size(); i++) {
+            Map<String, Object> candle = candles.get(i);
+            double x = projectX(i, candles.size(), width, paddingLeft, paddingRight);
+            BigDecimal open = n(candle.get("open"));
+            BigDecimal high = n(candle.get("high"));
+            BigDecimal low = n(candle.get("low"));
+            BigDecimal close = n(candle.get("close"));
+            double yHigh = projectY(high, min, max, height, paddingTop, paddingBottom);
+            double yLow = projectY(low, min, max, height, paddingTop, paddingBottom);
+            double yOpen = projectY(open, min, max, height, paddingTop, paddingBottom);
+            double yClose = projectY(close, min, max, height, paddingTop, paddingBottom);
+            String color = close.compareTo(open) >= 0 ? "#16a34a" : "#dc2626";
+            double rectY = Math.min(yOpen, yClose);
+            double rectH = Math.max(1D, Math.abs(yOpen - yClose));
+            body.append("<line x1=\"").append(format(x)).append("\" y1=\"").append(format(yHigh)).append("\" x2=\"").append(format(x)).append("\" y2=\"").append(format(yLow)).append("\" stroke=\"").append(color).append("\" stroke-width=\"1.2\"/>");
+            body.append("<rect x=\"").append(format(x - candleWidth / 2D)).append("\" y=\"").append(format(rectY)).append("\" width=\"").append(format(candleWidth)).append("\" height=\"").append(format(rectH)).append("\" fill=\"").append(color).append("\" opacity=\"0.75\"/>");
+        }
+
+        long rangeBegin = toEpochMillis(candleTime(candles.get(0)));
+        long rangeEnd = toEpochMillis(candleTime(candles.get(candles.size() - 1)));
+        StringBuilder marks = new StringBuilder();
+        renderReplayMarks(marks, candles, stopLines, min, max, width, height, paddingLeft, paddingRight, paddingTop, paddingBottom, "#dc2626");
+        renderReplayMarks(marks, candles, takeLines, min, max, width, height, paddingLeft, paddingRight, paddingTop, paddingBottom, "#7c3aed");
+        renderReplayMarks(marks, candles, openPoints, min, max, width, height, paddingLeft, paddingRight, paddingTop, paddingBottom, "#2563eb");
+        renderReplayMarks(marks, candles, closePoints, min, max, width, height, paddingLeft, paddingRight, paddingTop, paddingBottom, "#f59e0b");
+
+        String startLabel = safeCell(candleTime(candles.get(0)));
+        String endLabel = safeCell(candleTime(candles.get(candles.size() - 1)));
+        return "<svg viewBox=\"0 0 " + width + " " + height + "\" width=\"100%\" height=\"420\">"
+                + "<rect x=\"0\" y=\"0\" width=\"" + width + "\" height=\"" + height + "\" fill=\"#ffffff\"/>"
+                + renderPhaseDecorationsByTime(phaseWindow, rangeBegin, rangeEnd, width, height, paddingLeft, paddingRight, paddingTop, paddingBottom)
+                + "<line x1=\"" + paddingLeft + "\" y1=\"" + (height - paddingBottom) + "\" x2=\"" + (width - paddingRight) + "\" y2=\"" + (height - paddingBottom) + "\" stroke=\"#cbd5e1\"/>"
+                + "<line x1=\"" + paddingLeft + "\" y1=\"" + paddingTop + "\" x2=\"" + paddingLeft + "\" y2=\"" + (height - paddingBottom) + "\" stroke=\"#cbd5e1\"/>"
+                + body + marks
+                + "<text x=\"" + paddingLeft + "\" y=\"" + (height - 12) + "\" font-size=\"12\" fill=\"#64748b\">" + startLabel + "</text>"
+                + "<text x=\"" + (width - 220) + "\" y=\"" + (height - 12) + "\" font-size=\"12\" fill=\"#64748b\">" + endLabel + "</text>"
+                + "<text x=\"10\" y=\"" + paddingTop + "\" font-size=\"12\" fill=\"#64748b\">" + safeCell(scale(max)) + "</text>"
+                + "<text x=\"10\" y=\"" + (height - paddingBottom) + "\" font-size=\"12\" fill=\"#64748b\">" + safeCell(scale(min)) + "</text>"
+                + "</svg>";
+    }
+
+    private void renderReplayMarks(StringBuilder svg,
+                                   List<Map<String, Object>> candles,
+                                   List<Map<String, Object>> marks,
+                                   BigDecimal min,
+                                   BigDecimal max,
+                                   int width,
+                                   int height,
+                                   int paddingLeft,
+                                   int paddingRight,
+                                   int paddingTop,
+                                   int paddingBottom,
+                                   String color) {
+        if (marks == null || marks.isEmpty()) {
+            return;
+        }
+        for (Map<String, Object> mark : marks) {
+            int idx = findNearestIndex(candles, s(mark.get("time")));
+            double x = projectX(idx, candles.size(), width, paddingLeft, paddingRight);
+            double y = projectY(n(mark.get("price")), min, max, height, paddingTop, paddingBottom);
+            String tooltip = safeCell(mark.get("label")) + " / " + safeCell(mark.get("time")) + " / " + safeCell(mark.get("price"));
+            svg.append("<g><title>").append(tooltip).append("</title><circle cx=\"").append(format(x)).append("\" cy=\"").append(format(y)).append("\" r=\"4\" fill=\"").append(color).append("\"/></g>");
+        }
+    }
+
+    private String renderPhaseDecorationsByTime(Map<String, Object> phaseWindow,
+                                                long rangeBegin,
+                                                long rangeEnd,
+                                                int width,
+                                                int height,
+                                                int paddingLeft,
+                                                int paddingRight,
+                                                int paddingTop,
+                                                int paddingBottom) {
+        if (phaseWindow == null || phaseWindow.isEmpty() || rangeBegin < 0 || rangeEnd < 0 || rangeBegin >= rangeEnd) {
+            return "";
+        }
+        StringBuilder svg = new StringBuilder();
+        appendPhaseBand(svg, phaseWindow, "fitBegin", "fitEnd", "Fit", "#dbeafe", "#93c5fd", rangeBegin, rangeEnd, width, height, paddingLeft, paddingRight, paddingTop, paddingBottom);
+        appendPhaseBand(svg, phaseWindow, "validateBegin", "validateEnd", "Validate", "#ffedd5", "#fdba74", rangeBegin, rangeEnd, width, height, paddingLeft, paddingRight, paddingTop, paddingBottom);
+        appendPhaseBand(svg, phaseWindow, "forwardBegin", "forwardEnd", "Forward", "#dcfce7", "#86efac", rangeBegin, rangeEnd, width, height, paddingLeft, paddingRight, paddingTop, paddingBottom);
+        appendPhaseBoundary(svg, phaseWindow.get("validateBegin"), rangeBegin, rangeEnd, width, height, paddingLeft, paddingRight, paddingTop, paddingBottom);
+        appendPhaseBoundary(svg, phaseWindow.get("forwardBegin"), rangeBegin, rangeEnd, width, height, paddingLeft, paddingRight, paddingTop, paddingBottom);
+        svg.append("<g font-size=\"12\" fill=\"#475569\">");
+        svg.append("<rect x=\"").append(width - 290).append("\" y=\"10\" width=\"10\" height=\"10\" fill=\"#dbeafe\" stroke=\"#93c5fd\"/>").append("<text x=\"").append(width - 274).append("\" y=\"19\">Fit</text>");
+        svg.append("<rect x=\"").append(width - 220).append("\" y=\"10\" width=\"10\" height=\"10\" fill=\"#ffedd5\" stroke=\"#fdba74\"/>").append("<text x=\"").append(width - 204).append("\" y=\"19\">Validate</text>");
+        svg.append("<rect x=\"").append(width - 122).append("\" y=\"10\" width=\"10\" height=\"10\" fill=\"#dcfce7\" stroke=\"#86efac\"/>").append("<text x=\"").append(width - 106).append("\" y=\"19\">Forward</text>");
+        svg.append("</g>");
+        return svg.toString();
+    }
+
+    private void appendPhaseBand(StringBuilder svg,
+                                 Map<String, Object> phaseWindow,
+                                 String beginKey,
+                                 String endKey,
+                                 String label,
+                                 String fill,
+                                 String stroke,
+                                 long rangeBegin,
+                                 long rangeEnd,
+                                 int width,
+                                 int height,
+                                 int paddingLeft,
+                                 int paddingRight,
+                                 int paddingTop,
+                                 int paddingBottom) {
+        long phaseBegin = toEpochMillis(s(phaseWindow.get(beginKey)));
+        long phaseEnd = toEpochMillis(s(phaseWindow.get(endKey)));
+        if (phaseBegin < 0 || phaseEnd < 0 || phaseEnd <= rangeBegin || phaseBegin >= rangeEnd) {
+            return;
+        }
+        long clippedBegin = Math.max(phaseBegin, rangeBegin);
+        long clippedEnd = Math.min(phaseEnd, rangeEnd);
+        double x1 = projectTimeX(clippedBegin, rangeBegin, rangeEnd, width, paddingLeft, paddingRight);
+        double x2 = projectTimeX(clippedEnd, rangeBegin, rangeEnd, width, paddingLeft, paddingRight);
+        if (x2 < x1) {
+            double swap = x1;
+            x1 = x2;
+            x2 = swap;
+        }
+        double plotHeight = height - paddingTop - paddingBottom;
+        svg.append("<rect x=\"").append(format(x1)).append("\" y=\"").append(paddingTop).append("\" width=\"").append(format(Math.max(1D, x2 - x1))).append("\" height=\"").append(format(plotHeight)).append("\" fill=\"").append(fill).append("\" stroke=\"").append(stroke).append("\" stroke-width=\"1\" opacity=\"0.35\"/>");
+        svg.append("<text x=\"").append(format(x1 + 6D)).append("\" y=\"").append(paddingTop + 16).append("\" font-size=\"12\" fill=\"#334155\">").append(label).append("</text>");
+    }
+
+    private void appendPhaseBoundary(StringBuilder svg,
+                                     Object boundaryTime,
+                                     long rangeBegin,
+                                     long rangeEnd,
+                                     int width,
+                                     int height,
+                                     int paddingLeft,
+                                     int paddingRight,
+                                     int paddingTop,
+                                     int paddingBottom) {
+        long boundary = toEpochMillis(s(boundaryTime));
+        if (boundary < 0 || boundary <= rangeBegin || boundary >= rangeEnd) {
+            return;
+        }
+        double x = projectTimeX(boundary, rangeBegin, rangeEnd, width, paddingLeft, paddingRight);
+        svg.append("<line x1=\"").append(format(x)).append("\" y1=\"").append(paddingTop).append("\" x2=\"").append(format(x)).append("\" y2=\"").append(height - paddingBottom).append("\" stroke=\"#64748b\" stroke-width=\"1.5\" stroke-dasharray=\"5 4\"/>");
+    }
+
+    private String candleTime(Map<String, Object> candle) {
+        if (candle == null) {
+            return "";
+        }
+        String time = s(candle.get("time"));
+        if (StringUtils.isNotBlank(time)) {
+            return time;
+        }
+        return displayTime(s(candle.get("start_time")));
+    }
+    private int findNearestIndex(List<Map<String, Object>> candles, String time) {
+        if (candles == null || candles.isEmpty()) {
+            return 0;
+        }
+        long target = toEpochMillis(time);
+        if (target < 0) {
+            return 0;
+        }
+        int best = 0;
+        long bestGap = Long.MAX_VALUE;
+        for (int i = 0; i < candles.size(); i++) {
+            long current = toEpochMillis(s(candles.get(i).get("time")));
+            long gap = Math.abs(current - target);
+            if (gap < bestGap) {
+                bestGap = gap;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    private String buildMarkdown(Map<String, Object> report) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> meta = (Map<String, Object>) report.get("reportMeta");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> summary = (Map<String, Object>) report.get("summary");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> gates = (Map<String, Object>) report.get("gates");
+
+        StringBuilder md = new StringBuilder();
+        md.append("# ").append(s(meta.get("strategyLabel"))).append(" \u56de\u6d4b\u62a5\u544a\\n\\n");
+        md.append("- \u6807\u7684\uff1a").append(joinSymbols(meta.get("symbols"))).append("\\n");
+        md.append("- \u5468\u671f\uff1a").append(s(meta.get("text"))).append("\\n");
+        md.append("- \u65f6\u95f4\u8303\u56f4\uff1a").append(s(meta.get("beginDate"))).append(" ~ ").append(s(meta.get("endDate"))).append("\\n");
+        md.append("- \u8fc7\u62df\u5408\u68c0\u67e5\uff1a").append(isTrue(gates.get("overfitPass")) ? "\u901a\u8fc7" : "\u672a\u901a\u8fc7")
+                .append("\uff1b\u539f\u56e0\uff1a").append(s(gates.get("overfitReason"))).append("\\n");
+        md.append("- \u76c8\u5229\u53d1\u5e03\u95e8\u69db\uff1a").append(isTrue(gates.get("publishEligible")) ? "\u6ee1\u8db3" : "\u4e0d\u6ee1\u8db3")
+                .append("\uff1b\u539f\u56e0\uff1a").append(s(gates.get("publishReason"))).append("\\n");
+        md.append("- \u5b9e\u76d8\u51c6\u5165\u7ed3\u679c\uff1a").append(isTrue(gates.get("liveRegistryEntered")) ? "\u5df2\u8fdb\u5165\u5b9e\u76d8" : "\u672a\u8fdb\u5165\u5b9e\u76d8")
+                .append("\uff1b\u539f\u56e0\uff1a").append(s(gates.get("liveRegistryReason"))).append("\\n\\n");
+        md.append("## \u6c47\u603b\u6307\u6807\\n\\n");
+        md.append("| \u6307\u6807 | \u6570\u503c |\\n|---|---|\\n");
+        md.append("| Fit \u6536\u76ca | ").append(s(summary.get("fitPnl"))).append(" |\\n");
+        md.append("| Validate \u6536\u76ca | ").append(s(summary.get("validatePnl"))).append(" |\\n");
+        md.append("| Forward \u6536\u76ca | ").append(s(summary.get("forwardPnl"))).append(" |\\n");
+        md.append("| \u603b\u6536\u76ca | ").append(s(summary.get("totalPnl"))).append(" |\\n");
+        md.append("| Forward Score | ").append(s(summary.get("forwardScore"))).append(" |\\n");
+        md.append("| \u603b\u624b\u7eed\u8d39 | ").append(s(summary.get("totalFee"))).append(" |\\n");
+        return md.toString();
+    }
+
+    private boolean isPublishEligible(BacktestResponse response, StrategyCandidateRow candidate) {
+        return response != null
+                && response.overfitPass != null
+                && response.overfitPass.intValue() > 0
+                && gt(response.validatePnl, BigDecimal.ZERO)
+                && gt(response.forwardPnl, BigDecimal.ZERO)
+                && gt(response.totalPnl, BigDecimal.ZERO)
+                && gt(avgForwardScore(response.results), BigDecimal.ZERO)
+                && candidate != null
+                && StringUtils.isNotBlank(candidate.description);
+    }
+
+    private String publishReason(BacktestResponse response, StrategyCandidateRow candidate) {
+        if (candidate == null) {
+            return "candidate \u4e0d\u5b58\u5728";
+        }
+        if (StringUtils.isBlank(candidate.description)) {
+            return "candidate.description \u4e3a\u7a7a";
+        }
+        if (response == null) {
+            return "\u5c1a\u672a\u751f\u6210\u56de\u6d4b\u7ed3\u679c";
+        }
+        if (response.overfitPass == null || response.overfitPass.intValue() <= 0) {
+            return "\u672a\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5";
+        }
+        if (!gt(response.validatePnl, BigDecimal.ZERO)) {
+            return "validate_pnl <= 0";
+        }
+        if (!gt(response.forwardPnl, BigDecimal.ZERO)) {
+            return "forward_pnl <= 0";
+        }
+        if (!gt(response.totalPnl, BigDecimal.ZERO)) {
+            return "total_pnl <= 0";
+        }
+        if (!gt(avgForwardScore(response.results), BigDecimal.ZERO)) {
+            return "forward_score <= 0";
+        }
+        return "\u6ee1\u8db3\u4e0a\u7ebf\u524d\u76c8\u5229\u95e8\u69db";
+    }
+
+    private BigDecimal avgForwardScore(List<BacktestResult> results) {
+        if (results == null || results.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal sum = BigDecimal.ZERO;
+        int count = 0;
         for (BacktestResult result : results) {
-            if (result == null || result.symbol == null || result.strategyName == null) {
+            if (result == null) {
                 continue;
             }
-            bySymbol.computeIfAbsent(result.symbol, key -> new LinkedHashMap<>())
-                    .put(s(result.strategyVersion), result);
+            sum = sum.add(nz(result.forwardScore));
+            count++;
         }
-
-        String baseVersion = s(response.baselineVersion);
-        String candidateVersion = s(response.strategyVersion);
-        if (baseVersion.isEmpty() || candidateVersion.isEmpty()) {
-            return "";
+        if (count <= 0) {
+            return BigDecimal.ZERO;
         }
-        List<CompareRow> compareRows = new ArrayList<>();
-        for (Map.Entry<String, Map<String, BacktestResult>> entry : bySymbol.entrySet()) {
-            BacktestResult base = entry.getValue().get(baseVersion);
-            BacktestResult candidate = entry.getValue().get(candidateVersion);
-            if (base == null || candidate == null) {
-                continue;
-            }
-            compareRows.add(buildCompareRow(entry.getKey(), base, candidate));
-        }
-        if (compareRows.isEmpty()) {
-            return "";
-        }
-        compareRows.sort(Comparator.comparing(row -> row.symbol));
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("# Backtest Compare Report").append("\n\n");
-        sb.append("- baseStrategy: ").append(strategyLabel(response.strategyName, baseVersion)).append("\n");
-        sb.append("- candidateStrategy: ").append(strategyLabel(response.strategyName, candidateVersion)).append("\n");
-        sb.append("- symbol: ").append(s(response.symbol)).append("\n");
-        if (response.symbols != null && !response.symbols.isEmpty()) {
-            sb.append("- symbols: ").append(joinSymbols(response.symbols)).append("\n");
-        }
-        sb.append("- timeframe: ").append(s(response.text)).append("\n");
-        sb.append("- beginDate: ").append(s(response.beginDate)).append("\n");
-        sb.append("- endDate: ").append(s(response.endDate)).append("\n");
-        sb.append("- generatedAt: ").append(LocalDateTime.now()).append("\n\n");
-
-        sb.append("## Compare Summary").append("\n\n");
-        List<String> headers = new ArrayList<>();
-        headers.add("symbol/symbol");
-        headers.add("baseTrades");
-        headers.add("guardedTrades");
-        headers.add("tradesDelta");
-        headers.add("baseStopExit");
-        headers.add("guardedStopExit");
-        headers.add("stopExitDelta");
-        headers.add("baseStopExitLoss");
-        headers.add("guardedStopExitLoss");
-        headers.add("stopExitLossDelta");
-        headers.add("baseTakeExit");
-        headers.add("guardedTakeExit");
-        headers.add("takeExitDelta");
-        headers.add("baseWinRate");
-        headers.add("guardedWinRate");
-        headers.add("winRateDelta");
-        headers.add("baseReturnPct");
-        headers.add("guardedReturnPct");
-        headers.add("returnDelta");
-        headers.add("baseDrawdown");
-        headers.add("guardedDrawdown");
-        headers.add("drawdownDelta");
-        headers.add("basePnl");
-        headers.add("guardedPnl");
-        headers.add("pnlDelta");
-
-        List<List<String>> rows = new ArrayList<>();
-        for (CompareRow row : compareRows) {
-            List<String> cells = new ArrayList<>();
-            cells.add(s(row.symbol));
-            cells.add(i(row.baseTrades));
-            cells.add(i(row.guardedTrades));
-            cells.add(i(row.tradesDelta));
-            cells.add(i(row.baseStopExitCount));
-            cells.add(i(row.guardedStopExitCount));
-            cells.add(i(row.stopExitDelta));
-            cells.add(i(row.baseStopExitLossCount));
-            cells.add(i(row.guardedStopExitLossCount));
-            cells.add(i(row.stopExitLossDelta));
-            cells.add(i(row.baseTakeExitCount));
-            cells.add(i(row.guardedTakeExitCount));
-            cells.add(i(row.takeExitDelta));
-            cells.add(n(row.baseWinRate));
-            cells.add(n(row.guardedWinRate));
-            cells.add(n(row.winRateDelta));
-            cells.add(n(row.baseReturnPct));
-            cells.add(n(row.guardedReturnPct));
-            cells.add(n(row.returnDelta));
-            cells.add(n(row.baseDrawdownPct));
-            cells.add(n(row.guardedDrawdownPct));
-            cells.add(n(row.drawdownDelta));
-            cells.add(n(row.basePnl));
-            cells.add(n(row.guardedPnl));
-            cells.add(n(row.pnlDelta));
-            rows.add(cells);
-        }
-        appendAlignedTable(sb, headers, rows);
-        sb.append("\n");
-        return sb.toString();
+        return sum.divide(BigDecimal.valueOf(count), 6, RoundingMode.HALF_UP);
     }
 
-    private CompareRow buildCompareRow(String symbol, BacktestResult base, BacktestResult candidate) {
-        CompareRow row = new CompareRow();
-        row.symbol = symbol;
-        row.baseTrades = nzInt(base.tradeCount);
-        row.guardedTrades = nzInt(candidate.tradeCount);
-        row.tradesDelta = row.guardedTrades - row.baseTrades;
-        row.baseStopExitCount = nzInt(base.stopExitCount);
-        row.guardedStopExitCount = nzInt(candidate.stopExitCount);
-        row.stopExitDelta = row.guardedStopExitCount - row.baseStopExitCount;
-        row.baseStopExitLossCount = nzInt(base.stopExitLossCount);
-        row.guardedStopExitLossCount = nzInt(candidate.stopExitLossCount);
-        row.stopExitLossDelta = row.guardedStopExitLossCount - row.baseStopExitLossCount;
-        row.baseTakeExitCount = nzInt(base.takeExitCount);
-        row.guardedTakeExitCount = nzInt(candidate.takeExitCount);
-        row.takeExitDelta = row.guardedTakeExitCount - row.baseTakeExitCount;
-        row.baseWinRate = nz(base.winRate);
-        row.guardedWinRate = nz(candidate.winRate);
-        row.winRateDelta = scale(row.guardedWinRate.subtract(row.baseWinRate));
-        row.baseReturnPct = nz(base.totalReturnPct);
-        row.guardedReturnPct = nz(candidate.totalReturnPct);
-        row.returnDelta = scale(row.guardedReturnPct.subtract(row.baseReturnPct));
-        row.baseDrawdownPct = nz(base.maxDrawdownPct);
-        row.guardedDrawdownPct = nz(candidate.maxDrawdownPct);
-        row.drawdownDelta = scale(row.guardedDrawdownPct.subtract(row.baseDrawdownPct));
-        row.basePnl = nz(calcTotalPnl(base.initialCapital, base.finalCapital));
-        row.guardedPnl = nz(calcTotalPnl(candidate.initialCapital, candidate.finalCapital));
-        row.pnlDelta = scale(row.guardedPnl.subtract(row.basePnl));
-        return row;
+    private String translateReason(String raw) {
+        if (StringUtils.isBlank(raw)) {
+            return "";
+        }
+        String value = raw.trim();
+        if ("candidate description is blank".equalsIgnoreCase(value)) {
+            return "candidate.description \u4e3a\u7a7a";
+        }
+        if ("window_mode is not WALK_FORWARD".equalsIgnoreCase(value)) {
+            return "window_mode \u4e0d\u662f WALK_FORWARD";
+        }
+        if ("slice_count < 3".equalsIgnoreCase(value)) {
+            return "slice_count < 3";
+        }
+        if ("overfit gate not passed".equalsIgnoreCase(value)) {
+            return "\u672a\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5";
+        }
+        if ("validate_pnl <= 0".equalsIgnoreCase(value)) {
+            return "validate_pnl <= 0";
+        }
+        if ("forward_pnl <= 0".equalsIgnoreCase(value)) {
+            return "forward_pnl <= 0";
+        }
+        if ("total_pnl <= 0".equalsIgnoreCase(value)) {
+            return "total_pnl <= 0";
+        }
+        if ("forward_score <= 0".equalsIgnoreCase(value)) {
+            return "forward_score <= 0";
+        }
+        if ("forward_score not better than active baseline".equalsIgnoreCase(value)) {
+            return "\u672a\u4f18\u4e8e\u5f53\u524d ACTIVE \u57fa\u7ebf\u7684 forward_score";
+        }
+        if ("total_pnl not better than active baseline".equalsIgnoreCase(value)) {
+            return "\u672a\u4f18\u4e8e\u5f53\u524d ACTIVE \u57fa\u7ebf\u7684 total_pnl";
+        }
+        if ("same version already active".equalsIgnoreCase(value)) {
+            return "\u540c\u7248\u672c\u5df2\u7ecf\u5904\u4e8e ACTIVE";
+        }
+        if ("baseline backtest summary missing".equalsIgnoreCase(value)) {
+            return "\u7f3a\u5c11\u5f53\u524d ACTIVE \u57fa\u7ebf\u56de\u6d4b\u7ed3\u679c";
+        }
+        if ("promote profitable walk-forward first version".equalsIgnoreCase(value)) {
+            return "\u9996\u4e2a\u76c8\u5229 walk-forward \u7248\u672c\uff0c\u5141\u8bb8\u53d1\u5e03";
+        }
+        if ("replace active version with stronger backtest result".equalsIgnoreCase(value)) {
+            return "\u65b0\u7248\u672c\u4f18\u4e8e\u5f53\u524d ACTIVE\uff0c\u5141\u8bb8\u66ff\u6362";
+        }
+        if (value.startsWith("auto publish error:")) {
+            return "\u81ea\u52a8\u53d1\u5e03\u6267\u884c\u5931\u8d25\uff1a" + value.substring("auto publish error:".length()).trim();
+        }
+        return value;
+    }
+
+    private String buildBaseName(BacktestResponse response) {
+        return "BacktestReport-"
+                + safeFilePart(response == null ? null : response.strategyName)
+                + "-"
+                + safeFilePart(defaultIfBlank(response == null ? null : response.symbol, joinSymbols(response == null ? null : response.symbols)))
+                + "-"
+                + safeFilePart(response == null ? null : response.text)
+                + "-\u4e2d\u6587-"
+                + FILE_TIME.format(LocalDateTime.now());
     }
 
     private String strategyLabel(String strategyName, String strategyVersion) {
-        String name = s(strategyName);
-        String version = s(strategyVersion);
-        if (name.isEmpty()) {
-            return version;
+        if (StringUtils.isBlank(strategyName) && StringUtils.isBlank(strategyVersion)) {
+            return "";
         }
-        if (version.isEmpty()) {
-            return name;
+        if (StringUtils.isBlank(strategyVersion)) {
+            return StringUtils.defaultString(strategyName);
         }
-        return name + "@" + version;
+        return StringUtils.defaultString(strategyName) + "@" + StringUtils.defaultString(strategyVersion);
     }
 
-    private void appendAlignedTable(StringBuilder sb, List<String> headers, List<List<String>> rows) {
-        if (headers == null || headers.isEmpty()) {
-            return;
-        }
-        int cols = headers.size();
-        int[] widths = new int[cols];
-        for (int i = 0; i < cols; i++) {
-            widths[i] = safeCell(headers.get(i)).length();
-        }
-        for (List<String> row : rows) {
-            for (int i = 0; i < cols; i++) {
-                String cell = i < row.size() ? safeCell(row.get(i)) : "";
-                if (cell.length() > widths[i]) {
-                    widths[i] = cell.length();
+    private String joinSymbols(Object symbolsObj) {
+        if (symbolsObj instanceof List) {
+            @SuppressWarnings("unchecked")
+            List<Object> symbols = (List<Object>) symbolsObj;
+            StringJoiner joiner = new StringJoiner(", ");
+            for (Object item : symbols) {
+                if (item != null && StringUtils.isNotBlank(item.toString())) {
+                    joiner.add(item.toString().trim());
                 }
             }
+            return joiner.toString();
         }
+        return s(symbolsObj);
+    }
 
-        appendRow(sb, headers, widths);
-        sb.append("|");
-        for (int i = 0; i < cols; i++) {
-            sb.append(" ").append(repeat("-", widths[i])).append(" |");
+    private String displayTime(String value) {
+        if (StringUtils.isBlank(value)) {
+            return "";
         }
-        sb.append("\n");
-        for (List<String> row : rows) {
-            appendRow(sb, row, widths);
+        long epochMillis = toEpochMillis(value);
+        if (epochMillis >= 0L) {
+            return LocalDateTime.ofEpochSecond(epochMillis / 1000L, 0, ZoneOffset.UTC)
+                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        }
+        String trim = value.trim().replace('T', ' ');
+        trim = trim.replaceAll("Z\\[[^\\]]+\\]$", "");
+        if (trim.endsWith("Z")) {
+            trim = trim.substring(0, trim.length() - 1);
+        }
+        int dot = trim.indexOf('.');
+        if (dot > 0) {
+            trim = trim.substring(0, dot);
+        }
+        if (trim.length() == 16) {
+            trim = trim + ":00";
+        }
+        if (trim.length() > 19) {
+            trim = trim.substring(0, 19);
+        }
+        return trim;
+    }
+
+    private long toEpochMillis(String value) {
+        if (StringUtils.isBlank(value)) {
+            return -1L;
+        }
+        String trim = value.trim();
+        try {
+            return java.time.ZonedDateTime.parse(trim).toInstant().toEpochMilli();
+        } catch (Exception ignore) {
+        }
+        try {
+            return java.time.OffsetDateTime.parse(trim).toInstant().toEpochMilli();
+        } catch (Exception ignore) {
+        }
+        String normalized = trim.replace('T', ' ');
+        normalized = normalized.replaceAll("Z\\[[^\\]]+\\]$", "");
+        if (normalized.endsWith("Z")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        int dot = normalized.indexOf('.');
+        if (dot > 0) {
+            normalized = normalized.substring(0, dot);
+        }
+        try {
+            if (normalized.length() == 10) {
+                return LocalDate.parse(normalized).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli();
+            }
+            if (normalized.length() == 16) {
+                normalized = normalized + ":00";
+            }
+            if (normalized.length() > 19) {
+                normalized = normalized.substring(0, 19);
+            }
+            return LocalDateTime.parse(normalized, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                    .toInstant(ZoneOffset.UTC)
+                    .toEpochMilli();
+        } catch (DateTimeParseException e) {
+            return -1L;
         }
     }
-
-    private void appendRow(StringBuilder sb, List<String> row, int[] widths) {
-        sb.append("|");
-        for (int i = 0; i < widths.length; i++) {
-            String cell = i < row.size() ? safeCell(row.get(i)) : "";
-            sb.append(" ").append(padRight(cell, widths[i])).append(" |");
+    private double projectX(int index, int size, int width, int paddingLeft, int paddingRight) {
+        if (size <= 1) {
+            return paddingLeft;
         }
-        sb.append("\n");
+        double usable = width - paddingLeft - paddingRight;
+        return paddingLeft + usable * ((double) index / (double) (size - 1));
     }
 
-    private String s(String v) {
-        return v == null ? "" : safeCell(v);
-    }
-
-    private String n(BigDecimal v) {
-        return v == null ? "" : v.toPlainString();
-    }
-
-    private BigDecimal calcTotalPnl(BigDecimal initialCapital, BigDecimal finalCapital) {
-        if (initialCapital == null || finalCapital == null) {
-            return null;
+    private double projectTimeX(long value, long begin, long end, int width, int paddingLeft, int paddingRight) {
+        if (begin < 0L || end <= begin) {
+            return paddingLeft;
         }
-        return finalCapital.subtract(initialCapital);
+        double usable = width - paddingLeft - paddingRight;
+        double ratio = (double) (value - begin) / (double) (end - begin);
+        ratio = Math.max(0D, Math.min(1D, ratio));
+        return paddingLeft + usable * ratio;
     }
-
-    private BigDecimal safeTotalPnl(BacktestResult result) {
-        if (result == null) {
-            return BigDecimal.ZERO;
+    private double projectY(BigDecimal value, BigDecimal min, BigDecimal max, int height, int paddingTop, int paddingBottom) {
+        BigDecimal spread = max.subtract(min);
+        if (spread.compareTo(BigDecimal.ZERO) == 0) {
+            return paddingTop;
         }
-        BigDecimal totalPnl = calcTotalPnl(result.initialCapital, result.finalCapital);
-        return totalPnl == null ? BigDecimal.ZERO : totalPnl;
+        double usable = height - paddingTop - paddingBottom;
+        double ratio = value.subtract(min).divide(spread, 12, RoundingMode.HALF_UP).doubleValue();
+        return paddingTop + usable - (usable * ratio);
     }
 
-    private String i(Integer v) {
-        return v == null ? "0" : String.valueOf(v);
+    private String format(double value) {
+        return String.format(Locale.US, "%.2f", value);
     }
 
-    private Integer nzInt(Integer value) {
-        return value == null ? 0 : value;
+    private String safeCell(Object value) {
+        return escape(s(value));
+    }
+
+    private String escape(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
+    }
+
+    private String safeFilePart(String value) {
+        if (StringUtils.isBlank(value)) {
+            return "NA";
+        }
+        return value.trim().replaceAll("[^A-Za-z0-9._-]+", "_");
     }
 
     private BigDecimal nz(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
     }
 
+    private BigDecimal n(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        if (value instanceof BigDecimal) {
+            return (BigDecimal) value;
+        }
+        try {
+            return new BigDecimal(value.toString());
+        } catch (Exception e) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    private boolean gt(BigDecimal left, BigDecimal right) {
+        return nz(left).compareTo(nz(right)) > 0;
+    }
+
+    private boolean isTrue(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).intValue() > 0;
+        }
+        if (value instanceof String) {
+            return "1".equals(value) || "true".equalsIgnoreCase((String) value);
+        }
+        return false;
+    }
+
+    private Integer nzInt(Object value) {
+        if (value == null) {
+            return 0;
+        }
+        if (value instanceof Integer) {
+            return (Integer) value;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            return Integer.parseInt(value.toString());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private BigDecimal scale(Object value) {
+        return scale(n(value));
+    }
+
     private BigDecimal scale(BigDecimal value) {
-        return value == null ? BigDecimal.ZERO : value.setScale(6, RoundingMode.HALF_UP);
+        return nz(value).setScale(6, RoundingMode.HALF_UP);
     }
 
-    private String safeCell(String value) {
-        return value == null ? "" : value.replace("|", "\\|").replace("\n", " ").replace("\r", " ");
+    private String s(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
-    private String padRight(String value, int width) {
-        if (value.length() >= width) {
-            return value;
+    private String defaultIfBlank(String value, String fallback) {
+        return StringUtils.isBlank(value) ? fallback : value.trim();
+    }
+
+    private static class ReplayWindow {
+        final String begin;
+        final String end;
+        final String fitBegin;
+        final String fitEnd;
+        final String validateBegin;
+        final String validateEnd;
+        final String forwardBegin;
+        final String forwardEnd;
+
+        private ReplayWindow(String begin,
+                             String end,
+                             String fitBegin,
+                             String fitEnd,
+                             String validateBegin,
+                             String validateEnd,
+                             String forwardBegin,
+                             String forwardEnd) {
+            this.begin = begin;
+            this.end = end;
+            this.fitBegin = fitBegin;
+            this.fitEnd = fitEnd;
+            this.validateBegin = validateBegin;
+            this.validateEnd = validateEnd;
+            this.forwardBegin = forwardBegin;
+            this.forwardEnd = forwardEnd;
         }
-        return value + repeat(" ", width - value.length());
-    }
-
-    private String repeat(String unit, int count) {
-        if (count <= 0) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder(unit.length() * count);
-        for (int i = 0; i < count; i++) {
-            sb.append(unit);
-        }
-        return sb.toString();
-    }
-
-    private String safeFilePart(String v) {
-        if (v == null || v.trim().isEmpty()) {
-            return "na";
-        }
-        return v.trim().replaceAll("[^A-Za-z0-9._-]", "_");
-    }
-
-    private String joinSymbols(List<String> symbols) {
-        StringJoiner joiner = new StringJoiner(",");
-        for (String symbol : symbols) {
-            joiner.add(s(symbol));
-        }
-        return joiner.toString();
-    }
-
-    private static class CompareRow {
-        private String symbol;
-        private Integer baseTrades;
-        private Integer guardedTrades;
-        private Integer tradesDelta;
-        private Integer baseStopExitCount;
-        private Integer guardedStopExitCount;
-        private Integer stopExitDelta;
-        private Integer baseStopExitLossCount;
-        private Integer guardedStopExitLossCount;
-        private Integer stopExitLossDelta;
-        private Integer baseTakeExitCount;
-        private Integer guardedTakeExitCount;
-        private Integer takeExitDelta;
-        private BigDecimal baseWinRate;
-        private BigDecimal guardedWinRate;
-        private BigDecimal winRateDelta;
-        private BigDecimal baseReturnPct;
-        private BigDecimal guardedReturnPct;
-        private BigDecimal returnDelta;
-        private BigDecimal baseDrawdownPct;
-        private BigDecimal guardedDrawdownPct;
-        private BigDecimal drawdownDelta;
-        private BigDecimal basePnl;
-        private BigDecimal guardedPnl;
-        private BigDecimal pnlDelta;
     }
 }

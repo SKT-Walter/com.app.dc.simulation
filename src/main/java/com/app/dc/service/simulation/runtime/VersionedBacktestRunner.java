@@ -76,7 +76,9 @@ public class VersionedBacktestRunner {
 
             if (position != null && position.entryIndex < replaySeries.getEndIndex()) {
                 BacktestModels.TradeRecord riskClosed = tradeService.tryCloseByRisk(position, bar,
-                        replaySeries.getEndIndex(), param.feeRatePct.doubleValue());
+                        replaySeries.getEndIndex(),
+                        param.entryMakerFeeRatePct.doubleValue(),
+                        param.exitTakerFeeRatePct.doubleValue());
                 if (riskClosed != null) {
                     metricService.applyTrade(result, riskClosed, equityContext);
                     position = null;
@@ -115,15 +117,16 @@ public class VersionedBacktestRunner {
             }
 
             if (position == null) {
-                position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param);
+                position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param, equityContext.equity);
                 continue;
             }
             if (tradeService.isOpposite(position.side, signal.side)) {
                 BacktestModels.TradeRecord reversed = tradeService.closePosition(position, bar.getClosePrice().doubleValue(),
                         bar.getEndTime().toString(), "reverse_signal", replaySeries.getEndIndex(),
-                        param.feeRatePct.doubleValue());
+                        param.entryMakerFeeRatePct.doubleValue(),
+                        param.exitTakerFeeRatePct.doubleValue());
                 metricService.applyTrade(result, reversed, equityContext);
-                position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param);
+                position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param, equityContext.equity);
             }
         }
 
@@ -131,7 +134,8 @@ public class VersionedBacktestRunner {
             Bar lastBar = replaySeries.getLastBar();
             BacktestModels.TradeRecord ended = tradeService.closePosition(position, lastBar.getClosePrice().doubleValue(),
                     lastBar.getEndTime().toString(), "end_of_test", replaySeries.getEndIndex(),
-                    param.feeRatePct.doubleValue());
+                    param.entryMakerFeeRatePct.doubleValue(),
+                    param.exitTakerFeeRatePct.doubleValue());
             metricService.applyTrade(result, ended, equityContext);
         }
 

@@ -36,7 +36,7 @@ public class BacktestHandler extends ContentHandler {
         try {
             BacktestParam param = JsonUtils.Deserialize(content, BacktestParam.class);
             BacktestModels.BacktestResponse result = binanceBacktestService.run(param);
-            String reportPath = backtestReportService.writeReport(result);
+            String reportPath = backtestReportService.writeReport(sid, result, null);
             String compareReportPath = backtestReportService.writeCompareReport(result);
             backtestResultClickHouseDao.insertResults(sid, reportPath, result);
             resultMap.put(Consts.DATA, result);

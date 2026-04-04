@@ -129,6 +129,8 @@ public class BacktestService {
         target.endDate = source.endDate;
         target.initialCapital = source.initialCapital;
         target.feeRatePct = source.feeRatePct;
+        target.entryMakerFeeRatePct = source.entryMakerFeeRatePct;
+        target.exitTakerFeeRatePct = source.exitTakerFeeRatePct;
         target.fallbackStopLossPct = source.fallbackStopLossPct;
         target.fallbackTakeProfitPct = source.fallbackTakeProfitPct;
         target.maxHoldBars = source.maxHoldBars;
@@ -154,6 +156,16 @@ public class BacktestService {
         }
         if (req.feeRatePct == null || req.feeRatePct.compareTo(BigDecimal.ZERO) < 0) {
             req.feeRatePct = BigDecimal.ZERO;
+        }
+        if (req.entryMakerFeeRatePct == null || req.entryMakerFeeRatePct.compareTo(BigDecimal.ZERO) < 0) {
+            req.entryMakerFeeRatePct = req.feeRatePct.compareTo(BigDecimal.ZERO) > 0
+                    ? req.feeRatePct
+                    : new BigDecimal("0.02");
+        }
+        if (req.exitTakerFeeRatePct == null || req.exitTakerFeeRatePct.compareTo(BigDecimal.ZERO) < 0) {
+            req.exitTakerFeeRatePct = req.feeRatePct.compareTo(BigDecimal.ZERO) > 0
+                    ? req.feeRatePct
+                    : new BigDecimal("0.05");
         }
         if (req.fallbackStopLossPct == null || req.fallbackStopLossPct.compareTo(BigDecimal.ZERO) < 0) {
             req.fallbackStopLossPct = BigDecimal.ZERO;
@@ -190,11 +202,14 @@ public class BacktestService {
         result.endDate = param.endDate;
         result.initialCapital = scale(param.initialCapital.doubleValue());
         result.finalCapital = scale(param.initialCapital.doubleValue());
-        result.feeRatePct = scale(param.feeRatePct.doubleValue());
+        result.feeRatePct = scale(param.entryMakerFeeRatePct.doubleValue() + param.exitTakerFeeRatePct.doubleValue());
+        result.entryMakerFeeRatePct = scale(param.entryMakerFeeRatePct.doubleValue());
+        result.exitTakerFeeRatePct = scale(param.exitTakerFeeRatePct.doubleValue());
         result.fallbackStopLossPct = scale(param.fallbackStopLossPct.doubleValue());
         result.fallbackTakeProfitPct = scale(param.fallbackTakeProfitPct.doubleValue());
         result.maxHoldBars = param.maxHoldBars;
         result.tradeList = new ArrayList<TradeRecord>();
+        result.equityCurve = new ArrayList<BacktestModels.EquityPoint>();
         result.rejectReasonCounts = new java.util.LinkedHashMap<String, Integer>();
         return result;
     }

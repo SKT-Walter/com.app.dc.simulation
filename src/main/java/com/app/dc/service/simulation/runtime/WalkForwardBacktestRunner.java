@@ -145,8 +145,11 @@ public class WalkForwardBacktestRunner {
         result.endDate = param.endDate;
         result.initialCapital = scale(nz(param.initialCapital));
         result.finalCapital = result.initialCapital;
+        result.entryMakerFeeRatePct = scale(nz(param.entryMakerFeeRatePct));
+        result.exitTakerFeeRatePct = scale(nz(param.exitTakerFeeRatePct));
         result.windowMode = WINDOW_MODE;
         result.tradeList = new ArrayList<BacktestModels.TradeRecord>();
+        result.equityCurve = new ArrayList<BacktestModels.EquityPoint>();
         result.sliceResults = new ArrayList<BacktestModels.BacktestSliceResult>();
         result.rejectReasonCounts = new LinkedHashMap<String, Integer>();
         return result;
@@ -166,6 +169,9 @@ public class WalkForwardBacktestRunner {
         target.stopExitLossCount += nz(phase.stopExitLossCount);
         target.takeExitWinCount += nz(phase.takeExitWinCount);
         target.takeExitLossCount += nz(phase.takeExitLossCount);
+        target.entryFeeTotal = add(target.entryFeeTotal, phase.entryFeeTotal);
+        target.exitFeeTotal = add(target.exitFeeTotal, phase.exitFeeTotal);
+        target.totalFee = add(target.totalFee, phase.totalFee);
         if (phase.tradeList != null && !phase.tradeList.isEmpty()) {
             target.tradeList.addAll(phase.tradeList);
         }
@@ -330,6 +336,8 @@ public class WalkForwardBacktestRunner {
         target.endDate = end.toString();
         target.initialCapital = source.initialCapital;
         target.feeRatePct = source.feeRatePct;
+        target.entryMakerFeeRatePct = source.entryMakerFeeRatePct;
+        target.exitTakerFeeRatePct = source.exitTakerFeeRatePct;
         target.fallbackStopLossPct = source.fallbackStopLossPct;
         target.fallbackTakeProfitPct = source.fallbackTakeProfitPct;
         target.maxHoldBars = source.maxHoldBars;
@@ -451,6 +459,10 @@ public class WalkForwardBacktestRunner {
 
     private BigDecimal max(BigDecimal left, BigDecimal right) {
         return nz(left).max(nz(right));
+    }
+
+    private BigDecimal add(BigDecimal left, BigDecimal right) {
+        return scale(nz(left).add(nz(right)));
     }
 
     private BigDecimal scale(BigDecimal value) {

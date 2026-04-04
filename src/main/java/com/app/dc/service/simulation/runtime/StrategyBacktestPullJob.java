@@ -9,15 +9,21 @@ import com.gateway.connector.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
 
 @Component
 @Slf4j
@@ -31,6 +37,9 @@ public class StrategyBacktestPullJob {
 
     @Value("${strategy.backtest.task.batchSize:10}")
     private int batchSize;
+
+    @Value("${strategy.backtest.parallelism:10}")
+    private int parallelism;
 
     @Autowired
     private StrategyBacktestTaskDao taskDao;
@@ -47,20 +56,74 @@ public class StrategyBacktestPullJob {
     @Autowired
     private StrategyAutoPublishService strategyAutoPublishService;
 
+    @Autowired
+    @Qualifier("strategyBacktestTaskExecutor")
+    private ThreadPoolTaskExecutor strategyBacktestTaskExecutor;
+
+    private final Set<String> inFlightTaskIds = ConcurrentHashMap.newKeySet();
+
     @Scheduled(cron = "${strategy.backtest.task.cron:0 */1 * * * ?}")
     public void run() {
         if (!enabled) {
             return;
         }
-        List<StrategyBacktestTaskRow> tasks = taskDao.pullPending(batchSize);
+        int effectiveParallelism = Math.max(1, parallelism);
+        int currentInFlight = inFlightTaskIds.size();
+        int availableSlots = Math.max(0, effectiveParallelism - currentInFlight);
+        log.info("StrategyBacktestPullJob dispatch tick, parallelism:{}, inFlight:{}, availableSlots:{}",
+                effectiveParallelism, currentInFlight, availableSlots);
+        if (availableSlots <= 0) {
+            return;
+        }
+        int fetchLimit = Math.min(Math.max(1, batchSize), availableSlots);
+        List<StrategyBacktestTaskRow> tasks = taskDao.pullPending(fetchLimit);
+        int pulledCount = tasks == null ? 0 : tasks.size();
+        log.info("StrategyBacktestPullJob pulled tasks, requested:{}, pulled:{}",
+                fetchLimit, pulledCount);
+        if (tasks == null || tasks.isEmpty()) {
+            return;
+        }
         for (StrategyBacktestTaskRow task : tasks) {
-            handleTask(task);
+            dispatchTask(task);
+        }
+    }
+
+    private void dispatchTask(final StrategyBacktestTaskRow task) {
+        if (task == null || isBlank(task.id)) {
+            return;
+        }
+        if (!inFlightTaskIds.add(task.id)) {
+            log.info("StrategyBacktestPullJob skip duplicate in-flight task:{}, strategy:{}@{}",
+                    task.id, task.strategyName, task.strategyVersion);
+            return;
+        }
+        try {
+            strategyBacktestTaskExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    handleTask(task);
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            inFlightTaskIds.remove(task.id);
+            log.warn("StrategyBacktestPullJob rejected task dispatch, task:{}, strategy:{}@{}",
+                    task.id, task.strategyName, task.strategyVersion, e);
+        } catch (Exception e) {
+            inFlightTaskIds.remove(task.id);
+            log.error("StrategyBacktestPullJob dispatch error, task:{}, strategy:{}@{}",
+                    task.id, task.strategyName, task.strategyVersion, e);
         }
     }
 
     private void handleTask(StrategyBacktestTaskRow task) {
+        long startNs = System.nanoTime();
+        String threadName = Thread.currentThread().getName();
         try {
+            log.info("StrategyBacktestPullJob task start, task:{}, strategy:{}@{}, thread:{}, fromStatus:{}",
+                    task.id, task.strategyName, task.strategyVersion, threadName, task.status);
             taskDao.markRunning(task.id);
+            log.info("StrategyBacktestPullJob task status -> RUNNING, task:{}, thread:{}",
+                    task.id, threadName);
             StrategyCandidateRow candidate = taskDao.loadCandidate(task.strategyName, task.strategyVersion);
             if (candidate == null) {
                 throw new IllegalStateException("candidate not found: " + task.strategyName + "@" + task.strategyVersion);
@@ -71,11 +134,11 @@ public class StrategyBacktestPullJob {
                     task.fitWindowDays == null ? 120 : task.fitWindowDays.intValue(),
                     task.validateWindowDays == null ? 30 : task.validateWindowDays.intValue(),
                     task.forwardWindowDays == null ? 14 : task.forwardWindowDays.intValue());
-            String reportPath = backtestReportService.writeReport(response);
-            String compareReportPath = backtestReportService.writeCompareReport(response);
-            backtestResultClickHouseDao.insertResults(task.id, reportPath, response);
             StrategyAutoPublishDecision publishDecision =
                     strategyAutoPublishService.maybePublish(task, candidate, response);
+            String reportPath = backtestReportService.writeReport(task.id, response, publishDecision);
+            String compareReportPath = backtestReportService.writeCompareReport(response);
+            backtestResultClickHouseDao.insertResults(task.id, reportPath, response);
 
             Map<String, Object> taskResult = new LinkedHashMap<String, Object>();
             taskResult.put("taskId", task.id);
@@ -105,6 +168,9 @@ public class StrategyBacktestPullJob {
             taskResult.put("baselineTotalPnl", publishDecision.baselineTotalPnl);
             taskResult.put("baselineForwardScore", publishDecision.baselineForwardScore);
             taskDao.markSuccess(task.id, JsonUtils.Serializer(taskResult));
+            log.info("StrategyBacktestPullJob task status -> SUCCESS, task:{}, strategy:{}@{}, thread:{}, autoPublish:{}, reason:{}",
+                    task.id, candidate.strategyName, candidate.strategyVersion, threadName,
+                    publishDecision.published, publishDecision.reason);
         } catch (BacktestTaskSuspendedException e) {
             log.warn("StrategyBacktestPullJob suspend task:{}, reason:{}, detail:{}",
                     task == null ? null : task.id, e.getReason(), JsonUtils.Serializer(e.getDetail()));
@@ -112,9 +178,25 @@ public class StrategyBacktestPullJob {
                     e.getReason(),
                     buildSuspendPayload(task, e),
                     CLICKHOUSE_TIME.format(LocalDateTime.now().plusMinutes(30)));
+            log.info("StrategyBacktestPullJob task status -> SUSPENDED, task:{}, thread:{}, nextRetryTime:{}",
+                    task == null ? null : task.id,
+                    threadName,
+                    CLICKHOUSE_TIME.format(LocalDateTime.now().plusMinutes(30)));
         } catch (Exception e) {
             log.error("StrategyBacktestPullJob handleTask error, task:{}", task == null ? null : task.id, e);
             taskDao.markFailed(task == null ? null : task.id, e.getMessage());
+            log.info("StrategyBacktestPullJob task status -> FAILED, task:{}, thread:{}, error:{}",
+                    task == null ? null : task.id, threadName, e.getMessage());
+        } finally {
+            inFlightTaskIds.remove(task == null ? null : task.id);
+            long elapsedMs = Math.max(0L, (System.nanoTime() - startNs) / 1_000_000L);
+            log.info("StrategyBacktestPullJob task end, task:{}, strategy:{}@{}, thread:{}, elapsedMs:{}, inFlight:{}",
+                    task == null ? null : task.id,
+                    task == null ? null : task.strategyName,
+                    task == null ? null : task.strategyVersion,
+                    threadName,
+                    elapsedMs,
+                    inFlightTaskIds.size());
         }
     }
 

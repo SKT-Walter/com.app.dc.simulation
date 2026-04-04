@@ -47,6 +47,9 @@ public class BinanceBacktestMarketGuard {
     @Value("${binanceBacktestTrendAllowedStages:1,3,4,A,C}")
     private String trendAllowedStagesConfig;
 
+    @Value("${binanceBacktestMissingAnalysisBlocks:false}")
+    private boolean missingAnalysisBlocks;
+
     public BinanceBacktestMarketGuard(ChatGPTAnalysisQueryService analysisQueryService,
                                       ChatGPTSentimentQueryService sentimentQueryService) {
         this.analysisQueryService = analysisQueryService;
@@ -77,46 +80,63 @@ public class BinanceBacktestMarketGuard {
         return ctx;
     }
 
-    public boolean shouldBlock(String strategyName, GuardContext ctx, Instant barTime, boolean ignoreSentimentGuard) {
+    public GuardDecision evaluate(String strategyName, GuardContext ctx, Instant barTime,
+                                  boolean ignoreSentimentGuard, boolean allowMissingStageAnalysis) {
         if (ctx == null || barTime == null) {
-            return false;
+            return GuardDecision.allow();
         }
 
         String strategyType = toStrategyType(strategyName);
-        if (!ignoreSentimentGuard && sentimentGuardEnabled && shouldBlockBySentiment(ctx, barTime)) {
-            return true;
+        if (!ignoreSentimentGuard && sentimentGuardEnabled) {
+            GuardDecision sentimentDecision = evaluateSentiment(ctx, barTime);
+            if (sentimentDecision.blocked) {
+                return sentimentDecision;
+            }
         }
-        if (stageGuardEnabled && shouldBlockByStage(strategyType, ctx, barTime)) {
-            return true;
+        if (stageGuardEnabled) {
+            GuardDecision stageDecision = evaluateStage(strategyType, ctx, barTime, allowMissingStageAnalysis);
+            if (stageDecision.blocked) {
+                return stageDecision;
+            }
         }
-        return false;
+        return GuardDecision.allow();
     }
 
-    private boolean shouldBlockBySentiment(GuardContext ctx, Instant barTime) {
+    public boolean shouldBlock(String strategyName, GuardContext ctx, Instant barTime, boolean ignoreSentimentGuard) {
+        return evaluate(strategyName, ctx, barTime, ignoreSentimentGuard, true).blocked;
+    }
+
+    private GuardDecision evaluateSentiment(GuardContext ctx, Instant barTime) {
         TTChatGPTSentiment sentiment = latestSentimentAt(ctx, barTime);
         if (sentiment == null) {
-            return false;
+            return GuardDecision.allow();
         }
         Double confidence = sentiment.confidence;
         String riskLevel = sentiment.risk_level;
         if (confidence == null || StringUtils.isBlank(riskLevel)) {
-            return false;
+            return GuardDecision.allow();
         }
         boolean highRisk = "high".equalsIgnoreCase(riskLevel) || "extreme".equalsIgnoreCase(riskLevel);
         boolean highConfidence = confidence > BLOCK_CONFIDENCE;
         if (highRisk && highConfidence) {
             log.info("backtest sentiment blocked, riskLevel:{}, confidence:{}, barTime:{}",
                     riskLevel, confidence, barTime);
-            return true;
+            return GuardDecision.block("sentiment:" + riskLevel.toLowerCase(Locale.ROOT));
         }
-        return false;
+        return GuardDecision.allow();
     }
 
-    private boolean shouldBlockByStage(String strategyType, GuardContext ctx, Instant barTime) {
+    private GuardDecision evaluateStage(String strategyType, GuardContext ctx, Instant barTime,
+                                        boolean allowMissingStageAnalysis) {
         TTChatGPTAnalysis analysis = latestAnalysisAt(ctx, barTime);
         if (analysis == null || StringUtils.isBlank(analysis.latest_stage)) {
+            if (allowMissingStageAnalysis || !missingAnalysisBlocks) {
+                log.debug("backtest stage allow, strategyType:{}, reason:no_analysis_but_allowed, barTime:{}",
+                        strategyType, barTime);
+                return GuardDecision.allow();
+            }
             log.info("backtest stage blocked, strategyType:{}, reason:no_analysis, barTime:{}", strategyType, barTime);
-            return true;
+            return GuardDecision.block("no_analysis");
         }
 
         String latestStage = analysis.latest_stage.trim().toUpperCase(Locale.ROOT);
@@ -125,8 +145,9 @@ public class BinanceBacktestMarketGuard {
         if (blocked) {
             log.info("backtest stage blocked, strategyType:{}, latestStage:{}, allowStages:{}, barTime:{}",
                     strategyType, latestStage, allowStages, barTime);
+            return GuardDecision.block("stage:" + latestStage);
         }
-        return blocked;
+        return GuardDecision.allow();
     }
 
     private TTChatGPTAnalysis latestAnalysisAt(GuardContext ctx, Instant barTime) {
@@ -287,6 +308,24 @@ public class BinanceBacktestMarketGuard {
         private TimedSentiment(Instant time, TTChatGPTSentiment data) {
             this.time = time;
             this.data = data;
+        }
+    }
+
+    public static class GuardDecision {
+        public final boolean blocked;
+        public final String reason;
+
+        private GuardDecision(boolean blocked, String reason) {
+            this.blocked = blocked;
+            this.reason = reason == null ? "" : reason;
+        }
+
+        public static GuardDecision allow() {
+            return new GuardDecision(false, "");
+        }
+
+        public static GuardDecision block(String reason) {
+            return new GuardDecision(true, reason);
         }
     }
 }

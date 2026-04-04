@@ -22,6 +22,14 @@ public final class BacktestModels {
         public String text;
         public String beginDate;
         public String endDate;
+        public String windowMode;
+        public Integer sliceCount = 0;
+        public BigDecimal fitPnl = BigDecimal.ZERO;
+        public BigDecimal validatePnl = BigDecimal.ZERO;
+        public BigDecimal forwardPnl = BigDecimal.ZERO;
+        public BigDecimal totalPnl = BigDecimal.ZERO;
+        public Integer overfitPass = 0;
+        public String overfitReason = "";
         public List<BacktestResult> results;
     }
 
@@ -33,6 +41,14 @@ public final class BacktestModels {
         public String scene;
         public String strategyPayload;
         public BigDecimal forwardScore = BigDecimal.ZERO;
+        public String windowMode = "";
+        public Integer sliceCount = 0;
+        public BigDecimal fitPnl = BigDecimal.ZERO;
+        public BigDecimal validatePnl = BigDecimal.ZERO;
+        public BigDecimal forwardPnl = BigDecimal.ZERO;
+        public BigDecimal totalPnl = BigDecimal.ZERO;
+        public Integer overfitPass = 0;
+        public String overfitReason = "";
         public String symbol;
         public String text;
         public String beginDate;
@@ -62,6 +78,31 @@ public final class BacktestModels {
         public BigDecimal avgHoldBars = BigDecimal.ZERO;
         public List<TradeRecord> tradeList;
         public Map<String, Integer> rejectReasonCounts;
+        public List<BacktestSliceResult> sliceResults;
+    }
+
+    public static class BacktestSliceResult {
+        public String strategyName;
+        public String strategyVersion;
+        public String symbol;
+        public String text;
+        public Integer sliceNo = 0;
+        public String fitBegin;
+        public String fitEnd;
+        public String validateBegin;
+        public String validateEnd;
+        public String forwardBegin;
+        public String forwardEnd;
+        public BigDecimal fitPnl = BigDecimal.ZERO;
+        public BigDecimal validatePnl = BigDecimal.ZERO;
+        public BigDecimal forwardPnl = BigDecimal.ZERO;
+        public Integer fitTradeCount = 0;
+        public Integer validateTradeCount = 0;
+        public Integer forwardTradeCount = 0;
+        public BigDecimal fitMaxDrawdownPct = BigDecimal.ZERO;
+        public BigDecimal validateMaxDrawdownPct = BigDecimal.ZERO;
+        public BigDecimal forwardMaxDrawdownPct = BigDecimal.ZERO;
+        public String payload = "";
     }
 
     public static class TradeRecord {

@@ -7,7 +7,7 @@ import com.app.dc.service.simulation.BacktestModels.BacktestResult;
 import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import com.app.dc.service.simulation.runtime.StrategyBacktestTaskDao;
 import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
-import com.app.dc.service.simulation.runtime.VersionedBacktestRunner;
+import com.app.dc.service.simulation.runtime.WalkForwardBacktestRunner;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
@@ -37,9 +37,16 @@ public class BacktestService {
     private StrategyBacktestTaskDao strategyBacktestTaskDao;
 
     @Autowired
-    private VersionedBacktestRunner versionedBacktestRunner;
+    private WalkForwardBacktestRunner walkForwardBacktestRunner;
 
     public BacktestResponse run(BacktestParam param) throws Exception {
+        return run(param, 120, 30, 14);
+    }
+
+    public BacktestResponse run(BacktestParam param,
+                                int fitWindowDays,
+                                int validateWindowDays,
+                                int forwardWindowDays) throws Exception {
         BacktestParam req = normalizeParam(param);
         if (req.strategyName == null || req.strategyName.trim().isEmpty()) {
             throw new IllegalArgumentException("strategyName is required");
@@ -68,17 +75,42 @@ public class BacktestService {
         response.baselineVersion = req.baselineVersion;
         response.runtimeType = candidate.runtimeType;
         response.scene = candidate.scene;
+        response.windowMode = "WALK_FORWARD";
 
         List<BacktestResult> results = new ArrayList<BacktestResult>();
+        BigDecimal fitPnl = BigDecimal.ZERO;
+        BigDecimal validatePnl = BigDecimal.ZERO;
+        BigDecimal forwardPnl = BigDecimal.ZERO;
+        BigDecimal totalPnl = BigDecimal.ZERO;
+        int sliceCount = Integer.MAX_VALUE;
+        boolean overfitPass = true;
+        String overfitReason = "";
         for (String symbol : symbols) {
             List<TTbookOhlc> ohlcList = queryService.queryOhlc(symbol, req.text, req.beginDate, req.endDate);
-            if (ohlcList.isEmpty()) {
-                continue;
-            }
             BacktestParam symbolParam = copyParamForSymbol(req, symbol);
-            results.add(versionedBacktestRunner.run(candidate, symbolParam, ohlcList));
+            BacktestResult result = walkForwardBacktestRunner.run(candidate, symbolParam, ohlcList,
+                    fitWindowDays, validateWindowDays, forwardWindowDays);
+            results.add(result);
+            fitPnl = fitPnl.add(nz(result.fitPnl));
+            validatePnl = validatePnl.add(nz(result.validatePnl));
+            forwardPnl = forwardPnl.add(nz(result.forwardPnl));
+            totalPnl = totalPnl.add(nz(result.totalPnl));
+            sliceCount = Math.min(sliceCount, result.sliceCount == null ? 0 : result.sliceCount.intValue());
+            if (!Integer.valueOf(1).equals(result.overfitPass)) {
+                overfitPass = false;
+                if (overfitReason.isEmpty() && result.overfitReason != null) {
+                    overfitReason = result.overfitReason;
+                }
+            }
         }
         response.results = results.isEmpty() ? Collections.<BacktestResult>emptyList() : results;
+        response.fitPnl = scale(fitPnl.doubleValue());
+        response.validatePnl = scale(validatePnl.doubleValue());
+        response.forwardPnl = scale(forwardPnl.doubleValue());
+        response.totalPnl = scale(totalPnl.doubleValue());
+        response.sliceCount = results.isEmpty() ? 0 : sliceCount;
+        response.overfitPass = results.isEmpty() ? 0 : (overfitPass ? 1 : 0);
+        response.overfitReason = overfitReason;
         return response;
     }
 
@@ -101,6 +133,7 @@ public class BacktestService {
         target.fallbackTakeProfitPct = source.fallbackTakeProfitPct;
         target.maxHoldBars = source.maxHoldBars;
         target.ignoreSentimentGuard = source.ignoreSentimentGuard;
+        target.allowMissingStageAnalysis = source.allowMissingStageAnalysis;
         return target;
     }
 
@@ -134,6 +167,9 @@ public class BacktestService {
         if (req.ignoreSentimentGuard == null) {
             req.ignoreSentimentGuard = true;
         }
+        if (req.allowMissingStageAnalysis == null) {
+            req.allowMissingStageAnalysis = true;
+        }
         if (req.runtimeType == null || req.runtimeType.trim().isEmpty()) {
             req.runtimeType = "JAR";
         }
@@ -159,6 +195,7 @@ public class BacktestService {
         result.fallbackTakeProfitPct = scale(param.fallbackTakeProfitPct.doubleValue());
         result.maxHoldBars = param.maxHoldBars;
         result.tradeList = new ArrayList<TradeRecord>();
+        result.rejectReasonCounts = new java.util.LinkedHashMap<String, Integer>();
         return result;
     }
 
@@ -171,5 +208,9 @@ public class BacktestService {
 
     public BigDecimal scale(double value) {
         return BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal nz(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 }

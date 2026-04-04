@@ -13,6 +13,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +22,9 @@ import java.util.Map;
 @Component
 @Slf4j
 public class StrategyBacktestPullJob {
+
+    private static final DateTimeFormatter CLICKHOUSE_TIME =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Value("${strategy.backtest.task.enabled:false}")
     private boolean enabled;
@@ -29,9 +34,6 @@ public class StrategyBacktestPullJob {
 
     @Autowired
     private StrategyBacktestTaskDao taskDao;
-
-    @Autowired
-    private VersionedBacktestRunner versionedBacktestRunner;
 
     @Autowired
     private BacktestService backtestService;
@@ -65,7 +67,10 @@ public class StrategyBacktestPullJob {
             }
 
             BacktestParam param = buildParam(task, candidate);
-            BacktestModels.BacktestResponse response = backtestService.run(param);
+            BacktestModels.BacktestResponse response = backtestService.run(param,
+                    task.fitWindowDays == null ? 120 : task.fitWindowDays.intValue(),
+                    task.validateWindowDays == null ? 30 : task.validateWindowDays.intValue(),
+                    task.forwardWindowDays == null ? 14 : task.forwardWindowDays.intValue());
             String reportPath = backtestReportService.writeReport(response);
             String compareReportPath = backtestReportService.writeCompareReport(response);
             backtestResultClickHouseDao.insertResults(task.id, reportPath, response);
@@ -81,15 +86,32 @@ public class StrategyBacktestPullJob {
             taskResult.put("reportPath", reportPath);
             taskResult.put("compareReportPath", compareReportPath);
             taskResult.put("resultCount", response.results == null ? 0 : response.results.size());
+            taskResult.put("windowMode", response.windowMode);
+            taskResult.put("sliceCount", response.sliceCount);
+            taskResult.put("fitPnl", response.fitPnl);
+            taskResult.put("validatePnl", response.validatePnl);
+            taskResult.put("forwardPnl", response.forwardPnl);
+            taskResult.put("totalPnl", response.totalPnl);
+            taskResult.put("overfitPass", response.overfitPass);
+            taskResult.put("overfitReason", response.overfitReason);
             taskResult.put("autoPublishAction", publishDecision.action);
             taskResult.put("autoPublished", publishDecision.published);
             taskResult.put("autoPublishReason", publishDecision.reason);
             taskResult.put("baselineVersion", publishDecision.baselineVersion);
             taskResult.put("currentTotalPnl", publishDecision.currentTotalPnl);
+            taskResult.put("currentValidatePnl", publishDecision.currentValidatePnl);
+            taskResult.put("currentForwardPnl", publishDecision.currentForwardPnl);
             taskResult.put("currentForwardScore", publishDecision.currentForwardScore);
             taskResult.put("baselineTotalPnl", publishDecision.baselineTotalPnl);
             taskResult.put("baselineForwardScore", publishDecision.baselineForwardScore);
             taskDao.markSuccess(task.id, JsonUtils.Serializer(taskResult));
+        } catch (BacktestTaskSuspendedException e) {
+            log.warn("StrategyBacktestPullJob suspend task:{}, reason:{}, detail:{}",
+                    task == null ? null : task.id, e.getReason(), JsonUtils.Serializer(e.getDetail()));
+            taskDao.markSuspended(task == null ? null : task.id,
+                    e.getReason(),
+                    buildSuspendPayload(task, e),
+                    CLICKHOUSE_TIME.format(LocalDateTime.now().plusMinutes(30)));
         } catch (Exception e) {
             log.error("StrategyBacktestPullJob handleTask error, task:{}", task == null ? null : task.id, e);
             taskDao.markFailed(task == null ? null : task.id, e.getMessage());
@@ -103,6 +125,18 @@ public class StrategyBacktestPullJob {
                 param = JsonUtils.Deserialize(task.payload, BacktestParam.class);
             } catch (Exception e) {
                 log.warn("StrategyBacktestPullJob payload parse fallback, task:{}", task.id, e);
+            }
+            if (param == null || (isBlank(param.strategyName) && isBlank(param.strategyVersion)
+                    && isBlank(param.symbol) && isBlank(param.symbols) && isBlank(param.text))) {
+                try {
+                    StrategyBacktestTaskPayloadEnvelope envelope =
+                            JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
+                    if (envelope != null && envelope.backtestParam != null) {
+                        param = envelope.backtestParam;
+                    }
+                } catch (Exception e) {
+                    log.warn("StrategyBacktestPullJob envelope parse fallback, task:{}", task.id, e);
+                }
             }
         }
         if (param == null) {
@@ -140,10 +174,37 @@ public class StrategyBacktestPullJob {
             int fitDays = task.fitWindowDays == null ? 120 : task.fitWindowDays.intValue();
             int validateDays = task.validateWindowDays == null ? 30 : task.validateWindowDays.intValue();
             int forwardDays = task.forwardWindowDays == null ? 14 : task.forwardWindowDays.intValue();
-            int totalDays = Math.max(30, fitDays + validateDays + forwardDays);
+            int totalDays = Math.max(30, fitDays + validateDays + (forwardDays * 3));
             param.beginDate = LocalDate.parse(param.endDate).minusDays(totalDays).toString();
         }
         return param;
+    }
+
+    private String buildSuspendPayload(StrategyBacktestTaskRow task, BacktestTaskSuspendedException error) {
+        StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
+        if (task != null && task.payload != null && !task.payload.trim().isEmpty()) {
+            try {
+                BacktestParam param = JsonUtils.Deserialize(task.payload, BacktestParam.class);
+                if (param != null && (!isBlank(param.strategyName) || !isBlank(param.symbol) || !isBlank(param.text))) {
+                    envelope.backtestParam = param;
+                }
+            } catch (Exception e) {
+                log.warn("buildSuspendPayload parse payload fallback, task:{}", task.id, e);
+            }
+            if (envelope.backtestParam == null) {
+                try {
+                    StrategyBacktestTaskPayloadEnvelope existing =
+                            JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
+                    if (existing != null && existing.backtestParam != null) {
+                        envelope.backtestParam = existing.backtestParam;
+                    }
+                } catch (Exception e) {
+                    log.warn("buildSuspendPayload parse envelope fallback, task:{}", task.id, e);
+                }
+            }
+        }
+        envelope.suspendDetail = error.getDetail();
+        return JsonUtils.Serializer(envelope);
     }
 
     private String defaultSymbol(String scene) {

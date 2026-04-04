@@ -37,4 +37,6 @@ public class BacktestParam {
     public Integer maxHoldBars;
 
     public Boolean ignoreSentimentGuard = true;
+
+    public Boolean allowMissingStageAnalysis = true;
 }

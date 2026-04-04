@@ -29,7 +29,7 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
             return Collections.emptyList();
         }
         String baseSql = "select *, "
-                + "tuple(update_time, multiIf(status='SUCCESS', 3, status='FAILED', 3, status='RUNNING', 2, 1)) as versionKey "
+                + "tuple(update_time, multiIf(status='SUCCESS', 4, status='FAILED', 4, status='RUNNING', 3, status='SUSPENDED', 2, 1)) as versionKey "
                 + "from " + safe(taskTable);
         String innerSql = "select "
                 + "id as id,"
@@ -43,12 +43,22 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 + "argMax(forward_window_days, versionKey) as forwardWindowDays,"
                 + "argMax(priority, versionKey) as priority,"
                 + "argMax(status, versionKey) as status,"
+                + "argMax(suspend_reason, versionKey) as suspendReason,"
+                + "argMax(next_retry_time, versionKey) as nextRetryTimeRaw,"
+                + "argMax(attempt_count, versionKey) as attemptCount,"
                 + "toString(argMax(create_time, versionKey)) as createTime,"
                 + "toString(argMax(update_time, versionKey)) as updateTime,"
                 + "argMax(payload, versionKey) as payload "
                 + "from (" + baseSql + ")"
                 + " group by id";
-        String sql = "select * from (" + innerSql + ") latest where latest.status='PENDING'"
+        String sql = "select "
+                + "id, strategyName, strategyVersion, baselineVersion, runtimeType, taskType,"
+                + "fitWindowDays, validateWindowDays, forwardWindowDays, priority, status,"
+                + "suspendReason, ifNull(toString(nextRetryTimeRaw), '') as nextRetryTime,"
+                + "attemptCount, createTime, updateTime, payload "
+                + "from (" + innerSql + ") latest"
+                + " where latest.status='PENDING'"
+                + " or (latest.status='SUSPENDED' and (latest.nextRetryTimeRaw is null or latest.nextRetryTimeRaw <= now()))"
                 + " order by latest.priority asc, latest.createTime asc limit " + Math.max(1, limit);
         try {
             List<StrategyBacktestTaskRow> rows = ClickHouseDBUtils.queryList(sql, new Object[]{}, StrategyBacktestTaskRow.class);
@@ -61,17 +71,22 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
 
     @Override
     public void markRunning(String id) {
-        updateStatus(id, "RUNNING", "");
+        updateStatus(id, "RUNNING", null, null, null, true);
     }
 
     @Override
     public void markSuccess(String id, String payload) {
-        updateStatus(id, "SUCCESS", payload);
+        updateStatus(id, "SUCCESS", payload, "", null, false);
     }
 
     @Override
     public void markFailed(String id, String errorMsg) {
-        updateStatus(id, "FAILED", errorMsg);
+        updateStatus(id, "FAILED", errorMsg, "", null, false);
+    }
+
+    @Override
+    public void markSuspended(String id, String reason, String payload, String nextRetryTime) {
+        updateStatus(id, "SUSPENDED", payload, reason, nextRetryTime, false);
     }
 
     @Override
@@ -107,16 +122,27 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
         }
     }
 
-    private void updateStatus(String id, String status, String payload) {
+    private void updateStatus(String id, String status, String payload, String suspendReason,
+                              String nextRetryTime, boolean increaseAttempt) {
         if (!ready() || StringUtils.isBlank(id)) {
             return;
         }
         String sql = "insert into " + safe(taskTable)
                 + " (id, strategy_name, strategy_version, baseline_version, runtime_type, task_type, "
-                + "fit_window_days, validate_window_days, forward_window_days, priority, status, create_time, update_time, payload) "
+                + "fit_window_days, validate_window_days, forward_window_days, priority, status, suspend_reason, "
+                + "next_retry_time, attempt_count, create_time, update_time, payload) "
                 + "select id, strategy_name, strategy_version, baseline_version, runtime_type, task_type, "
                 + "fit_window_days, validate_window_days, forward_window_days, priority, '"
-                + escape(status) + "', create_time, now(), '" + escape(payload == null ? "" : payload) + "' "
+                + escape(status) + "', '"
+                + escape(suspendReason == null ? "" : suspendReason) + "', "
+                + (StringUtils.isBlank(nextRetryTime)
+                ? "NULL"
+                : "toDateTimeOrNull('" + escape(nextRetryTime) + "')")
+                + ", "
+                + (increaseAttempt ? "ifNull(attempt_count, 0) + 1" : "ifNull(attempt_count, 0)")
+                + ", create_time, now(), "
+                + (payload == null ? "payload" : "'" + escape(payload) + "'")
+                + " "
                 + "from " + safe(taskTable) + " where id='" + escape(id) + "' order by update_time desc limit 1";
         try {
             ClickHouseDBUtils.update(sql, new Object[]{});

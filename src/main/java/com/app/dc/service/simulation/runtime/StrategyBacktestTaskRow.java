@@ -12,6 +12,9 @@ public class StrategyBacktestTaskRow {
     public Integer forwardWindowDays;
     public Integer priority;
     public String status;
+    public String suspendReason;
+    public String nextRetryTime;
+    public Integer attemptCount;
     public String createTime;
     public String updateTime;
     public String payload;

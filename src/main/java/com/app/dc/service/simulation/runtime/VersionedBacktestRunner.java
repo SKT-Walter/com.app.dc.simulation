@@ -18,6 +18,7 @@ import org.ta4j.core.Bar;
 import org.ta4j.core.BarSeries;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 
 @Service
@@ -101,8 +102,15 @@ public class VersionedBacktestRunner {
             signal.algoName = candidate.strategyName;
 
             boolean ignoreSentimentGuard = Boolean.TRUE.equals(param.ignoreSentimentGuard);
-            if (marketGuard.shouldBlock(candidate.strategyName, guardContext, bar.getEndTime().toInstant(),
-                    ignoreSentimentGuard)) {
+            boolean allowMissingStageAnalysis = !Boolean.FALSE.equals(param.allowMissingStageAnalysis);
+            BinanceBacktestMarketGuard.GuardDecision guardDecision = marketGuard.evaluate(
+                    candidate.strategyName,
+                    guardContext,
+                    bar.getEndTime().toInstant(),
+                    ignoreSentimentGuard,
+                    allowMissingStageAnalysis);
+            if (guardDecision.blocked) {
+                incrementRejectReason(result, guardDecision.reason);
                 continue;
             }
 
@@ -129,5 +137,16 @@ public class VersionedBacktestRunner {
 
         metricService.finishResult(result, equityContext);
         return result;
+    }
+
+    private void incrementRejectReason(BacktestModels.BacktestResult result, String reason) {
+        if (result == null || reason == null || reason.trim().isEmpty()) {
+            return;
+        }
+        if (result.rejectReasonCounts == null) {
+            result.rejectReasonCounts = new LinkedHashMap<String, Integer>();
+        }
+        Integer old = result.rejectReasonCounts.get(reason);
+        result.rejectReasonCounts.put(reason, Integer.valueOf((old == null ? 0 : old.intValue()) + 1));
     }
 }

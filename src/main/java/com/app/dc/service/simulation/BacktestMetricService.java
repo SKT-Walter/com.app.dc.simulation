@@ -58,10 +58,11 @@ public class BacktestMetricService {
 
     public void finishResult(BacktestResult result, EquityContext context) {
         result.finalCapital = scale(context.equity);
+        double initialCapital = result.initialCapital == null ? 0.0 : result.initialCapital.doubleValue();
+        result.totalPnl = scale(context.equity - initialCapital);
         result.tradeCount = result.tradeList.size();
         result.winRate = result.tradeCount == 0 ? BigDecimal.ZERO
                 : scale((double) result.winCount / result.tradeCount);
-        double initialCapital = result.initialCapital == null ? 0.0 : result.initialCapital.doubleValue();
         result.totalReturnPct = initialCapital == 0.0 ? BigDecimal.ZERO
                 : scale((context.equity - initialCapital) / initialCapital);
         result.avgReturnPct = result.tradeCount == 0 ? BigDecimal.ZERO

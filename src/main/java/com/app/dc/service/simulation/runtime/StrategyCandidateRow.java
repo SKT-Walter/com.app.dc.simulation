@@ -14,6 +14,7 @@ public class StrategyCandidateRow {
     public String parentVersion;
     public String category;
     public String scene;
+    public String generationType;
     public String runtimeType;
     public String artifactUri;
     public String entryClass;

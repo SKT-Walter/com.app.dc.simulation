@@ -3,6 +3,8 @@ package com.app.dc.service.simulation.runtime;
 public interface StrategyAutoPublishDao {
     StrategyLiveRegistryPublishRow loadCurrentActive(String strategyName);
 
+    StrategyLiveRegistryPublishRow loadLatestLiveBaseline(String strategyName);
+
     StrategyLiveRegistryPublishRow loadExactActive(String strategyName, String strategyVersion);
 
     StrategyBacktestSummary loadLatestSummary(String strategyName, String strategyVersion);

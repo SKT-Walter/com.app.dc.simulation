@@ -92,22 +92,32 @@ public class StrategyAutoPublishService {
             }
 
             StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadCurrentActive(candidate.strategyName);
-            if (active == null) {
+            StrategyLiveRegistryPublishRow baselineRow = active;
+            boolean reviewEvolution = StringUtils.equalsIgnoreCase(candidate.generationType, "REVIEW_EVOLUTION");
+            if (baselineRow == null && reviewEvolution) {
+                baselineRow = strategyAutoPublishDao.loadLatestLiveBaseline(candidate.strategyName);
+            }
+
+            if (baselineRow == null) {
                 publish(decision, task, candidate, null, current, "PROMOTE",
                         "promote profitable walk-forward first version");
                 return decision;
             }
 
-            decision.baselineVersion = active.strategyVersion;
-            if (StringUtils.equalsIgnoreCase(active.strategyVersion, candidate.strategyVersion)) {
-                decision.reason = "same version already active";
+            decision.baselineVersion = baselineRow.strategyVersion;
+            if (StringUtils.equalsIgnoreCase(baselineRow.strategyVersion, candidate.strategyVersion)) {
+                decision.reason = active == null
+                        ? "same version already latest live baseline"
+                        : "same version already active";
                 return decision;
             }
 
             StrategyBacktestSummary baseline = strategyAutoPublishDao
-                    .loadLatestSummary(candidate.strategyName, active.strategyVersion);
+                    .loadLatestSummary(candidate.strategyName, baselineRow.strategyVersion);
             if (baseline == null) {
-                decision.reason = "baseline backtest summary missing";
+                decision.reason = active == null
+                        ? "historical live baseline backtest summary missing"
+                        : "baseline backtest summary missing";
                 return decision;
             }
             decision.baselineTotalPnl = baseline.totalPnl;
@@ -116,16 +126,22 @@ public class StrategyAutoPublishService {
             decision.baselineForwardScore = baseline.forwardScore;
 
             if (!gt(current.forwardScore, baseline.forwardScore)) {
-                decision.reason = "forward_score not better than active baseline";
+                decision.reason = active == null
+                        ? "forward_score not better than latest live baseline"
+                        : "forward_score not better than active baseline";
                 return decision;
             }
             if (!gt(current.totalPnl, baseline.totalPnl)) {
-                decision.reason = "total_pnl not better than active baseline";
+                decision.reason = active == null
+                        ? "total_pnl not better than latest live baseline"
+                        : "total_pnl not better than active baseline";
                 return decision;
             }
 
-            publish(decision, task, candidate, active, current, "REPLACE",
-                    "replace active version with stronger backtest result");
+            publish(decision, task, candidate, baselineRow, current, "REPLACE",
+                    active == null
+                            ? "replace latest live baseline after review evolution"
+                            : "replace active version with stronger backtest result");
             return decision;
         } catch (Exception e) {
             log.error("StrategyAutoPublishService maybePublish error, strategy:{}@{}",

@@ -49,6 +49,27 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
     }
 
     @Override
+    public StrategyLiveRegistryPublishRow loadLatestLiveBaseline(String strategyName) {
+        if (!ready() || StringUtils.isBlank(strategyName)) {
+            return null;
+        }
+        String sql = registryQuery()
+                + " where lower(strategy_name)=lower(?)"
+                + " order by effective_time desc limit 1";
+        try {
+            List<StrategyLiveRegistryPublishRow> rows = ClickHouseDBUtils.queryList(sql,
+                    new Object[]{strategyName}, StrategyLiveRegistryPublishRow.class);
+            if (rows == null || rows.isEmpty()) {
+                return null;
+            }
+            return rows.get(0);
+        } catch (Exception e) {
+            log.error("loadLatestLiveBaseline error, strategy:{}", strategyName, e);
+            return null;
+        }
+    }
+
+    @Override
     public StrategyLiveRegistryPublishRow loadExactActive(String strategyName, String strategyVersion) {
         if (!ready() || StringUtils.isBlank(strategyName) || StringUtils.isBlank(strategyVersion)) {
             return null;

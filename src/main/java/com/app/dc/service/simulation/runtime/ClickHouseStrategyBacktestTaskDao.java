@@ -101,6 +101,7 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 + "parent_version as parentVersion,"
                 + "category as category,"
                 + "scene as scene,"
+                + "generation_type as generationType,"
                 + "runtime_type as runtimeType,"
                 + "artifact_uri as artifactUri,"
                 + "entry_class as entryClass,"

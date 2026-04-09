@@ -58,7 +58,7 @@ public class SourceLiveBaselineMigrationCli {
         BatchSummary summary = new BatchSummary();
         summary.mode = "SEED";
         summary.batchTag = options.batchTag;
-        List<LiveRow> rows = loadActiveSourceLiveRows(connection, options.strategyNames);
+        List<LiveRow> rows = loadLatestSourceLiveRows(connection, options.strategyNames);
         summary.total = rows.size();
         for (LiveRow row : rows) {
             ItemSummary item = new ItemSummary();
@@ -110,7 +110,7 @@ public class SourceLiveBaselineMigrationCli {
         BatchSummary summary = new BatchSummary();
         summary.mode = "OFFLINE";
         summary.batchTag = options.batchTag;
-        List<LiveRow> rows = loadActiveSourceLiveRows(connection, options.strategyNames);
+        List<LiveRow> rows = loadLatestSourceLiveRows(connection, options.strategyNames);
         summary.total = rows.size();
         if (!options.dryRun && !rows.isEmpty()) {
             bulkOffline(connection, rows);
@@ -127,15 +127,13 @@ public class SourceLiveBaselineMigrationCli {
         return summary;
     }
 
-    private static List<LiveRow> loadActiveSourceLiveRows(Connection connection, Set<String> strategyNames) throws Exception {
+    private static List<LiveRow> loadLatestSourceLiveRows(Connection connection, Set<String> strategyNames) throws Exception {
         StringBuilder sql = new StringBuilder();
         sql.append("select ")
                 .append("strategy_name, strategy_version, category, scene, runtime_type, symbol_scope, text_scope, ")
                 .append("artifact_uri, entry_class, parameters_json, status, effective_time, payload, description ")
                 .append("from dc.strategy_live_registry ")
-                .append("where status='ACTIVE' ")
-                .append("and (retire_time is null or retire_time > now()) ")
-                .append("and lower(entry_class) like 'com.app.dc.signal.live.%' ");
+                .append("where lower(entry_class) like 'com.app.dc.signal.live.%' ");
         List<Object> args = new ArrayList<Object>();
         if (strategyNames != null && !strategyNames.isEmpty()) {
             sql.append("and lower(strategy_name) in (");

@@ -31,6 +31,9 @@ public class BacktestResultClickHouseDao {
     @Value("${binanceBacktestSliceResultTable:backtest_slice_result}")
     private String sliceTableName;
 
+    @Value("${binanceBacktestOptimizationTrialTable:backtest_optimization_trial}")
+    private String trialTableName;
+
     public void insertResults(String sid, String reportPath, BacktestModels.BacktestResponse response) {
         if (!storeEnabled || response == null) {
             return;
@@ -46,18 +49,24 @@ public class BacktestResultClickHouseDao {
 
         String table = safeTableName(tableName);
         String sliceTable = safeTableName(sliceTableName, "backtest_slice_result");
+        String trialTable = safeTableName(trialTableName, "backtest_optimization_trial");
         String sql = "INSERT INTO " + table
                 + " (run_time,sid,strategy_name,strategy_version,baseline_version,runtime_type,scene,"
                 + "symbol,text,begin_date,end_date,trade_count,win_count,loss_count,flat_count,"
                 + "win_rate,total_return_pct,max_drawdown_pct,initial_capital,final_capital,total_pnl,"
-                + "forward_score,window_mode,slice_count,fit_pnl,validate_pnl,forward_pnl,overfit_pass,overfit_reason,report_path,payload)"
-                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                + "forward_score,window_mode,slice_count,fit_pnl,validate_pnl,forward_pnl,overfit_pass,overfit_reason,"
+                + "optimization_mode,trial_count,best_param_set,best_rank,report_path,payload)"
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         String sliceSql = "INSERT INTO " + sliceTable
                 + " (run_time,sid,strategy_name,strategy_version,symbol,text,slice_no,"
                 + "fit_begin,fit_end,validate_begin,validate_end,forward_begin,forward_end,"
                 + "fit_pnl,validate_pnl,forward_pnl,fit_trade_count,validate_trade_count,forward_trade_count,"
                 + "fit_max_drawdown_pct,validate_max_drawdown_pct,forward_max_drawdown_pct,payload)"
                 + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        String trialSql = "INSERT INTO " + trialTable
+                + " (run_time,sid,strategy_name,strategy_version,symbol_scope,text_scope,trial_no,phase,param_set,"
+                + "fit_pnl,validate_pnl,forward_pnl,total_pnl,forward_score,max_drawdown_pct,overfit_pass,overfit_reason,rank,payload)"
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
         for (BacktestModels.BacktestResult result : results) {
             try {
@@ -93,6 +102,10 @@ public class BacktestResultClickHouseDao {
                         nzDouble(result.forwardPnl),
                         nzInt(result.overfitPass),
                         safe(result.overfitReason),
+                        safe(result.optimizationMode),
+                        nzInt(result.trialCount),
+                        safe(result.bestParamSetJson),
+                        nzInt(result.bestRank),
                         safe(reportPath),
                         JsonUtils.Serializer(result)
                 };
@@ -103,6 +116,7 @@ public class BacktestResultClickHouseDao {
                         result.strategyName, result.symbol, e);
             }
         }
+        insertOptimizationTrials(trialSql, sid, response);
     }
 
     private void insertSliceResults(String sql, String sid, BacktestModels.BacktestResult result) {
@@ -140,6 +154,41 @@ public class BacktestResultClickHouseDao {
             } catch (Exception e) {
                 log.error("BacktestResultClickHouseDao insert slice error, strategy:{}, symbol:{}, slice:{}",
                         result.strategyName, result.symbol, slice.sliceNo, e);
+            }
+        }
+    }
+
+    private void insertOptimizationTrials(String sql, String sid, BacktestModels.BacktestResponse response) {
+        if (response == null || response.trials == null || response.trials.isEmpty()) {
+            return;
+        }
+        for (BacktestModels.OptimizationTrial trial : response.trials) {
+            try {
+                Object[] args = new Object[]{
+                        Timestamp.from(Instant.now()),
+                        safe(sid),
+                        safe(trial.strategyName),
+                        safe(trial.strategyVersion),
+                        safe(trial.symbolScope),
+                        safe(trial.textScope),
+                        nzInt(trial.trialNo),
+                        safe(trial.phase),
+                        safe(trial.paramSetJson),
+                        nzDouble(trial.fitPnl),
+                        nzDouble(trial.validatePnl),
+                        nzDouble(trial.forwardPnl),
+                        nzDouble(trial.totalPnl),
+                        nzDouble(trial.forwardScore),
+                        nzDouble(trial.maxDrawdownPct),
+                        nzInt(trial.overfitPass),
+                        safe(trial.overfitReason),
+                        nzInt(trial.rank),
+                        JsonUtils.Serializer(trial)
+                };
+                ClickHouseDBUtils.update(sql, args);
+            } catch (Exception e) {
+                log.error("BacktestResultClickHouseDao insert optimization trial error, strategy:{}, trial:{}",
+                        trial.strategyName, trial.trialNo, e);
             }
         }
     }

@@ -30,6 +30,11 @@ public final class BacktestModels {
         public BigDecimal totalPnl = BigDecimal.ZERO;
         public Integer overfitPass = 0;
         public String overfitReason = "";
+        public String optimizationMode = "";
+        public Integer trialCount = 0;
+        public Integer bestRank = 0;
+        public String bestParamSetJson = "{}";
+        public List<OptimizationTrial> trials;
         public List<BacktestResult> results;
     }
 
@@ -49,6 +54,10 @@ public final class BacktestModels {
         public BigDecimal totalPnl = BigDecimal.ZERO;
         public Integer overfitPass = 0;
         public String overfitReason = "";
+        public String optimizationMode = "";
+        public Integer trialCount = 0;
+        public Integer bestRank = 0;
+        public String bestParamSetJson = "{}";
         public String symbol;
         public String text;
         public String beginDate;
@@ -85,6 +94,25 @@ public final class BacktestModels {
         public List<EquityPoint> equityCurve;
         public Map<String, Integer> rejectReasonCounts;
         public List<BacktestSliceResult> sliceResults;
+    }
+
+    public static class OptimizationTrial {
+        public Integer trialNo = 0;
+        public String phase = "";
+        public String strategyName;
+        public String strategyVersion;
+        public String symbolScope;
+        public String textScope;
+        public String paramSetJson = "{}";
+        public BigDecimal fitPnl = BigDecimal.ZERO;
+        public BigDecimal validatePnl = BigDecimal.ZERO;
+        public BigDecimal forwardPnl = BigDecimal.ZERO;
+        public BigDecimal totalPnl = BigDecimal.ZERO;
+        public BigDecimal forwardScore = BigDecimal.ZERO;
+        public BigDecimal maxDrawdownPct = BigDecimal.ZERO;
+        public Integer overfitPass = 0;
+        public String overfitReason = "";
+        public Integer rank = 0;
     }
 
     public static class BacktestSliceResult {

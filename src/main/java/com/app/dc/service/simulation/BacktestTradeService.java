@@ -24,10 +24,12 @@ public class BacktestTradeService {
         position.entryIndex = barIndex;
         position.entryCapital = currentEquity;
         position.qty = position.entryPrice == 0.0 ? 0.0 : currentEquity / position.entryPrice;
-        position.stopPrice = resolveRiskPrice(signal.stopPrice, signal.side, position.entryPrice,
-                param.fallbackStopLossPct.doubleValue(), true);
-        position.takePrice = resolveRiskPrice(signal.takerPrice, signal.side, position.entryPrice,
-                param.fallbackTakeProfitPct.doubleValue(), false);
+        position.stopPrice = signal.stopPrice == null || signal.stopPrice.compareTo(BigDecimal.ZERO) <= 0
+                ? null
+                : signal.stopPrice.doubleValue();
+        position.takePrice = signal.takerPrice == null || signal.takerPrice.compareTo(BigDecimal.ZERO) <= 0
+                ? null
+                : signal.takerPrice.doubleValue();
         position.maxHoldBars = param.maxHoldBars == null ? 0 : param.maxHoldBars;
         return position;
     }
@@ -107,22 +109,6 @@ public class BacktestTradeService {
     public boolean isOpposite(Side positionSide, Side signalSide) {
         return (positionSide == Side.BUY && signalSide == Side.SELL)
                 || (positionSide == Side.SELL && signalSide == Side.BUY);
-    }
-
-    public Double resolveRiskPrice(BigDecimal strategyPrice, Side side, double entryPrice,
-                                   double fallbackPct, boolean stopLoss) {
-        if (strategyPrice != null && strategyPrice.compareTo(BigDecimal.ZERO) > 0) {
-            return strategyPrice.doubleValue();
-        }
-        if (fallbackPct <= 0.0) {
-            return null;
-        }
-
-        double ratio = fallbackPct / 100.0;
-        if (side == Side.BUY) {
-            return stopLoss ? entryPrice * (1.0 - ratio) : entryPrice * (1.0 + ratio);
-        }
-        return stopLoss ? entryPrice * (1.0 + ratio) : entryPrice * (1.0 - ratio);
     }
 
     public double calcGrossReturnPct(Side side, double entryPrice, double exitPrice) {

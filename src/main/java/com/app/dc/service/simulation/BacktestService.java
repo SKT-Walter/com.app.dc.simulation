@@ -2,12 +2,15 @@ package com.app.dc.service.simulation;
 
 import com.app.dc.po.TTbookOhlc;
 import com.app.dc.po.backtest.BacktestParam;
+import com.app.dc.signal.StrategyParametersSupport;
+import com.app.dc.service.simulation.BacktestModels.OptimizationTrial;
 import com.app.dc.service.simulation.BacktestModels.BacktestResponse;
 import com.app.dc.service.simulation.BacktestModels.BacktestResult;
 import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import com.app.dc.service.simulation.runtime.StrategyBacktestTaskDao;
 import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
 import com.app.dc.service.simulation.runtime.WalkForwardBacktestRunner;
+import com.gateway.connector.utils.JsonUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
@@ -22,7 +25,9 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class BacktestService {
@@ -39,6 +44,9 @@ public class BacktestService {
     @Autowired
     private WalkForwardBacktestRunner walkForwardBacktestRunner;
 
+    @Autowired
+    private BacktestOptimizationService backtestOptimizationService;
+
     public BacktestResponse run(BacktestParam param) throws Exception {
         return run(param, 120, 30, 14);
     }
@@ -47,7 +55,7 @@ public class BacktestService {
                                 int fitWindowDays,
                                 int validateWindowDays,
                                 int forwardWindowDays) throws Exception {
-        BacktestParam req = normalizeParam(param);
+        BacktestParam req = param == null ? new BacktestParam() : param;
         if (req.strategyName == null || req.strategyName.trim().isEmpty()) {
             throw new IllegalArgumentException("strategyName is required");
         }
@@ -58,12 +66,132 @@ public class BacktestService {
         if (candidate == null) {
             throw new IllegalArgumentException("strategy candidate not found: " + req.strategyName + "@" + req.strategyVersion);
         }
+        req = normalizeParam(req);
+        List<String> symbols = supportService.resolveSymbols(req.symbols, req.symbol);
         req.runtimeType = candidate.runtimeType;
         req.scene = candidate.scene;
         req.strategyPayload = candidate.payload;
+        if (req.strategyParams == null) {
+            req.strategyParams = new LinkedHashMap<String, Object>();
+        }
 
-        List<String> symbols = supportService.resolveSymbols(req.symbols, req.symbol);
+        BacktestOptimizationService.OptimizationPlan plan =
+                backtestOptimizationService.buildPlan(candidate.parametersJson);
+        List<TrialExecution> executions = new ArrayList<TrialExecution>();
+        int trialNo = 1;
 
+        List<Map<String, Object>> coarseParamSets = plan.optimizationSupported
+                ? backtestOptimizationService.buildCoarseParamSets(plan)
+                : backtestOptimizationService.buildDefaultOnly(plan);
+        executions.addAll(executeTrials("COARSE", trialNo, candidate, req, symbols, coarseParamSets,
+                fitWindowDays, validateWindowDays, forwardWindowDays));
+        trialNo += coarseParamSets.size();
+
+        List<OptimizationTrial> rankedTrials = collectTrials(executions);
+        backtestOptimizationService.rankTrials(rankedTrials);
+        if (plan.optimizationSupported) {
+            List<Map<String, Object>> fineParamSets = backtestOptimizationService.buildFineParamSets(plan, rankedTrials);
+            executions.addAll(executeTrials("FINE", trialNo, candidate, req, symbols, fineParamSets,
+                    fitWindowDays, validateWindowDays, forwardWindowDays));
+            rankedTrials = collectTrials(executions);
+            backtestOptimizationService.rankTrials(rankedTrials);
+        }
+
+        TrialExecution best = bestTrial(executions);
+        if (best == null) {
+            throw new IllegalStateException("no backtest trial result produced");
+        }
+        BacktestResponse response = best.response;
+        response.optimizationMode = plan.optimizationMode;
+        response.trialCount = executions.size();
+        response.bestRank = best.trial.rank == null ? 0 : best.trial.rank;
+        response.bestParamSetJson = best.trial.paramSetJson == null ? "{}" : best.trial.paramSetJson;
+        response.trials = rankedTrials;
+        if (response.results != null) {
+            for (BacktestResult result : response.results) {
+                if (result == null) {
+                    continue;
+                }
+                result.optimizationMode = response.optimizationMode;
+                result.trialCount = response.trialCount;
+                result.bestRank = response.bestRank;
+                result.bestParamSetJson = response.bestParamSetJson;
+            }
+        }
+        return response;
+    }
+
+    private List<TrialExecution> executeTrials(String phase,
+                                               int startTrialNo,
+                                               StrategyCandidateRow candidate,
+                                               BacktestParam baseParam,
+                                               List<String> symbols,
+                                               List<Map<String, Object>> paramSets,
+                                               int fitWindowDays,
+                                               int validateWindowDays,
+                                               int forwardWindowDays) throws Exception {
+        if (paramSets == null || paramSets.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<TrialExecution> executions = new ArrayList<TrialExecution>();
+        int trialNo = startTrialNo;
+        for (Map<String, Object> paramSet : paramSets) {
+            BacktestResponse response = runSingle(candidate, baseParam, symbols, paramSet,
+                    fitWindowDays, validateWindowDays, forwardWindowDays);
+            OptimizationTrial trial = backtestOptimizationService.buildTrial(trialNo, phase,
+                    candidate.strategyName, candidate.strategyVersion,
+                    response.symbol, response.text, paramSet, response);
+            TrialExecution execution = new TrialExecution();
+            execution.trial = trial;
+            execution.response = response;
+            executions.add(execution);
+            trialNo++;
+        }
+        return executions;
+    }
+
+    private List<OptimizationTrial> collectTrials(List<TrialExecution> executions) {
+        List<OptimizationTrial> trials = new ArrayList<OptimizationTrial>();
+        if (executions == null) {
+            return trials;
+        }
+        for (TrialExecution execution : executions) {
+            if (execution != null && execution.trial != null) {
+                trials.add(execution.trial);
+            }
+        }
+        return trials;
+    }
+
+    private TrialExecution bestTrial(List<TrialExecution> executions) {
+        TrialExecution best = null;
+        if (executions == null) {
+            return null;
+        }
+        for (TrialExecution execution : executions) {
+            if (execution == null || execution.trial == null) {
+                continue;
+            }
+            if (best == null) {
+                best = execution;
+                continue;
+            }
+            int currentRank = execution.trial.rank == null ? Integer.MAX_VALUE : execution.trial.rank.intValue();
+            int bestRank = best.trial.rank == null ? Integer.MAX_VALUE : best.trial.rank.intValue();
+            if (currentRank < bestRank) {
+                best = execution;
+            }
+        }
+        return best;
+    }
+
+    private BacktestResponse runSingle(StrategyCandidateRow candidate,
+                                       BacktestParam req,
+                                       List<String> symbols,
+                                       Map<String, Object> trialParams,
+                                       int fitWindowDays,
+                                       int validateWindowDays,
+                                       int forwardWindowDays) throws Exception {
         BacktestResponse response = new BacktestResponse();
         response.symbol = symbols.size() == 1 ? symbols.get(0) : "MULTI";
         response.symbols = symbols;
@@ -88,6 +216,7 @@ public class BacktestService {
         for (String symbol : symbols) {
             List<TTbookOhlc> ohlcList = queryService.queryOhlc(symbol, req.text, req.beginDate, req.endDate);
             BacktestParam symbolParam = copyParamForSymbol(req, symbol);
+            applyTrialParamOverrides(symbolParam, trialParams);
             BacktestResult result = walkForwardBacktestRunner.run(candidate, symbolParam, ohlcList,
                     fitWindowDays, validateWindowDays, forwardWindowDays);
             results.add(result);
@@ -111,7 +240,22 @@ public class BacktestService {
         response.sliceCount = results.isEmpty() ? 0 : sliceCount;
         response.overfitPass = results.isEmpty() ? 0 : (overfitPass ? 1 : 0);
         response.overfitReason = overfitReason;
+        response.bestParamSetJson = JsonUtils.Serializer(trialParams == null
+                ? Collections.<String, Object>emptyMap()
+                : new LinkedHashMap<String, Object>(trialParams));
         return response;
+    }
+
+    private void applyTrialParamOverrides(BacktestParam param, Map<String, Object> trialParams) {
+        if (param == null || trialParams == null || trialParams.isEmpty()) {
+            return;
+        }
+        if (param.strategyParams == null) {
+            param.strategyParams = new LinkedHashMap<String, Object>();
+        }
+        for (Map.Entry<String, Object> entry : trialParams.entrySet()) {
+            param.strategyParams.put(entry.getKey(), entry.getValue());
+        }
     }
 
     private BacktestParam copyParamForSymbol(BacktestParam source, String symbol) {
@@ -122,6 +266,10 @@ public class BacktestService {
         target.runtimeType = source.runtimeType;
         target.scene = source.scene;
         target.strategyPayload = source.strategyPayload;
+        target.strategyParams = new LinkedHashMap<String, Object>();
+        if (source.strategyParams != null && !source.strategyParams.isEmpty()) {
+            target.strategyParams.putAll(source.strategyParams);
+        }
         target.symbol = symbol;
         target.symbols = symbol;
         target.text = source.text;
@@ -131,8 +279,6 @@ public class BacktestService {
         target.feeRatePct = source.feeRatePct;
         target.entryMakerFeeRatePct = source.entryMakerFeeRatePct;
         target.exitTakerFeeRatePct = source.exitTakerFeeRatePct;
-        target.fallbackStopLossPct = source.fallbackStopLossPct;
-        target.fallbackTakeProfitPct = source.fallbackTakeProfitPct;
         target.maxHoldBars = source.maxHoldBars;
         target.ignoreSentimentGuard = source.ignoreSentimentGuard;
         target.allowMissingStageAnalysis = source.allowMissingStageAnalysis;
@@ -167,12 +313,6 @@ public class BacktestService {
                     ? req.feeRatePct
                     : new BigDecimal("0.05");
         }
-        if (req.fallbackStopLossPct == null || req.fallbackStopLossPct.compareTo(BigDecimal.ZERO) < 0) {
-            req.fallbackStopLossPct = BigDecimal.ZERO;
-        }
-        if (req.fallbackTakeProfitPct == null || req.fallbackTakeProfitPct.compareTo(BigDecimal.ZERO) < 0) {
-            req.fallbackTakeProfitPct = BigDecimal.ZERO;
-        }
         if (req.maxHoldBars == null || req.maxHoldBars < 0) {
             req.maxHoldBars = 0;
         }
@@ -205,8 +345,6 @@ public class BacktestService {
         result.feeRatePct = scale(param.entryMakerFeeRatePct.doubleValue() + param.exitTakerFeeRatePct.doubleValue());
         result.entryMakerFeeRatePct = scale(param.entryMakerFeeRatePct.doubleValue());
         result.exitTakerFeeRatePct = scale(param.exitTakerFeeRatePct.doubleValue());
-        result.fallbackStopLossPct = scale(param.fallbackStopLossPct.doubleValue());
-        result.fallbackTakeProfitPct = scale(param.fallbackTakeProfitPct.doubleValue());
         result.maxHoldBars = param.maxHoldBars;
         result.tradeList = new ArrayList<TradeRecord>();
         result.equityCurve = new ArrayList<BacktestModels.EquityPoint>();
@@ -228,4 +366,10 @@ public class BacktestService {
     private BigDecimal nz(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
     }
+
+    private static class TrialExecution {
+        private OptimizationTrial trial;
+        private BacktestResponse response;
+    }
+
 }

@@ -9,6 +9,10 @@ public class StrategyBacktestSummary {
     public String runTime;
     public String windowMode;
     public Integer sliceCount;
+    public String optimizationMode;
+    public Integer trialCount;
+    public Integer bestRank;
+    public String bestParamSetJson;
     public Double fitPnl;
     public Double validatePnl;
     public Double forwardPnl;

@@ -106,6 +106,7 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 + "artifact_uri as artifactUri,"
                 + "entry_class as entryClass,"
                 + "description as description,"
+                + "parameters_json as parametersJson,"
                 + "payload as payload "
                 + "from " + safe(candidateTable)
                 + " where strategy_name=? and strategy_version=? order by create_time desc limit 1";

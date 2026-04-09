@@ -329,6 +329,10 @@ public class WalkForwardBacktestRunner {
         target.runtimeType = source.runtimeType;
         target.scene = source.scene;
         target.strategyPayload = source.strategyPayload;
+        target.strategyParams = new LinkedHashMap<String, Object>();
+        if (source.strategyParams != null && !source.strategyParams.isEmpty()) {
+            target.strategyParams.putAll(source.strategyParams);
+        }
         target.symbol = source.symbol;
         target.symbols = source.symbols;
         target.text = supportService.normalizeText(source.text);

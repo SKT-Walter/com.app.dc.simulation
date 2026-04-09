@@ -96,6 +96,7 @@ public class BacktestReportService {
         report.put("reportMeta", buildMeta(sid, response));
         report.put("summary", buildSummary(response));
         report.put("gates", buildGates(response, candidate, active, release, decision));
+        report.put("optimization", buildOptimization(response));
         report.put("results", buildResults(response));
         return report;
     }
@@ -126,6 +127,10 @@ public class BacktestReportService {
         summary.put("forwardPnl", scale(response.forwardPnl));
         summary.put("totalPnl", scale(response.totalPnl));
         summary.put("sliceCount", nzInt(response.sliceCount));
+        summary.put("optimizationMode", s(response.optimizationMode));
+        summary.put("trialCount", nzInt(response.trialCount));
+        summary.put("bestRank", nzInt(response.bestRank));
+        summary.put("bestParamSetJson", defaultIfBlank(response.bestParamSetJson, "{}"));
 
         int tradeCount = 0;
         BigDecimal finalCapital = BigDecimal.ZERO;
@@ -151,6 +156,40 @@ public class BacktestReportService {
         summary.put("exitFeeTotal", scale(exitFeeTotal));
         summary.put("totalFee", scale(totalFee));
         return summary;
+    }
+
+    private Map<String, Object> buildOptimization(BacktestResponse response) {
+        Map<String, Object> optimization = new LinkedHashMap<String, Object>();
+        optimization.put("optimizationMode", s(response == null ? null : response.optimizationMode));
+        optimization.put("trialCount", nzInt(response == null ? null : response.trialCount));
+        optimization.put("bestRank", nzInt(response == null ? null : response.bestRank));
+        optimization.put("bestParamSetJson", defaultIfBlank(response == null ? null : response.bestParamSetJson, "{}"));
+        List<Map<String, Object>> trials = new ArrayList<Map<String, Object>>();
+        List<BacktestModels.OptimizationTrial> items = response == null || response.trials == null
+                ? Collections.<BacktestModels.OptimizationTrial>emptyList()
+                : response.trials;
+        int limit = 20;
+        for (BacktestModels.OptimizationTrial trial : items) {
+            if (trial == null || limit-- <= 0) {
+                break;
+            }
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            row.put("trialNo", nzInt(trial.trialNo));
+            row.put("phase", s(trial.phase));
+            row.put("rank", nzInt(trial.rank));
+            row.put("fitPnl", scale(trial.fitPnl));
+            row.put("validatePnl", scale(trial.validatePnl));
+            row.put("forwardPnl", scale(trial.forwardPnl));
+            row.put("totalPnl", scale(trial.totalPnl));
+            row.put("forwardScore", scale(trial.forwardScore));
+            row.put("maxDrawdownPct", scale(trial.maxDrawdownPct));
+            row.put("overfitPass", nzInt(trial.overfitPass));
+            row.put("overfitReason", translateReason(s(trial.overfitReason)));
+            row.put("paramSetJson", defaultIfBlank(trial.paramSetJson, "{}"));
+            trials.add(row);
+        }
+        optimization.put("trials", trials);
+        return optimization;
     }
 
     private Map<String, Object> buildGates(BacktestResponse response,
@@ -228,6 +267,10 @@ public class BacktestReportService {
         summary.put("stopExitCount", nzInt(result.stopExitCount));
         summary.put("takeExitCount", nzInt(result.takeExitCount));
         summary.put("sliceCount", nzInt(result.sliceCount));
+        summary.put("optimizationMode", s(result.optimizationMode));
+        summary.put("trialCount", nzInt(result.trialCount));
+        summary.put("bestRank", nzInt(result.bestRank));
+        summary.put("bestParamSetJson", defaultIfBlank(result.bestParamSetJson, "{}"));
         summary.put("fitPnl", scale(result.fitPnl));
         summary.put("validatePnl", scale(result.validatePnl));
         summary.put("forwardPnl", scale(result.forwardPnl));
@@ -500,6 +543,8 @@ public class BacktestReportService {
         @SuppressWarnings("unchecked")
         Map<String, Object> gates = (Map<String, Object>) report.get("gates");
         @SuppressWarnings("unchecked")
+        Map<String, Object> optimization = (Map<String, Object>) report.get("optimization");
+        @SuppressWarnings("unchecked")
         List<Map<String, Object>> results = (List<Map<String, Object>>) report.get("results");
 
         StringBuilder html = new StringBuilder();
@@ -561,6 +606,15 @@ public class BacktestReportService {
                 .append(metric("\u6700\u5927\u56de\u64a4", summary.get("maxDrawdownPct")))
                 .append(metric("\u603b\u624b\u7eed\u8d39", summary.get("totalFee")))
                 .append("</div></div>");
+
+        html.append("<div class=\"section\"><h2>\u53c2\u6570\u4f18\u5316\u7ed3\u679c</h2><div class=\"grid\">")
+                .append(metric("\u4f18\u5316\u6a21\u5f0f", optimization.get("optimizationMode")))
+                .append(metric("Trial \u6570", optimization.get("trialCount")))
+                .append(metric("\u6700\u4f73\u6392\u540d", optimization.get("bestRank")))
+                .append(metric("\u6700\u4f73\u53c2\u6570\u96c6", compactJsonValue(optimization.get("bestParamSetJson"))))
+                .append("</div>")
+                .append(renderOptimizationTrials(optimization))
+                .append("</div>");
 
         html.append("<div class=\"section\"><div class=\"tips\">")
                 .append(isTrue(gates.get("liveRegistryEntered")) ? "\u8be5\u7b56\u7565\u5df2\u6ee1\u8db3\u56de\u6d4b\u4e0e\u53d1\u5e03\u95e8\u69db\uff0c\u5e76\u5df2\u8fdb\u5165 live_registry\u3002" : "\u8be5\u7b56\u7565\u672a\u8fdb\u5165\u5b9e\u76d8\uff0c\u539f\u56e0\uff1a" + escape(s(gates.get("liveRegistryReason"))))
@@ -921,6 +975,8 @@ public class BacktestReportService {
         Map<String, Object> summary = (Map<String, Object>) report.get("summary");
         @SuppressWarnings("unchecked")
         Map<String, Object> gates = (Map<String, Object>) report.get("gates");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> optimization = (Map<String, Object>) report.get("optimization");
 
         StringBuilder md = new StringBuilder();
         md.append("# ").append(s(meta.get("strategyLabel"))).append(" \u56de\u6d4b\u62a5\u544a\\n\\n");
@@ -941,7 +997,52 @@ public class BacktestReportService {
         md.append("| \u603b\u6536\u76ca | ").append(s(summary.get("totalPnl"))).append(" |\\n");
         md.append("| Forward Score | ").append(s(summary.get("forwardScore"))).append(" |\\n");
         md.append("| \u603b\u624b\u7eed\u8d39 | ").append(s(summary.get("totalFee"))).append(" |\\n");
+        md.append("| \u4f18\u5316\u6a21\u5f0f | ").append(s(optimization.get("optimizationMode"))).append(" |\\n");
+        md.append("| Trial \u6570 | ").append(s(optimization.get("trialCount"))).append(" |\\n");
+        md.append("| \u6700\u4f73\u6392\u540d | ").append(s(optimization.get("bestRank"))).append(" |\\n");
+        md.append("| \u6700\u4f73\u53c2\u6570\u96c6 | `").append(s(optimization.get("bestParamSetJson"))).append("` |\\n");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> trials = (List<Map<String, Object>>) optimization.get("trials");
+        if (trials != null && !trials.isEmpty()) {
+            md.append("\\n## \u53c2\u6570\u4f18\u5316 Top Trials\\n\\n");
+            md.append("| Trial | Phase | Rank | Total PnL | Forward Score | Max DD | Param Set |\\n|---|---|---:|---:|---:|---:|---|\\n");
+            for (Map<String, Object> trial : trials) {
+                md.append("| ").append(s(trial.get("trialNo")))
+                        .append(" | ").append(s(trial.get("phase")))
+                        .append(" | ").append(s(trial.get("rank")))
+                        .append(" | ").append(s(trial.get("totalPnl")))
+                        .append(" | ").append(s(trial.get("forwardScore")))
+                        .append(" | ").append(s(trial.get("maxDrawdownPct")))
+                        .append(" | `").append(s(trial.get("paramSetJson"))).append("` |\\n");
+            }
+        }
         return md.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private String renderOptimizationTrials(Map<String, Object> optimization) {
+        if (optimization == null) {
+            return "";
+        }
+        List<Map<String, Object>> trials = (List<Map<String, Object>>) optimization.get("trials");
+        if (trials == null || trials.isEmpty()) {
+            return "<div class=\"table-wrap\"><table><thead><tr><th>说明</th></tr></thead><tbody><tr><td>暂无参数优化试验明细</td></tr></tbody></table></div>";
+        }
+        return renderTable(
+                new String[]{"Trial", "Phase", "Rank", "Fit", "Validate", "Forward", "Total", "Forward Score", "Max DD", "参数集"},
+                trials,
+                new String[]{"trialNo", "phase", "rank", "fitPnl", "validatePnl", "forwardPnl", "totalPnl", "forwardScore", "maxDrawdownPct", "paramSetJson"});
+    }
+
+    private String compactJsonValue(Object value) {
+        String text = s(value);
+        if (StringUtils.isBlank(text)) {
+            return "{}";
+        }
+        if (text.length() <= 72) {
+            return text;
+        }
+        return text.substring(0, 69) + "...";
     }
 
     private boolean isPublishEligible(BacktestResponse response, StrategyCandidateRow candidate) {

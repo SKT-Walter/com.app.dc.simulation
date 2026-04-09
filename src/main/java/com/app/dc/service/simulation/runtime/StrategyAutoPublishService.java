@@ -2,6 +2,7 @@ package com.app.dc.service.simulation.runtime;
 
 import com.app.common.utils.IdUtil;
 import com.app.dc.po.backtest.BacktestParam;
+import com.app.dc.signal.StrategyParametersSupport;
 import com.app.dc.service.simulation.BacktestModels;
 import com.gateway.connector.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +15,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -93,8 +95,9 @@ public class StrategyAutoPublishService {
 
             StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadCurrentActive(candidate.strategyName);
             StrategyLiveRegistryPublishRow baselineRow = active;
+            boolean baselineMigration = StringUtils.equalsIgnoreCase(candidate.generationType, "LIVE_BASELINE_MIGRATION");
             boolean reviewEvolution = StringUtils.equalsIgnoreCase(candidate.generationType, "REVIEW_EVOLUTION");
-            if (baselineRow == null && reviewEvolution) {
+            if (baselineRow == null && (reviewEvolution || baselineMigration)) {
                 baselineRow = strategyAutoPublishDao.loadLatestLiveBaseline(candidate.strategyName);
             }
 
@@ -160,7 +163,7 @@ public class StrategyAutoPublishService {
                          String reason) {
         String now = nowString();
         strategyAutoPublishDao.retireActive(candidate.strategyName, candidate.strategyVersion, now);
-        strategyAutoPublishDao.insertRegistry(buildRegistryRow(task, candidate, now));
+        strategyAutoPublishDao.insertRegistry(buildRegistryRow(task, candidate, current, now));
         strategyAutoPublishDao.insertReleaseEvent(buildReleaseEvent(task, candidate, active, current, eventType, reason, now));
         decision.published = true;
         decision.action = eventType;
@@ -170,6 +173,7 @@ public class StrategyAutoPublishService {
 
     private StrategyLiveRegistryPublishRow buildRegistryRow(StrategyBacktestTaskRow task,
                                                             StrategyCandidateRow candidate,
+                                                            StrategyBacktestSummary current,
                                                             String effectiveTime) {
         BacktestParam param = parseTaskPayload(task);
         StrategyLiveRegistryPublishRow row = new StrategyLiveRegistryPublishRow();
@@ -179,11 +183,11 @@ public class StrategyAutoPublishService {
         row.category = blankTo(candidate.category, "generated");
         row.scene = candidate.scene;
         row.runtimeType = blankTo(candidate.runtimeType, "CLASSPATH");
-        row.symbolScope = deriveSymbolScope(param);
-        row.textScope = deriveTextScope(param);
+        row.symbolScope = "*";
+        row.textScope = "*";
         row.artifactUri = blankTo(candidate.artifactUri, "classpath://builtin");
         row.entryClass = candidate.entryClass;
-        row.parametersJson = blankTo(candidate.payload, "{}");
+        row.parametersJson = resolveRuntimeParametersJson(candidate, current);
         row.status = "ACTIVE";
         row.effectiveTime = effectiveTime;
         row.retireTime = null;
@@ -191,6 +195,21 @@ public class StrategyAutoPublishService {
         row.payload = blankTo(candidate.payload, "{}");
         row.description = candidate.description;
         return row;
+    }
+
+    private String resolveRuntimeParametersJson(StrategyCandidateRow candidate,
+                                               StrategyBacktestSummary current) {
+        if (current != null && StringUtils.isNotBlank(current.bestParamSetJson)
+                && !"{}".equals(current.bestParamSetJson.trim())) {
+            return current.bestParamSetJson;
+        }
+        Map<String, Object> defaults = candidate == null
+                ? Collections.<String, Object>emptyMap()
+                : StrategyParametersSupport.extractDefaultParams(candidate.parametersJson);
+        if (defaults == null || defaults.isEmpty()) {
+            return "{}";
+        }
+        return JsonUtils.Serializer(defaults);
     }
 
     private StrategyReleaseEventRecord buildReleaseEvent(StrategyBacktestTaskRow task,
@@ -242,6 +261,10 @@ public class StrategyAutoPublishService {
         summary.runTime = nowString();
         summary.windowMode = response == null ? "" : response.windowMode;
         summary.sliceCount = response == null ? 0 : response.sliceCount;
+        summary.optimizationMode = response == null ? "" : response.optimizationMode;
+        summary.trialCount = response == null ? 0 : response.trialCount;
+        summary.bestRank = response == null ? 0 : response.bestRank;
+        summary.bestParamSetJson = response == null ? "{}" : blankTo(response.bestParamSetJson, "{}");
         List<BacktestModels.BacktestResult> results = response == null
                 ? null
                 : response.results;
@@ -300,45 +323,6 @@ public class StrategyAutoPublishService {
             log.warn("parseTaskPayload error, task:{}", task.id, e);
             return null;
         }
-    }
-
-    private String deriveSymbolScope(BacktestParam param) {
-        if (param == null) {
-            return "*";
-        }
-        if (StringUtils.isNotBlank(param.symbols)) {
-            return normalizeCsv(param.symbols);
-        }
-        if (StringUtils.isNotBlank(param.symbol)) {
-            return normalizeCsv(param.symbol);
-        }
-        return "*";
-    }
-
-    private String deriveTextScope(BacktestParam param) {
-        if (param == null || StringUtils.isBlank(param.text)) {
-            return "*";
-        }
-        return normalizeCsv(param.text);
-    }
-
-    private String normalizeCsv(String raw) {
-        if (StringUtils.isBlank(raw)) {
-            return "*";
-        }
-        String[] parts = raw.split(",");
-        StringBuilder sb = new StringBuilder();
-        for (String part : parts) {
-            String token = part == null ? "" : part.trim();
-            if (token.isEmpty()) {
-                continue;
-            }
-            if (sb.length() > 0) {
-                sb.append(",");
-            }
-            sb.append(token);
-        }
-        return sb.length() <= 0 ? "*" : sb.toString();
     }
 
     private boolean gt(Double left, Double right) {

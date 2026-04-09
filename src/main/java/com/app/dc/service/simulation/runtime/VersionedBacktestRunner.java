@@ -5,6 +5,7 @@ import com.app.dc.po.Side;
 import com.app.dc.po.TTbookOhlc;
 import com.app.dc.po.backtest.BacktestParam;
 import com.app.dc.signal.MarketSeriesRegistry;
+import com.app.dc.signal.StrategyDefinition;
 import com.app.dc.service.simulation.BacktestMetricService;
 import com.app.dc.service.simulation.BacktestModels;
 import com.app.dc.service.simulation.BacktestService;
@@ -50,7 +51,8 @@ public class VersionedBacktestRunner {
             throw new IllegalArgumentException("candidate is null");
         }
 
-        runtimeFacade.load(candidate.toDefinition());
+        StrategyDefinition definition = candidate.toDefinition(param.strategyParams);
+        runtimeFacade.load(definition);
 
         Duration duration = supportService.resolveDuration(param.text);
         MarketSeriesRegistry marketSeriesRegistry = new MarketSeriesRegistry();
@@ -92,7 +94,7 @@ public class VersionedBacktestRunner {
             signalContext.scene = candidate.scene;
             signalContext.indicatorSymbol = marketSeriesRegistry.getIndicatorSymbol(param.text);
             signalContext.marketSeriesRegistry = marketSeriesRegistry;
-            signalContext.parameters.putAll(candidate.toDefinition().parameters);
+            signalContext.parameters.putAll(definition.parameters);
 
             Signal signal = runtimeFacade.evaluate(candidate.strategyName, candidate.strategyVersion, signalContext);
             if (signal == null || signal.side == null || signal.side == Side.NONE) {
@@ -102,6 +104,10 @@ public class VersionedBacktestRunner {
             signal.strategyVersion = candidate.strategyVersion;
             signal.scene = candidate.scene;
             signal.algoName = candidate.strategyName;
+            if (!hasDynamicRiskTargets(signal)) {
+                incrementRejectReason(result, "missing_dynamic_stop_take");
+                continue;
+            }
 
             boolean ignoreSentimentGuard = Boolean.TRUE.equals(param.ignoreSentimentGuard);
             boolean allowMissingStageAnalysis = !Boolean.FALSE.equals(param.allowMissingStageAnalysis);
@@ -141,6 +147,14 @@ public class VersionedBacktestRunner {
 
         metricService.finishResult(result, equityContext);
         return result;
+    }
+
+    private boolean hasDynamicRiskTargets(Signal signal) {
+        return signal != null
+                && signal.stopPrice != null
+                && signal.stopPrice.compareTo(java.math.BigDecimal.ZERO) > 0
+                && signal.takerPrice != null
+                && signal.takerPrice.compareTo(java.math.BigDecimal.ZERO) > 0;
     }
 
     private void incrementRejectReason(BacktestModels.BacktestResult result, String reason) {

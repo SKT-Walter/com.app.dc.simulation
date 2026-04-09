@@ -1,6 +1,8 @@
 package com.app.dc.po.backtest;
 
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class BacktestParam {
 
@@ -15,6 +17,8 @@ public class BacktestParam {
     public String scene;
 
     public String strategyPayload;
+
+    public Map<String, Object> strategyParams = new LinkedHashMap<String, Object>();
 
     public String symbol;
 

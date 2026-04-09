@@ -2,6 +2,7 @@ package com.app.dc.service.simulation.runtime;
 
 import com.app.common.utils.JsonUtils;
 import com.app.dc.signal.StrategyDefinition;
+import com.app.dc.signal.StrategyParametersSupport;
 import com.app.dc.signal.StrategyRuntimeType;
 
 import java.util.LinkedHashMap;
@@ -19,9 +20,14 @@ public class StrategyCandidateRow {
     public String artifactUri;
     public String entryClass;
     public String description;
+    public String parametersJson;
     public String payload;
 
     public StrategyDefinition toDefinition() {
+        return toDefinition(null);
+    }
+
+    public StrategyDefinition toDefinition(Map<String, Object> overrideParams) {
         StrategyDefinition definition = new StrategyDefinition();
         definition.strategyName = strategyName;
         definition.strategyVersion = strategyVersion;
@@ -30,7 +36,7 @@ public class StrategyCandidateRow {
         definition.runtimeType = StrategyRuntimeType.from(runtimeType);
         definition.artifactUri = artifactUri;
         definition.entryClass = entryClass;
-        definition.parameters.putAll(parsePayload(payload));
+        definition.parameters.putAll(StrategyParametersSupport.resolveRuntimeParams(parametersJson, overrideParams));
         return definition;
     }
 

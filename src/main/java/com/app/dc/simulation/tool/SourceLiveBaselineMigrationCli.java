@@ -183,6 +183,9 @@ public class SourceLiveBaselineMigrationCli {
         BacktestScope scope = new BacktestScope();
         scope.symbols = normalizeScope(row.symbolScope);
         scope.text = normalizeSingle(row.textScope);
+        if (isBlank(scope.text) || "*".equals(scope.text)) {
+            scope.text = normalizeSingle(SourceLiveParameterCatalog.defaultText(row.strategyName));
+        }
         if (isBlank(scope.symbols) || "*".equals(scope.symbols) || isBlank(scope.text) || "*".equals(scope.text)) {
             LatestBacktestRow latest = loadLatestBacktestRow(connection, row.strategyName, row.strategyVersion);
             if (latest != null) {

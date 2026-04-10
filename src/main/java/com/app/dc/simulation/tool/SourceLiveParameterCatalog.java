@@ -9,6 +9,8 @@ import java.util.Map;
 
 final class SourceLiveParameterCatalog {
 
+    private static final String DEFAULT_TEXT = "15M";
+
     private SourceLiveParameterCatalog() {
     }
 
@@ -33,38 +35,46 @@ final class SourceLiveParameterCatalog {
         if ("binanceTrend".equalsIgnoreCase(name)) {
             return build(
                     mapOf("fastPeriod", 9, "midPeriod", 21, "slowPeriod", 55,
-                            "atrBufferMultiplier", 0.5D, "minMaSpreadPct", 0.008D, "targetRiskRewardRatio", 1.8D),
+                            "atrBufferMultiplier", 0.35D, "minMaSpreadPct", 0.002D,
+                            "targetRiskRewardRatio", 1.4D, "minTargetAtr", 0.6D),
                     parameters(
                             intParam("fastPeriod", 9, 7, 9, 11),
                             intParam("midPeriod", 21, 18, 21, 24),
                             intParam("slowPeriod", 55, 45, 55, 65),
-                            doubleParam("atrBufferMultiplier", 0.5D, 0.35D, 0.5D, 0.65D),
-                            doubleParam("minMaSpreadPct", 0.008D, 0.005D, 0.008D, 0.011D),
-                            doubleParam("targetRiskRewardRatio", 1.8D, 1.4D, 1.8D, 2.2D)));
+                            doubleParam("atrBufferMultiplier", 0.35D, 0.25D, 0.35D, 0.45D),
+                            doubleParam("minMaSpreadPct", 0.002D, 0.001D, 0.002D, 0.003D),
+                            doubleParam("targetRiskRewardRatio", 1.4D, 1.1D, 1.4D, 1.7D),
+                            doubleParam("minTargetAtr", 0.6D, 0.4D, 0.6D, 0.8D)));
         }
         if ("breakoutRetestContinuation".equalsIgnoreCase(name)
                 || "breakoutRetestContinuationTrend".equalsIgnoreCase(name)) {
             return build(
-                    mapOf("breakLookback", 20, "retestAtrMax", 0.8D, "stopAtrBuffer", 0.35D,
-                            "takeProfitAtrMultiplier", 1.2D, "minTargetAtr", 1.0D),
+                    mapOf("breakLookback", 16, "retestAtrMax", 1.2D, "stopAtrBuffer", 0.25D,
+                            "takeProfitAtrMultiplier", 1.0D, "minTargetAtr", 0.6D,
+                            "fastEmaPeriod", 10, "trendEmaPeriod", 20, "slowEmaPeriod", 60),
                     parameters(
-                            intParam("breakLookback", 20, 16, 20, 24),
-                            doubleParam("retestAtrMax", 0.8D, 0.6D, 0.8D, 1.0D),
-                            doubleParam("stopAtrBuffer", 0.35D, 0.25D, 0.35D, 0.45D),
-                            doubleParam("takeProfitAtrMultiplier", 1.2D, 1.0D, 1.2D, 1.4D),
-                            doubleParam("minTargetAtr", 1.0D, 0.8D, 1.0D, 1.2D)));
+                            intParam("fastEmaPeriod", 10, 8, 10, 12),
+                            intParam("trendEmaPeriod", 20, 16, 20, 24),
+                            intParam("slowEmaPeriod", 60, 50, 60, 70),
+                            intParam("breakLookback", 16, 12, 16, 20),
+                            doubleParam("retestAtrMax", 1.2D, 0.8D, 1.2D, 1.6D),
+                            doubleParam("stopAtrBuffer", 0.25D, 0.15D, 0.25D, 0.35D),
+                            doubleParam("takeProfitAtrMultiplier", 1.0D, 0.8D, 1.0D, 1.2D),
+                            doubleParam("minTargetAtr", 0.6D, 0.4D, 0.6D, 0.8D)));
         }
         if ("emaPullbackBuy".equalsIgnoreCase(name)) {
             return build(
                     mapOf("fastEmaPeriod", 10, "midEmaPeriod", 20, "slowEmaPeriod", 60,
-                            "pullbackAtrMax", 0.6D, "stopAtrBuffer", 0.35D, "riskRewardRatio", 1.5D),
+                            "pullbackAtrMax", 1.0D, "stopAtrBuffer", 0.25D,
+                            "riskRewardRatio", 1.2D, "minTargetAtr", 0.6D),
                     parameters(
                             intParam("fastEmaPeriod", 10, 8, 10, 12),
-                            intParam("midEmaPeriod", 20, 18, 20, 22),
-                            intParam("slowEmaPeriod", 60, 50, 60, 70),
-                            doubleParam("pullbackAtrMax", 0.6D, 0.4D, 0.6D, 0.8D),
-                            doubleParam("stopAtrBuffer", 0.35D, 0.25D, 0.35D, 0.45D),
-                            doubleParam("riskRewardRatio", 1.5D, 1.2D, 1.5D, 1.8D)));
+                            intParam("midEmaPeriod", 20, 16, 20, 24),
+                            intParam("slowEmaPeriod", 60, 45, 60, 75),
+                            doubleParam("pullbackAtrMax", 1.0D, 0.6D, 1.0D, 1.4D),
+                            doubleParam("stopAtrBuffer", 0.25D, 0.15D, 0.25D, 0.35D),
+                            doubleParam("riskRewardRatio", 1.2D, 1.0D, 1.2D, 1.5D),
+                            doubleParam("minTargetAtr", 0.6D, 0.4D, 0.6D, 0.8D)));
         }
         if ("failedBreakReversal".equalsIgnoreCase(name)) {
             return build(
@@ -86,14 +96,18 @@ final class SourceLiveParameterCatalog {
         }
         if ("strongMomentumContinuation".equalsIgnoreCase(name)) {
             return build(
-                    mapOf("lookback", 20, "impulseAtrMin", 1.2D, "stopAtrBuffer", 0.5D,
-                            "riskRewardRatio", 1.5D, "minTargetAtr", 1.2D),
+                    mapOf("lookback", 16, "impulseAtrMin", 0.8D, "stopAtrBuffer", 0.35D,
+                            "riskRewardRatio", 1.2D, "minTargetAtr", 0.8D,
+                            "fastEmaPeriod", 10, "midEmaPeriod", 20, "slowEmaPeriod", 60),
                     parameters(
-                            intParam("lookback", 20, 16, 20, 24),
-                            doubleParam("impulseAtrMin", 1.2D, 1.0D, 1.2D, 1.4D),
-                            doubleParam("stopAtrBuffer", 0.5D, 0.35D, 0.5D, 0.65D),
-                            doubleParam("riskRewardRatio", 1.5D, 1.2D, 1.5D, 1.8D),
-                            doubleParam("minTargetAtr", 1.2D, 1.0D, 1.2D, 1.4D)));
+                            intParam("fastEmaPeriod", 10, 8, 10, 12),
+                            intParam("midEmaPeriod", 20, 16, 20, 24),
+                            intParam("slowEmaPeriod", 60, 45, 60, 75),
+                            intParam("lookback", 16, 12, 16, 20),
+                            doubleParam("impulseAtrMin", 0.8D, 0.6D, 0.8D, 1.0D),
+                            doubleParam("stopAtrBuffer", 0.35D, 0.2D, 0.35D, 0.5D),
+                            doubleParam("riskRewardRatio", 1.2D, 1.0D, 1.2D, 1.5D),
+                            doubleParam("minTargetAtr", 0.8D, 0.6D, 0.8D, 1.0D)));
         }
         if ("trendPullbackRecovery".equalsIgnoreCase(name)
                 || "trendRestart".equalsIgnoreCase(name)) {
@@ -110,6 +124,10 @@ final class SourceLiveParameterCatalog {
                             doubleParam("minTargetAtr", 1.0D, 0.8D, 1.0D, 1.2D)));
         }
         return null;
+    }
+
+    static String defaultText(String strategyName) {
+        return supported(strategyName) ? DEFAULT_TEXT : "";
     }
 
     private static String build(Map<String, Object> defaultParams, List<Map<String, Object>> parameters) {

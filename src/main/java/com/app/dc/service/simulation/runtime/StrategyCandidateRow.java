@@ -1,6 +1,7 @@
 package com.app.dc.service.simulation.runtime;
 
 import com.app.common.utils.JsonUtils;
+import com.app.dc.pipeline.StrategyPipelineService;
 import com.app.dc.signal.StrategyDefinition;
 import com.app.dc.signal.StrategyParametersSupport;
 import com.app.dc.signal.StrategyRuntimeType;
@@ -38,6 +39,16 @@ public class StrategyCandidateRow {
         definition.entryClass = entryClass;
         definition.parameters.putAll(StrategyParametersSupport.resolveRuntimeParams(parametersJson, overrideParams));
         return definition;
+    }
+
+    public Map<String, Object> payloadMap() {
+        return parsePayload(payload);
+    }
+
+    public String pipelineRunId() {
+        Map<String, Object> data = parsePayload(payload);
+        Object value = data.get(StrategyPipelineService.PIPELINE_RUN_ID);
+        return value == null ? "" : String.valueOf(value);
     }
 
     @SuppressWarnings("unchecked")

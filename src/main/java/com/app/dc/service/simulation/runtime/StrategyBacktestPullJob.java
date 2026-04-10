@@ -1,6 +1,8 @@
 package com.app.dc.service.simulation.runtime;
 
 import com.app.dc.po.backtest.BacktestParam;
+import com.app.dc.pipeline.StrategyPipelineModels;
+import com.app.dc.pipeline.StrategyPipelineService;
 import com.app.dc.service.dao.BacktestResultClickHouseDao;
 import com.app.dc.service.simulation.BacktestModels;
 import com.app.dc.service.simulation.BacktestReportService;
@@ -58,6 +60,9 @@ public class StrategyBacktestPullJob {
 
     @Autowired
     private BinanceKlineAutofillService binanceKlineAutofillService;
+
+    @Autowired(required = false)
+    private StrategyPipelineService strategyPipelineService;
 
     @Autowired
     @Qualifier("strategyBacktestTaskExecutor")
@@ -121,6 +126,7 @@ public class StrategyBacktestPullJob {
     private void handleTask(StrategyBacktestTaskRow task) {
         long startNs = System.nanoTime();
         String threadName = Thread.currentThread().getName();
+        LocalDateTime backtestStart = LocalDateTime.now();
         try {
             log.info("StrategyBacktestPullJob task start, task:{}, strategy:{}@{}, thread:{}, fromStatus:{}",
                     task.id, task.strategyName, task.strategyVersion, threadName, task.status);
@@ -131,12 +137,24 @@ public class StrategyBacktestPullJob {
             if (candidate == null) {
                 throw new IllegalStateException("candidate not found: " + task.strategyName + "@" + task.strategyVersion);
             }
+            Map<String, Object> pipelinePayload = resolvePipelinePayload(task, candidate);
+            markPipeline(task, candidate, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.RUNNING,
+                    "", backtestStart, pipelinePayload);
 
             BacktestParam param = buildParam(task, candidate);
             BacktestModels.BacktestResponse response = backtestService.run(param,
                     task.fitWindowDays == null ? 120 : task.fitWindowDays.intValue(),
                     task.validateWindowDays == null ? 30 : task.validateWindowDays.intValue(),
                     task.forwardWindowDays == null ? 14 : task.forwardWindowDays.intValue());
+            Map<String, Object> optimizePayload = new LinkedHashMap<String, Object>(pipelinePayload);
+            optimizePayload.put("trialCount", response == null ? 0 : response.trialCount);
+            optimizePayload.put("optimizationMode", response == null ? "" : response.optimizationMode);
+            optimizePayload.put("bestRank", response == null ? 0 : response.bestRank);
+            optimizePayload.put("bestParamSetJson", response == null ? "{}" : response.bestParamSetJson);
+            markPipeline(task, candidate, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.SUCCESS,
+                    "", backtestStart, optimizePayload);
+            markPipeline(task, candidate, StrategyPipelineModels.OPTIMIZE, StrategyPipelineModels.SUCCESS,
+                    "", backtestStart, optimizePayload);
             StrategyAutoPublishDecision publishDecision =
                     strategyAutoPublishService.maybePublish(task, candidate, response);
             String reportPath = backtestReportService.writeReport(task.id, response, publishDecision);
@@ -171,12 +189,27 @@ public class StrategyBacktestPullJob {
             taskResult.put("baselineTotalPnl", publishDecision.baselineTotalPnl);
             taskResult.put("baselineForwardScore", publishDecision.baselineForwardScore);
             taskDao.markSuccess(task.id, JsonUtils.Serializer(taskResult));
+            Map<String, Object> publishPayload = new LinkedHashMap<String, Object>(pipelinePayload);
+            publishPayload.put("reportPath", reportPath);
+            publishPayload.put("compareReportPath", compareReportPath);
+            publishPayload.put("publishDecision", JsonUtils.Deserialize(JsonUtils.Serializer(publishDecision), Map.class));
+            markPipeline(task, candidate, StrategyPipelineModels.PUBLISH,
+                    publishDecision != null && publishDecision.published
+                            ? StrategyPipelineModels.SUCCESS
+                            : StrategyPipelineModels.SKIPPED,
+                    publishDecision == null ? "" : publishDecision.reason,
+                    backtestStart,
+                    publishPayload);
             log.info("StrategyBacktestPullJob task status -> SUCCESS, task:{}, strategy:{}@{}, thread:{}, autoPublish:{}, reason:{}",
                     task.id, candidate.strategyName, candidate.strategyVersion, threadName,
                     publishDecision.published, publishDecision.reason);
         } catch (BacktestTaskSuspendedException e) {
             log.warn("StrategyBacktestPullJob suspend task:{}, reason:{}, detail:{}",
                     task == null ? null : task.id, e.getReason(), JsonUtils.Serializer(e.getDetail()));
+            Map<String, Object> pipelinePayload = resolvePipelinePayload(task, null);
+            pipelinePayload.put("suspendDetail", e.getDetail());
+            markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.SUSPENDED,
+                    e.getReason(), backtestStart, pipelinePayload);
             taskDao.markSuspended(task == null ? null : task.id,
                     e.getReason(),
                     buildSuspendPayload(task, e),
@@ -188,6 +221,10 @@ public class StrategyBacktestPullJob {
                     CLICKHOUSE_TIME.format(LocalDateTime.now().plusMinutes(30)));
         } catch (Exception e) {
             log.error("StrategyBacktestPullJob handleTask error, task:{}", task == null ? null : task.id, e);
+            Map<String, Object> pipelinePayload = resolvePipelinePayload(task, null);
+            pipelinePayload.put("error", e.getMessage());
+            markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.FAILED,
+                    e.getMessage(), backtestStart, pipelinePayload);
             taskDao.markFailed(task == null ? null : task.id, e.getMessage());
             log.info("StrategyBacktestPullJob task status -> FAILED, task:{}, thread:{}, error:{}",
                     task == null ? null : task.id, threadName, e.getMessage());
@@ -312,5 +349,50 @@ public class StrategyBacktestPullJob {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> resolvePipelinePayload(StrategyBacktestTaskRow task, StrategyCandidateRow candidate) {
+        Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        if (strategyPipelineService != null && task != null && !isBlank(task.payload)) {
+            payload.putAll(strategyPipelineService.parsePayload(task.payload));
+        }
+        if (candidate != null) {
+            payload.putAll(candidate.payloadMap());
+        }
+        payload.put("taskId", task == null ? "" : task.id);
+        payload.put("strategyName", candidate == null ? (task == null ? "" : task.strategyName) : candidate.strategyName);
+        payload.put("strategyVersion", candidate == null ? (task == null ? "" : task.strategyVersion) : candidate.strategyVersion);
+        return payload;
+    }
+
+    private void markPipeline(StrategyBacktestTaskRow task,
+                              StrategyCandidateRow candidate,
+                              String stage,
+                              String status,
+                              String reason,
+                              LocalDateTime stageStart,
+                              Map<String, Object> payload) {
+        if (strategyPipelineService == null) {
+            return;
+        }
+        String sourceType = payload == null || payload.get("sourceType") == null
+                ? ""
+                : String.valueOf(payload.get("sourceType"));
+        String sourceRef = payload == null || payload.get("sourceRef") == null
+                ? ""
+                : String.valueOf(payload.get("sourceRef"));
+        String strategyName = candidate == null ? (task == null ? "" : task.strategyName) : candidate.strategyName;
+        String strategyVersion = candidate == null ? (task == null ? "" : task.strategyVersion) : candidate.strategyVersion;
+        strategyPipelineService.markStage(
+                sourceType,
+                sourceRef,
+                strategyName,
+                strategyVersion,
+                stage,
+                status,
+                reason,
+                stageStart,
+                payload);
     }
 }

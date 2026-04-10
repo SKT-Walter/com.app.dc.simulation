@@ -1,6 +1,7 @@
 package com.app.dc.simulation.tool;
 
 import com.app.common.utils.JsonUtils;
+import com.app.dc.pipeline.StrategyPipelineService;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -275,6 +276,10 @@ public class SourceLiveBaselineMigrationCli {
         taskPayload.put("baselineVersion", row.strategyVersion);
         taskPayload.put("runtimeType", defaultIfBlank(row.runtimeType, "CLASSPATH"));
         taskPayload.put("scene", row.scene);
+        taskPayload.put("sourceType", GENERATION_TYPE);
+        taskPayload.put("sourceRef", "live:" + safe(row.strategyName) + "@" + safe(row.strategyVersion));
+        taskPayload.put("generationType", GENERATION_TYPE);
+        taskPayload.put(StrategyPipelineService.PIPELINE_RUN_ID, buildPipelineRunId(row, options));
         taskPayload.put("strategyPayload", payload);
         taskPayload.put("symbols", scope.symbols);
         taskPayload.put("text", scope.text);
@@ -340,7 +345,17 @@ public class SourceLiveBaselineMigrationCli {
         payload.put("batchTag", options.batchTag);
         payload.put("liveRegistryPayload", row.payload);
         payload.put("liveParametersJson", row.parametersJson);
+        payload.put(StrategyPipelineService.PIPELINE_RUN_ID, buildPipelineRunId(row, options));
         return JsonUtils.Serializer(payload);
+    }
+
+    private static String buildPipelineRunId(LiveRow row, CliOptions options) {
+        return "pipe_LIVE_BASELINE_MIGRATION_"
+                + slug(safe(row.strategyName))
+                + "_"
+                + slug(safe(row.strategyVersion))
+                + "_"
+                + slug(safe(options.batchTag));
     }
 
     private static String buildCandidateVersion(String baselineVersion, String batchTag) {

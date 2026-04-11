@@ -26,7 +26,8 @@ import java.util.Set;
 
 public class SourceLiveBaselineMigrationCli {
 
-    private static final String DEFAULT_DBPOOL_CFG = "./config/DBPoolConfig.ini";
+    private static final String DEFAULT_DBPOOL_CFG =
+            System.getProperty("dbpool.cfg", "./config/DBPoolConfig.ini");
     private static final String DEFAULT_CLICKHOUSE_SOURCE = "ClickHouse1";
     private static final String DEFAULT_REPORT_DIR = "./log/live-baseline-migration";
     private static final DateTimeFormatter FILE_TAG = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");

@@ -94,6 +94,7 @@ public class BacktestReportService {
         StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadExactActive(response.strategyName, response.strategyVersion);
         StrategyReleaseEventRecord release = strategyAutoPublishDao.loadLatestReleaseEvent(response.strategyName, response.strategyVersion);
         report.put("reportMeta", buildMeta(sid, response));
+        report.put("tracking", buildTracking(sid, response, candidate, active, release, decision));
         report.put("summary", buildSummary(response));
         report.put("gates", buildGates(response, candidate, active, release, decision));
         report.put("optimization", buildOptimization(response));
@@ -117,6 +118,34 @@ public class BacktestReportService {
         meta.put("windowMode", s(response.windowMode));
         meta.put("currency", "USDT");
         return meta;
+    }
+
+    private Map<String, Object> buildTracking(String sid,
+                                              BacktestResponse response,
+                                              StrategyCandidateRow candidate,
+                                              StrategyLiveRegistryPublishRow active,
+                                              StrategyReleaseEventRecord release,
+                                              StrategyAutoPublishDecision decision) {
+        Map<String, Object> tracking = new LinkedHashMap<String, Object>();
+        tracking.put("sid", defaultIfBlank(sid, ""));
+        tracking.put("strategyName", s(response == null ? null : response.strategyName));
+        tracking.put("strategyVersion", s(response == null ? null : response.strategyVersion));
+        tracking.put("strategyLabel", strategyLabel(response == null ? null : response.strategyName, response == null ? null : response.strategyVersion));
+        tracking.put("scene", candidate == null ? "" : s(candidate.scene));
+        tracking.put("generationType", candidate == null ? "" : s(candidate.generationType));
+        tracking.put("runtimeType", candidate == null ? "" : s(candidate.runtimeType));
+        tracking.put("candidateId", candidate == null ? "" : s(candidate.id));
+        tracking.put("pipelineRunId", candidate == null ? "" : s(candidate.pipelineRunId()));
+        tracking.put("candidateDescription", candidate == null ? "" : s(candidate.description));
+        tracking.put("currentLiveVersion", active == null ? "" : s(active.strategyVersion));
+        tracking.put("currentLiveLabel", active == null ? "" : strategyLabel(active.strategyName, active.strategyVersion));
+        tracking.put("currentLiveStatus", active == null ? "" : s(active.status));
+        tracking.put("currentLiveEffectiveTime", active == null ? "" : s(active.effectiveTime));
+        tracking.put("releaseEventType", release == null ? "" : s(release.eventType));
+        tracking.put("releaseEventTime", release == null ? "" : s(release.eventTime));
+        tracking.put("releaseEventReason", release == null ? "" : translateReason(s(release.reason)));
+        tracking.put("publishDecisionReason", decision == null ? "" : translateReason(s(decision.reason)));
+        return tracking;
     }
 
     private Map<String, Object> buildSummary(BacktestResponse response) {
@@ -539,6 +568,8 @@ public class BacktestReportService {
         @SuppressWarnings("unchecked")
         Map<String, Object> meta = (Map<String, Object>) report.get("reportMeta");
         @SuppressWarnings("unchecked")
+        Map<String, Object> tracking = (Map<String, Object>) report.get("tracking");
+        @SuppressWarnings("unchecked")
         Map<String, Object> summary = (Map<String, Object>) report.get("summary");
         @SuppressWarnings("unchecked")
         Map<String, Object> gates = (Map<String, Object>) report.get("gates");
@@ -589,6 +620,24 @@ public class BacktestReportService {
                 .append("</p><p>\u751f\u6210\u65f6\u95f4\uff1a")
                 .append(escape(s(meta.get("generatedAt"))))
                 .append("</p></div>");
+
+        html.append("<div class=\"section\"><h2>\u7b56\u7565\u8ddf\u8e2a</h2>")
+                .append("<div class=\"table-wrap\"><table><thead><tr>")
+                .append("<th>\u5b57\u6bb5</th><th>\u503c</th></tr></thead><tbody>")
+                .append(trackingRow("\u7b56\u7565\u540d", tracking.get("strategyName")))
+                .append(trackingRow("\u7248\u672c\u53f7", tracking.get("strategyVersion")))
+                .append(trackingRow("SID", tracking.get("sid")))
+                .append(trackingRow("Candidate ID", tracking.get("candidateId")))
+                .append(trackingRow("Pipeline Run ID", tracking.get("pipelineRunId")))
+                .append(trackingRow("\u573a\u666f", tracking.get("scene")))
+                .append(trackingRow("\u751f\u6210\u7c7b\u578b", tracking.get("generationType")))
+                .append(trackingRow("\u8fd0\u884c\u7c7b\u578b", tracking.get("runtimeType")))
+                .append(trackingRow("\u5f53\u524d Live \u7248\u672c", tracking.get("currentLiveVersion")))
+                .append(trackingRow("\u5f53\u524d Live \u751f\u6548\u65f6\u95f4", tracking.get("currentLiveEffectiveTime")))
+                .append(trackingRow("\u6700\u65b0\u53d1\u5e03\u4e8b\u4ef6", tracking.get("releaseEventType")))
+                .append(trackingRow("\u53d1\u5e03\u4e8b\u4ef6\u539f\u56e0", tracking.get("releaseEventReason")))
+                .append(trackingRow("\u81ea\u52a8\u53d1\u5e03\u5224\u5b9a", tracking.get("publishDecisionReason")))
+                .append("</tbody></table></div></div>");
 
         html.append("<div class=\"section\"><h2>\u7ed3\u8bba\u603b\u89c8</h2><div class=\"grid\">")
                 .append(statusCard("\u8fc7\u62df\u5408\u68c0\u67e5", isTrue(gates.get("overfitPass")) ? "\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5" : "\u672a\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5", s(gates.get("overfitReason")), isTrue(gates.get("overfitPass")) ? "pass" : "fail"))
@@ -660,6 +709,10 @@ public class BacktestReportService {
                 .append("<div class=\"muted\" style=\"margin-top:10px;line-height:1.7;\">").append(escape(desc)).append("</div>")
                 .append("</div>");
         return html.toString();
+    }
+
+    private String trackingRow(String label, Object value) {
+        return "<tr><td>" + escape(label) + "</td><td>" + safeCell(value) + "</td></tr>";
     }
 
     private String metric(String label, Object value) {
@@ -972,6 +1025,8 @@ public class BacktestReportService {
         @SuppressWarnings("unchecked")
         Map<String, Object> meta = (Map<String, Object>) report.get("reportMeta");
         @SuppressWarnings("unchecked")
+        Map<String, Object> tracking = (Map<String, Object>) report.get("tracking");
+        @SuppressWarnings("unchecked")
         Map<String, Object> summary = (Map<String, Object>) report.get("summary");
         @SuppressWarnings("unchecked")
         Map<String, Object> gates = (Map<String, Object>) report.get("gates");
@@ -983,6 +1038,14 @@ public class BacktestReportService {
         md.append("- \u6807\u7684\uff1a").append(joinSymbols(meta.get("symbols"))).append("\\n");
         md.append("- \u5468\u671f\uff1a").append(s(meta.get("text"))).append("\\n");
         md.append("- \u65f6\u95f4\u8303\u56f4\uff1a").append(s(meta.get("beginDate"))).append(" ~ ").append(s(meta.get("endDate"))).append("\\n");
+        md.append("- SID\uff1a").append(s(tracking.get("sid"))).append("\\n");
+        md.append("- Candidate ID\uff1a").append(s(tracking.get("candidateId"))).append("\\n");
+        md.append("- Pipeline Run ID\uff1a").append(s(tracking.get("pipelineRunId"))).append("\\n");
+        md.append("- \u573a\u666f\uff1a").append(s(tracking.get("scene"))).append("\\n");
+        md.append("- \u751f\u6210\u7c7b\u578b\uff1a").append(s(tracking.get("generationType"))).append("\\n");
+        md.append("- \u8fd0\u884c\u7c7b\u578b\uff1a").append(s(tracking.get("runtimeType"))).append("\\n");
+        md.append("- \u5f53\u524d Live \u7248\u672c\uff1a").append(s(tracking.get("currentLiveVersion"))).append("\\n");
+        md.append("- \u6700\u65b0\u53d1\u5e03\u4e8b\u4ef6\uff1a").append(s(tracking.get("releaseEventType"))).append("\\n");
         md.append("- \u8fc7\u62df\u5408\u68c0\u67e5\uff1a").append(isTrue(gates.get("overfitPass")) ? "\u901a\u8fc7" : "\u672a\u901a\u8fc7")
                 .append("\uff1b\u539f\u56e0\uff1a").append(s(gates.get("overfitReason"))).append("\\n");
         md.append("- \u76c8\u5229\u53d1\u5e03\u95e8\u69db\uff1a").append(isTrue(gates.get("publishEligible")) ? "\u6ee1\u8db3" : "\u4e0d\u6ee1\u8db3")

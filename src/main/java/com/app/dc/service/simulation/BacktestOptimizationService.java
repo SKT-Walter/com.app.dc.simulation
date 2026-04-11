@@ -22,6 +22,8 @@ public class BacktestOptimizationService {
 
     private static final int DEFAULT_TOP_N = 10;
     private static final int DEFAULT_MAX_FULL_GRID = 256;
+    private static final int DEFAULT_MAX_COARSE_CANDIDATES = 256;
+    private static final int DEFAULT_MAX_FINE_CANDIDATES = 384;
 
     public OptimizationPlan buildPlan(String parametersJson) {
         StrategyParametersJson parsed = StrategyParametersSupport.parse(parametersJson);
@@ -30,6 +32,10 @@ public class BacktestOptimizationService {
         plan.optimizationMode = string(parsed.optimizationProfile.get("mode"), "LAYERED_GRID");
         plan.topN = Math.max(1, intValue(parsed.optimizationProfile.get("topN"), DEFAULT_TOP_N));
         plan.maxFullGrid = Math.max(1, intValue(parsed.optimizationProfile.get("maxFullGrid"), DEFAULT_MAX_FULL_GRID));
+        plan.maxCoarseCandidates = Math.max(1,
+                intValue(parsed.optimizationProfile.get("maxCoarseCandidates"), DEFAULT_MAX_COARSE_CANDIDATES));
+        plan.maxFineCandidates = Math.max(1,
+                intValue(parsed.optimizationProfile.get("maxFineCandidates"), DEFAULT_MAX_FINE_CANDIDATES));
         plan.defaultParams.putAll(StrategyParametersSupport.extractDefaultParams(parametersJson));
         plan.dimensions.addAll(parseDimensions(parsed.parameterSchema, plan.defaultParams));
         if (plan.dimensions.isEmpty()) {
@@ -52,9 +58,9 @@ public class BacktestOptimizationService {
             return buildDefaultOnly(plan);
         }
         if (estimateGridSize(plan.dimensions, false) <= plan.maxFullGrid) {
-            return uniqueParamSets(cartesian(plan.dimensions, false), plan.defaultParams);
+            return uniqueParamSets(cartesian(plan.dimensions, false, plan.maxFullGrid), plan.defaultParams);
         }
-        return uniqueParamSets(cartesian(plan.dimensions, true), plan.defaultParams);
+        return uniqueParamSets(cartesian(plan.dimensions, true, plan.maxCoarseCandidates), plan.defaultParams);
     }
 
     public List<Map<String, Object>> buildFineParamSets(OptimizationPlan plan, List<OptimizationTrial> rankedTrials) {
@@ -69,11 +75,17 @@ public class BacktestOptimizationService {
         List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
         for (OptimizationTrial trial : topTrials) {
             Map<String, Object> paramSet = parseParamSet(trial.paramSetJson);
-            List<Map<String, Object>> candidates = cartesian(buildNeighborDimensions(plan.dimensions, paramSet), false);
+            List<Map<String, Object>> candidates = cartesian(
+                    buildNeighborDimensions(plan.dimensions, paramSet),
+                    false,
+                    plan.maxFineCandidates);
             for (Map<String, Object> candidate : uniqueParamSets(candidates, plan.defaultParams)) {
                 String key = JsonUtils.Serializer(candidate);
                 if (seen.add(key)) {
                     result.add(candidate);
+                    if (result.size() >= plan.maxFineCandidates) {
+                        return result;
+                    }
                 }
             }
         }
@@ -290,13 +302,13 @@ public class BacktestOptimizationService {
         return result;
     }
 
-    private List<Map<String, Object>> cartesian(List<ParameterDimension> dimensions, boolean coarse) {
+    private List<Map<String, Object>> cartesian(List<ParameterDimension> dimensions, boolean coarse, int limit) {
         List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
         if (dimensions == null || dimensions.isEmpty()) {
             result.add(new LinkedHashMap<String, Object>());
             return result;
         }
-        cartesianRecursive(dimensions, 0, new LinkedHashMap<String, Object>(), result, coarse);
+        cartesianRecursive(dimensions, 0, new LinkedHashMap<String, Object>(), result, coarse, Math.max(1, limit));
         return result;
     }
 
@@ -304,7 +316,11 @@ public class BacktestOptimizationService {
                                     int index,
                                     Map<String, Object> current,
                                     List<Map<String, Object>> result,
-                                    boolean coarse) {
+                                    boolean coarse,
+                                    int limit) {
+        if (result.size() >= limit) {
+            return;
+        }
         if (index >= dimensions.size()) {
             result.add(copy(current));
             return;
@@ -312,8 +328,11 @@ public class BacktestOptimizationService {
         ParameterDimension dimension = dimensions.get(index);
         List<Object> candidates = coarse ? sampleCandidates(dimension) : dimension.candidates;
         for (Object candidate : candidates) {
+            if (result.size() >= limit) {
+                return;
+            }
             current.put(dimension.name, candidate);
-            cartesianRecursive(dimensions, index + 1, current, result, coarse);
+            cartesianRecursive(dimensions, index + 1, current, result, coarse, limit);
         }
     }
 
@@ -474,6 +493,8 @@ public class BacktestOptimizationService {
         public String optimizationMode = "LAYERED_GRID";
         public int topN = DEFAULT_TOP_N;
         public int maxFullGrid = DEFAULT_MAX_FULL_GRID;
+        public int maxCoarseCandidates = DEFAULT_MAX_COARSE_CANDIDATES;
+        public int maxFineCandidates = DEFAULT_MAX_FINE_CANDIDATES;
         public Map<String, Object> defaultParams = new LinkedHashMap<String, Object>();
         public List<ParameterDimension> dimensions = new ArrayList<ParameterDimension>();
     }

@@ -1,6 +1,7 @@
 package com.app.dc.simulation.tool;
 
 import com.app.common.utils.JsonUtils;
+import com.app.dc.pipeline.StrategyPipelineService;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -14,6 +15,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class BacktestBatchReportCli {
@@ -57,7 +59,7 @@ public class BacktestBatchReportCli {
 
     private static List<BatchItem> loadItems(Connection connection, String batchTag) throws Exception {
         List<BatchItem> items = new ArrayList<BatchItem>();
-        String sql = "select strategy_name, strategy_version, parent_version, scene, runtime_type, description, payload "
+        String sql = "select id, strategy_name, strategy_version, parent_version, scene, runtime_type, description, payload "
                 + "from dc.strategy_candidate where generation_type='LIVE_BASELINE_MIGRATION' "
                 + "and payload like ? order by strategy_name asc, create_time desc";
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -65,12 +67,15 @@ public class BacktestBatchReportCli {
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     BatchItem item = new BatchItem();
+                    item.candidateId = rs.getString("id");
                     item.strategyName = rs.getString("strategy_name");
                     item.strategyVersion = rs.getString("strategy_version");
                     item.parentVersion = rs.getString("parent_version");
                     item.scene = rs.getString("scene");
                     item.runtimeType = rs.getString("runtime_type");
                     item.description = rs.getString("description");
+                    item.payload = rs.getString("payload");
+                    item.pipelineRunId = extractPipelineRunId(item.payload);
                     loadBacktest(connection, item);
                     loadActive(connection, item);
                     loadRelease(connection, item);
@@ -178,6 +183,22 @@ public class BacktestBatchReportCli {
         return "未进入实盘";
     }
 
+    private static String extractPipelineRunId(String payload) {
+        if (isBlank(payload)) {
+            return "";
+        }
+        try {
+            Map<String, Object> map = JsonUtils.Deserialize(payload, Map.class);
+            if (map == null) {
+                return "";
+            }
+            Object value = map.get(StrategyPipelineService.PIPELINE_RUN_ID);
+            return value == null ? "" : String.valueOf(value);
+        } catch (Exception ignore) {
+            return "";
+        }
+    }
+
     private static void writeReport(BatchReport report, CliOptions options) throws Exception {
         java.io.File dir = new java.io.File(options.reportDir);
         if (!dir.exists()) {
@@ -208,8 +229,16 @@ public class BacktestBatchReportCli {
         return value == null ? "" : value;
     }
 
+    private static String safe(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
     private static String esc(String value) {
         return safe(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private static String fmt(double value) {
+        return String.format(Locale.ENGLISH, "%.6f", value);
     }
 
     private static class CliOptions {
@@ -320,25 +349,32 @@ public class BacktestBatchReportCli {
 
         String toMarkdown() {
             StringBuilder md = new StringBuilder();
-            md.append("# 源码 Live 批次回测总报告\n\n");
+            md.append("# 源码 Live 批量回测总报告\n\n");
             md.append("- batchTag: ").append(safe(batchTag)).append("\n");
             md.append("- generatedAt: ").append(safe(generatedAt)).append("\n");
             md.append("- total: ").append(total).append("\n");
             md.append("- activeCount: ").append(activeCount).append("\n");
             md.append("- offlineCount: ").append(offlineCount).append("\n");
             md.append("- backtestSuccessCount: ").append(backtestSuccessCount).append("\n");
+            md.append("- failedCount: ").append(failedCount).append("\n");
             md.append("- pendingCount: ").append(pendingCount).append("\n\n");
-            md.append("| 策略 | 版本 | 状态 | tradeCount | validatePnl | forwardPnl | totalPnl | bestRank | 原因 | 报告 |\n");
-            md.append("|---|---|---|---:|---:|---:|---:|---:|---|---|\n");
+            md.append("| 策略名 | 版本 | Candidate ID | Pipeline Run ID | 场景 | 状态 | 标的 | 周期 | tradeCount | validatePnl | forwardPnl | totalPnl | bestRank | 发布事件 | 原因 | 报告 |\n");
+            md.append("|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---|---|---|\n");
             for (BatchItem item : items) {
                 md.append("| ").append(safe(item.strategyName))
                         .append(" | ").append(safe(item.strategyVersion))
+                        .append(" | ").append(safe(item.candidateId))
+                        .append(" | ").append(safe(item.pipelineRunId))
+                        .append(" | ").append(safe(item.scene))
                         .append(" | ").append(item.active ? "ACTIVE" : safe(item.backtestStatus))
+                        .append(" | ").append(safe(item.symbol))
+                        .append(" | ").append(safe(item.text))
                         .append(" | ").append(item.tradeCount)
-                        .append(" | ").append(item.validatePnl)
-                        .append(" | ").append(item.forwardPnl)
-                        .append(" | ").append(item.totalPnl)
+                        .append(" | ").append(fmt(item.validatePnl))
+                        .append(" | ").append(fmt(item.forwardPnl))
+                        .append(" | ").append(fmt(item.totalPnl))
                         .append(" | ").append(item.bestRank)
+                        .append(" | ").append(safe(item.releaseEventType))
                         .append(" | ").append(safe(item.reason))
                         .append(" | ").append(safe(item.reportPath))
                         .append(" |\n");
@@ -348,31 +384,42 @@ public class BacktestBatchReportCli {
 
         String toHtml() {
             StringBuilder html = new StringBuilder();
-            html.append("<html><head><meta charset=\"UTF-8\"><title>源码 Live 批次回测总报告</title>")
+            html.append("<html><head><meta charset=\"UTF-8\"><title>源码 Live 批量回测总报告</title>")
                     .append("<style>body{font-family:Segoe UI,Microsoft YaHei,sans-serif;margin:24px;color:#111827;}")
-                    .append("table{border-collapse:collapse;width:100%;margin-top:16px;}th,td{border:1px solid #d1d5db;padding:8px 10px;font-size:13px;text-align:left;}th{background:#f3f4f6;}")
+                    .append("table{border-collapse:collapse;width:100%;margin-top:16px;}th,td{border:1px solid #d1d5db;padding:8px 10px;font-size:13px;text-align:left;vertical-align:top;}th{background:#f3f4f6;}")
                     .append(".cards{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 20px 0;}.card{border:1px solid #d1d5db;border-radius:8px;padding:10px 14px;min-width:160px;}")
-                    .append(".label{font-size:12px;color:#6b7280;}.value{font-size:22px;font-weight:700;margin-top:4px;}</style></head><body>");
-            html.append("<h1>源码 Live 批次回测总报告</h1>");
+                    .append(".label{font-size:12px;color:#6b7280;}.value{font-size:22px;font-weight:700;margin-top:4px;}")
+                    .append(".mono{font-family:Consolas,Menlo,monospace;font-size:12px;}</style></head><body>");
+            html.append("<h1>源码 Live 批量回测总报告</h1>");
             html.append("<div>batchTag: ").append(esc(batchTag)).append(" / 生成时间: ").append(esc(generatedAt)).append("</div>");
             html.append("<div class='cards'>");
             card(html, "总策略数", total);
             card(html, "已上线", activeCount);
             card(html, "离线", offlineCount);
             card(html, "回测成功", backtestSuccessCount);
+            card(html, "失败", failedCount);
             card(html, "待完成", pendingCount);
             html.append("</div>");
-            html.append("<table><tr><th>策略</th><th>版本</th><th>状态</th><th>tradeCount</th><th>validatePnl</th><th>forwardPnl</th><th>totalPnl</th><th>bestRank</th><th>原因</th><th>报告</th></tr>");
+            html.append("<table><tr>")
+                    .append("<th>策略名</th><th>版本</th><th>Candidate ID</th><th>Pipeline Run ID</th><th>场景</th><th>状态</th>")
+                    .append("<th>标的</th><th>周期</th><th>tradeCount</th><th>validatePnl</th><th>forwardPnl</th><th>totalPnl</th>")
+                    .append("<th>bestRank</th><th>发布事件</th><th>原因</th><th>报告</th></tr>");
             for (BatchItem item : items) {
                 html.append("<tr><td>").append(esc(item.strategyName)).append("</td><td>")
-                        .append(esc(item.strategyVersion)).append("</td><td>")
+                        .append(esc(item.strategyVersion)).append("</td><td class='mono'>")
+                        .append(esc(item.candidateId)).append("</td><td class='mono'>")
+                        .append(esc(item.pipelineRunId)).append("</td><td>")
+                        .append(esc(item.scene)).append("</td><td>")
                         .append(item.active ? "ACTIVE" : esc(item.backtestStatus)).append("</td><td>")
+                        .append(esc(item.symbol)).append("</td><td>")
+                        .append(esc(item.text)).append("</td><td>")
                         .append(item.tradeCount).append("</td><td>")
-                        .append(item.validatePnl).append("</td><td>")
-                        .append(item.forwardPnl).append("</td><td>")
-                        .append(item.totalPnl).append("</td><td>")
+                        .append(fmt(item.validatePnl)).append("</td><td>")
+                        .append(fmt(item.forwardPnl)).append("</td><td>")
+                        .append(fmt(item.totalPnl)).append("</td><td>")
                         .append(item.bestRank).append("</td><td>")
-                        .append(esc(item.reason)).append("</td><td>")
+                        .append(esc(item.releaseEventType)).append("</td><td>")
+                        .append(esc(item.reason)).append("</td><td class='mono'>")
                         .append(esc(item.reportPath)).append("</td></tr>");
             }
             html.append("</table></body></html>");
@@ -386,12 +433,15 @@ public class BacktestBatchReportCli {
     }
 
     private static class BatchItem {
+        private String candidateId;
+        private String pipelineRunId;
         private String strategyName;
         private String strategyVersion;
         private String parentVersion;
         private String scene;
         private String runtimeType;
         private String description;
+        private String payload;
         private String symbol;
         private String text;
         private int tradeCount;
@@ -418,6 +468,8 @@ public class BacktestBatchReportCli {
 
         Map<String, Object> toMap() {
             Map<String, Object> data = new LinkedHashMap<String, Object>();
+            data.put("candidateId", candidateId);
+            data.put("pipelineRunId", pipelineRunId);
             data.put("strategyName", strategyName);
             data.put("strategyVersion", strategyVersion);
             data.put("parentVersion", parentVersion);

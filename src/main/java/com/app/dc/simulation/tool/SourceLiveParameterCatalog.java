@@ -51,7 +51,10 @@ final class SourceLiveParameterCatalog {
             return build(
                     mapOf("breakLookback", 16, "retestAtrMax", 1.2D, "stopAtrBuffer", 0.25D,
                             "takeProfitAtrMultiplier", 1.0D, "minTargetAtr", 0.6D,
-                            "fastEmaPeriod", 10, "trendEmaPeriod", 20, "slowEmaPeriod", 60),
+                            "fastEmaPeriod", 10, "trendEmaPeriod", 20, "slowEmaPeriod", 60,
+                            "minTrendAtrSpread", 0.45D, "breakConfirmAtr", 0.15D,
+                            "reclaimCloseBufferAtr", 0.05D, "minCloseLocation", 0.6D,
+                            "minRangeAtr", 1.2D, "minRiskRewardRatio", 1.2D),
                     parameters(
                             intParam("fastEmaPeriod", 10, 8, 10, 12),
                             intParam("trendEmaPeriod", 20, 16, 20, 24),
@@ -60,13 +63,21 @@ final class SourceLiveParameterCatalog {
                             doubleParam("retestAtrMax", 1.2D, 0.8D, 1.2D, 1.6D),
                             doubleParam("stopAtrBuffer", 0.25D, 0.15D, 0.25D, 0.35D),
                             doubleParam("takeProfitAtrMultiplier", 1.0D, 0.8D, 1.0D, 1.2D),
-                            doubleParam("minTargetAtr", 0.6D, 0.4D, 0.6D, 0.8D)));
+                            doubleParam("minTargetAtr", 0.6D, 0.4D, 0.6D, 0.8D),
+                            doubleParam("minTrendAtrSpread", 0.45D, 0.30D, 0.45D, 0.60D),
+                            doubleParam("breakConfirmAtr", 0.15D, 0.05D, 0.15D, 0.25D),
+                            doubleParam("reclaimCloseBufferAtr", 0.05D, 0.00D, 0.05D, 0.10D),
+                            doubleParam("minCloseLocation", 0.6D, 0.55D, 0.60D, 0.65D),
+                            doubleParam("minRangeAtr", 1.2D, 1.0D, 1.2D, 1.4D),
+                            doubleParam("minRiskRewardRatio", 1.2D, 1.0D, 1.2D, 1.4D)));
         }
         if ("emaPullbackBuy".equalsIgnoreCase(name)) {
             return build(
                     mapOf("fastEmaPeriod", 10, "midEmaPeriod", 20, "slowEmaPeriod", 60,
                             "pullbackAtrMax", 1.0D, "stopAtrBuffer", 0.25D,
-                            "riskRewardRatio", 1.2D, "minTargetAtr", 0.6D),
+                            "riskRewardRatio", 1.2D, "minTargetAtr", 0.6D,
+                            "minPullbackAtr", 0.25D, "minTrendAtrSpread", 0.35D,
+                            "minRecoveryRsi", 50.0D, "minRecoveryCloseLocation", 0.6D),
                     parameters(
                             intParam("fastEmaPeriod", 10, 8, 10, 12),
                             intParam("midEmaPeriod", 20, 16, 20, 24),
@@ -74,16 +85,34 @@ final class SourceLiveParameterCatalog {
                             doubleParam("pullbackAtrMax", 1.0D, 0.6D, 1.0D, 1.4D),
                             doubleParam("stopAtrBuffer", 0.25D, 0.15D, 0.25D, 0.35D),
                             doubleParam("riskRewardRatio", 1.2D, 1.0D, 1.2D, 1.5D),
-                            doubleParam("minTargetAtr", 0.6D, 0.4D, 0.6D, 0.8D)));
+                            doubleParam("minTargetAtr", 0.6D, 0.4D, 0.6D, 0.8D),
+                            doubleParam("minPullbackAtr", 0.25D, 0.15D, 0.25D, 0.35D),
+                            doubleParam("minTrendAtrSpread", 0.35D, 0.20D, 0.35D, 0.50D),
+                            doubleParam("minRecoveryRsi", 50.0D, 48.0D, 50.0D, 52.0D),
+                            doubleParam("minRecoveryCloseLocation", 0.6D, 0.55D, 0.60D, 0.65D)));
         }
         if ("failedBreakReversal".equalsIgnoreCase(name)) {
             return build(
-                    mapOf("atrPeriod", 14, "breakLookback", 20, "stopAtrBuffer", 0.3D, "minTargetAtr", 1.0D),
+                    mapOf("fastEmaPeriod", 10, "slowEmaPeriod", 30, "rsiPeriod", 14,
+                            "atrPeriod", 14, "breakLookback", 20, "stopAtrBuffer", 0.3D,
+                            "minTargetAtr", 1.0D, "maxTrendAtrSpread", 0.6D,
+                            "minRejectWickAtr", 0.2D, "minBreakDistanceAtr", 0.1D,
+                            "reclaimCloseBufferAtr", 0.05D, "minConfirmCloseLocation", 0.6D,
+                            "riskRewardRatio", 1.2D),
                     parameters(
+                            intParam("fastEmaPeriod", 10, 8, 10, 12),
+                            intParam("slowEmaPeriod", 30, 24, 30, 36),
+                            intParam("rsiPeriod", 14, 10, 14, 18),
                             intParam("atrPeriod", 14, 10, 14, 18),
                             intParam("breakLookback", 20, 16, 20, 24),
                             doubleParam("stopAtrBuffer", 0.3D, 0.2D, 0.3D, 0.4D),
-                            doubleParam("minTargetAtr", 1.0D, 0.8D, 1.0D, 1.2D)));
+                            doubleParam("minTargetAtr", 1.0D, 0.8D, 1.0D, 1.2D),
+                            doubleParam("maxTrendAtrSpread", 0.6D, 0.4D, 0.6D, 0.8D),
+                            doubleParam("minRejectWickAtr", 0.2D, 0.1D, 0.2D, 0.3D),
+                            doubleParam("minBreakDistanceAtr", 0.1D, 0.05D, 0.1D, 0.15D),
+                            doubleParam("reclaimCloseBufferAtr", 0.05D, 0.00D, 0.05D, 0.10D),
+                            doubleParam("minConfirmCloseLocation", 0.6D, 0.55D, 0.60D, 0.65D),
+                            doubleParam("riskRewardRatio", 1.2D, 1.0D, 1.2D, 1.4D)));
         }
         if ("impulseReclaim".equalsIgnoreCase(name)) {
             return build(
@@ -114,14 +143,25 @@ final class SourceLiveParameterCatalog {
             return build(
                     mapOf("pullbackLookback", 12, "swingLookback", 24,
                             "minPullbackAtr", 0.8D, "maxPullbackAtr", 2.6D,
-                            "stopAtrBuffer", 0.35D, "minTargetAtr", 1.0D),
+                            "stopAtrBuffer", 0.35D, "minTargetAtr", 1.0D,
+                            "minTrendAtrSpread", 0.35D, "structureBufferAtr", 0.6D,
+                            "recoveryBreakBufferAtr", 0.05D, "minRecoveryCloseLocation", 0.6D,
+                            "longRecoveryRsiMin", 50.0D, "shortRecoveryRsiMax", 50.0D,
+                            "riskRewardRatio", 1.2D),
                     parameters(
                             intParam("pullbackLookback", 12, 8, 12, 16),
                             intParam("swingLookback", 24, 18, 24, 30),
                             doubleParam("minPullbackAtr", 0.8D, 0.6D, 0.8D, 1.0D),
                             doubleParam("maxPullbackAtr", 2.6D, 2.0D, 2.6D, 3.2D),
                             doubleParam("stopAtrBuffer", 0.35D, 0.25D, 0.35D, 0.45D),
-                            doubleParam("minTargetAtr", 1.0D, 0.8D, 1.0D, 1.2D)));
+                            doubleParam("minTargetAtr", 1.0D, 0.8D, 1.0D, 1.2D),
+                            doubleParam("minTrendAtrSpread", 0.35D, 0.20D, 0.35D, 0.50D),
+                            doubleParam("structureBufferAtr", 0.6D, 0.4D, 0.6D, 0.8D),
+                            doubleParam("recoveryBreakBufferAtr", 0.05D, 0.00D, 0.05D, 0.10D),
+                            doubleParam("minRecoveryCloseLocation", 0.6D, 0.55D, 0.60D, 0.65D),
+                            doubleParam("longRecoveryRsiMin", 50.0D, 48.0D, 50.0D, 52.0D),
+                            doubleParam("shortRecoveryRsiMax", 50.0D, 48.0D, 50.0D, 52.0D),
+                            doubleParam("riskRewardRatio", 1.2D, 1.0D, 1.2D, 1.4D)));
         }
         return null;
     }

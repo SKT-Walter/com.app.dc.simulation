@@ -630,6 +630,7 @@ public class BacktestReportService {
                 .append(trackingRow("Candidate ID", tracking.get("candidateId")))
                 .append(trackingRow("Pipeline Run ID", tracking.get("pipelineRunId")))
                 .append(trackingRow("\u573a\u666f", tracking.get("scene")))
+                .append(trackingRow("\u7b56\u7565\u903b\u8f91\u63cf\u8ff0", tracking.get("candidateDescription")))
                 .append(trackingRow("\u751f\u6210\u7c7b\u578b", tracking.get("generationType")))
                 .append(trackingRow("\u8fd0\u884c\u7c7b\u578b", tracking.get("runtimeType")))
                 .append(trackingRow("\u5f53\u524d Live \u7248\u672c", tracking.get("currentLiveVersion")))
@@ -1042,6 +1043,7 @@ public class BacktestReportService {
         md.append("- Candidate ID\uff1a").append(s(tracking.get("candidateId"))).append("\\n");
         md.append("- Pipeline Run ID\uff1a").append(s(tracking.get("pipelineRunId"))).append("\\n");
         md.append("- \u573a\u666f\uff1a").append(s(tracking.get("scene"))).append("\\n");
+        md.append("- \u7b56\u7565\u903b\u8f91\u63cf\u8ff0\uff1a").append(s(tracking.get("candidateDescription"))).append("\\n");
         md.append("- \u751f\u6210\u7c7b\u578b\uff1a").append(s(tracking.get("generationType"))).append("\\n");
         md.append("- \u8fd0\u884c\u7c7b\u578b\uff1a").append(s(tracking.get("runtimeType"))).append("\\n");
         md.append("- \u5f53\u524d Live \u7248\u672c\uff1a").append(s(tracking.get("currentLiveVersion"))).append("\\n");

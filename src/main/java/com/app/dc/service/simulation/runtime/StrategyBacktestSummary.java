@@ -18,6 +18,7 @@ public class StrategyBacktestSummary {
     public Double forwardPnl;
     public Double totalPnl;
     public Double forwardScore;
+    public Double minForwardContribution;
     public Integer overfitPass;
     public String overfitReason;
     public Integer resultCount;

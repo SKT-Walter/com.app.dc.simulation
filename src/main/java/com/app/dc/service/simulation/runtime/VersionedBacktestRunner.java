@@ -63,8 +63,6 @@ public class VersionedBacktestRunner {
         result.scene = candidate.scene;
         result.strategyPayload = candidate.payload;
         BacktestModels.EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue());
-        BinanceBacktestMarketGuard.GuardContext guardContext =
-                marketGuard.prepareContext(param.symbol, param.beginDate, param.endDate);
         BacktestModels.Position position = null;
 
         for (TTbookOhlc ohlc : ohlcList) {
@@ -106,19 +104,6 @@ public class VersionedBacktestRunner {
             signal.algoName = candidate.strategyName;
             if (!hasDynamicRiskTargets(signal)) {
                 incrementRejectReason(result, "missing_dynamic_stop_take");
-                continue;
-            }
-
-            boolean ignoreSentimentGuard = Boolean.TRUE.equals(param.ignoreSentimentGuard);
-            boolean allowMissingStageAnalysis = !Boolean.FALSE.equals(param.allowMissingStageAnalysis);
-            BinanceBacktestMarketGuard.GuardDecision guardDecision = marketGuard.evaluate(
-                    candidate.strategyName,
-                    guardContext,
-                    bar.getEndTime().toInstant(),
-                    ignoreSentimentGuard,
-                    allowMissingStageAnalysis);
-            if (guardDecision.blocked) {
-                incrementRejectReason(result, guardDecision.reason);
                 continue;
             }
 

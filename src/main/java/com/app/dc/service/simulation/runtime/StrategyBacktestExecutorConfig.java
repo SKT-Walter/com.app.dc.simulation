@@ -16,6 +16,12 @@ public class StrategyBacktestExecutorConfig {
     @Value("${strategy.backtest.threadNamePrefix:strategy-backtest-}")
     private String threadNamePrefix;
 
+    @Value("${strategy.backtest.symbolParallelism:2}")
+    private int symbolParallelism;
+
+    @Value("${strategy.backtest.symbolThreadNamePrefix:strategy-backtest-symbol-}")
+    private String symbolThreadNamePrefix;
+
     @Value("${strategy.backtest.kline-autofill.parallelism:2}")
     private int klineAutofillParallelism;
 
@@ -30,6 +36,21 @@ public class StrategyBacktestExecutorConfig {
         executor.setMaxPoolSize(poolSize);
         executor.setQueueCapacity(poolSize);
         executor.setThreadNamePrefix(threadNamePrefix);
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.initialize();
+        return executor;
+    }
+
+    @Bean(name = "strategyBacktestSymbolExecutor")
+    public ThreadPoolTaskExecutor strategyBacktestSymbolExecutor() {
+        int poolSize = Math.max(1, symbolParallelism);
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(poolSize);
+        executor.setMaxPoolSize(poolSize);
+        executor.setQueueCapacity(poolSize * 2);
+        executor.setThreadNamePrefix(symbolThreadNamePrefix);
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(60);
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());

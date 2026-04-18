@@ -1,0 +1,10 @@
+SIMSvr:
+  envs:
+    DEV:
+      test: false
+    QA:
+      test: false
+    UAT:
+      test: false
+    PRD:
+      test: false

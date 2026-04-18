@@ -116,6 +116,10 @@ public class BacktestReportService {
         meta.put("beginDate", s(response.beginDate));
         meta.put("endDate", s(response.endDate));
         meta.put("windowMode", s(response.windowMode));
+        meta.put("fitWindowDays", nzInt(response.fitWindowDays));
+        meta.put("validateWindowDays", nzInt(response.validateWindowDays));
+        meta.put("forwardWindowDays", nzInt(response.forwardWindowDays));
+        meta.put("minSliceCount", nzInt(response.minSliceCount));
         meta.put("currency", "USDT");
         return meta;
     }
@@ -156,10 +160,22 @@ public class BacktestReportService {
         summary.put("forwardPnl", scale(response.forwardPnl));
         summary.put("totalPnl", scale(response.totalPnl));
         summary.put("sliceCount", nzInt(response.sliceCount));
+        summary.put("symbolCount", nzInt(response.symbolCount));
+        summary.put("fitWindowDays", nzInt(response.fitWindowDays));
+        summary.put("validateWindowDays", nzInt(response.validateWindowDays));
+        summary.put("forwardWindowDays", nzInt(response.forwardWindowDays));
+        summary.put("minSliceCount", nzInt(response.minSliceCount));
         summary.put("optimizationMode", s(response.optimizationMode));
+        summary.put("optimizationObjective", s(response.optimizationObjective));
+        summary.put("minForwardContribution", scale(response.minForwardContribution));
         summary.put("trialCount", nzInt(response.trialCount));
         summary.put("bestRank", nzInt(response.bestRank));
         summary.put("bestParamSetJson", defaultIfBlank(response.bestParamSetJson, "{}"));
+        summary.put("elapsedMs", nzInt(response.elapsedMs));
+        summary.put("fragileBest", nzInt(response.fragileBest));
+        summary.put("stableParamRangeJson", defaultIfBlank(response.stableParamRangeJson, "{}"));
+        summary.put("neighborAvgPnl", scale(response.neighborAvgPnl));
+        summary.put("neighborWorstPnl", scale(response.neighborWorstPnl));
 
         int tradeCount = 0;
         BigDecimal finalCapital = BigDecimal.ZERO;
@@ -190,9 +206,15 @@ public class BacktestReportService {
     private Map<String, Object> buildOptimization(BacktestResponse response) {
         Map<String, Object> optimization = new LinkedHashMap<String, Object>();
         optimization.put("optimizationMode", s(response == null ? null : response.optimizationMode));
+        optimization.put("optimizationObjective", s(response == null ? null : response.optimizationObjective));
+        optimization.put("minForwardContribution", scale(response == null ? null : response.minForwardContribution));
         optimization.put("trialCount", nzInt(response == null ? null : response.trialCount));
         optimization.put("bestRank", nzInt(response == null ? null : response.bestRank));
         optimization.put("bestParamSetJson", defaultIfBlank(response == null ? null : response.bestParamSetJson, "{}"));
+        optimization.put("fragileBest", nzInt(response == null ? null : response.fragileBest));
+        optimization.put("stableParamRangeJson", defaultIfBlank(response == null ? null : response.stableParamRangeJson, "{}"));
+        optimization.put("neighborAvgPnl", scale(response == null ? null : response.neighborAvgPnl));
+        optimization.put("neighborWorstPnl", scale(response == null ? null : response.neighborWorstPnl));
         List<Map<String, Object>> trials = new ArrayList<Map<String, Object>>();
         List<BacktestModels.OptimizationTrial> items = response == null || response.trials == null
                 ? Collections.<BacktestModels.OptimizationTrial>emptyList()
@@ -214,6 +236,19 @@ public class BacktestReportService {
             row.put("maxDrawdownPct", scale(trial.maxDrawdownPct));
             row.put("overfitPass", nzInt(trial.overfitPass));
             row.put("overfitReason", translateReason(s(trial.overfitReason)));
+            row.put("elapsedMs", nzInt(trial.elapsedMs));
+            row.put("symbolCount", nzInt(trial.symbolCount));
+            row.put("sliceCount", nzInt(trial.sliceCount));
+            row.put("fitWindowDays", nzInt(trial.fitWindowDays));
+            row.put("validateWindowDays", nzInt(trial.validateWindowDays));
+            row.put("forwardWindowDays", nzInt(trial.forwardWindowDays));
+            row.put("minSliceCount", nzInt(trial.minSliceCount));
+            row.put("optimizationObjective", s(trial.optimizationObjective));
+            row.put("minForwardContribution", scale(trial.minForwardContribution));
+            row.put("fragileBest", nzInt(trial.fragileBest));
+            row.put("stableParamRangeJson", defaultIfBlank(trial.stableParamRangeJson, "{}"));
+            row.put("neighborAvgPnl", scale(trial.neighborAvgPnl));
+            row.put("neighborWorstPnl", scale(trial.neighborWorstPnl));
             row.put("paramSetJson", defaultIfBlank(trial.paramSetJson, "{}"));
             trials.add(row);
         }
@@ -296,10 +331,22 @@ public class BacktestReportService {
         summary.put("stopExitCount", nzInt(result.stopExitCount));
         summary.put("takeExitCount", nzInt(result.takeExitCount));
         summary.put("sliceCount", nzInt(result.sliceCount));
+        summary.put("symbolCount", nzInt(result.symbolCount));
+        summary.put("fitWindowDays", nzInt(result.fitWindowDays));
+        summary.put("validateWindowDays", nzInt(result.validateWindowDays));
+        summary.put("forwardWindowDays", nzInt(result.forwardWindowDays));
+        summary.put("minSliceCount", nzInt(result.minSliceCount));
         summary.put("optimizationMode", s(result.optimizationMode));
+        summary.put("optimizationObjective", s(result.optimizationObjective));
+        summary.put("minForwardContribution", scale(result.minForwardContribution));
         summary.put("trialCount", nzInt(result.trialCount));
         summary.put("bestRank", nzInt(result.bestRank));
         summary.put("bestParamSetJson", defaultIfBlank(result.bestParamSetJson, "{}"));
+        summary.put("elapsedMs", nzInt(result.elapsedMs));
+        summary.put("fragileBest", nzInt(result.fragileBest));
+        summary.put("stableParamRangeJson", defaultIfBlank(result.stableParamRangeJson, "{}"));
+        summary.put("neighborAvgPnl", scale(result.neighborAvgPnl));
+        summary.put("neighborWorstPnl", scale(result.neighborWorstPnl));
         summary.put("fitPnl", scale(result.fitPnl));
         summary.put("validatePnl", scale(result.validatePnl));
         summary.put("forwardPnl", scale(result.forwardPnl));
@@ -652,6 +699,9 @@ public class BacktestReportService {
                 .append(metric("Forward \u6536\u76ca", summary.get("forwardPnl")))
                 .append(metric("\u603b\u6536\u76ca", summary.get("totalPnl")))
                 .append(metric("Forward Score", summary.get("forwardScore")))
+                .append(metric("\u7a97\u53e3\u914d\u7f6e", s(summary.get("fitWindowDays")) + "/" + s(summary.get("validateWindowDays")) + "/" + s(summary.get("forwardWindowDays"))))
+                .append(metric("\u6700\u5c0f Slice", summary.get("minSliceCount")))
+                .append(metric("\u8bd5\u9a8c\u8017\u65f6(ms)", summary.get("elapsedMs")))
                 .append(metric("\u4ea4\u6613\u7b14\u6570", summary.get("tradeCount")))
                 .append(metric("\u6700\u5927\u56de\u64a4", summary.get("maxDrawdownPct")))
                 .append(metric("\u603b\u624b\u7eed\u8d39", summary.get("totalFee")))
@@ -659,11 +709,17 @@ public class BacktestReportService {
 
         html.append("<div class=\"section\"><h2>\u53c2\u6570\u4f18\u5316\u7ed3\u679c</h2><div class=\"grid\">")
                 .append(metric("\u4f18\u5316\u6a21\u5f0f", optimization.get("optimizationMode")))
+                .append(metric("\u4f18\u5316\u76ee\u6807", optimization.get("optimizationObjective")))
                 .append(metric("Trial \u6570", optimization.get("trialCount")))
                 .append(metric("\u6700\u4f73\u6392\u540d", optimization.get("bestRank")))
+                .append(metric("Forward \u8d21\u732e\u95e8\u69db", optimization.get("minForwardContribution")))
+                .append(metric("\u6700\u4f73\u70b9\u8106\u5f31", isTrue(optimization.get("fragileBest")) ? "\u662f" : "\u5426"))
+                .append(metric("\u90bb\u57df\u5747\u503c\u6536\u76ca", optimization.get("neighborAvgPnl")))
+                .append(metric("\u90bb\u57df\u6700\u5dee\u6536\u76ca", optimization.get("neighborWorstPnl")))
                 .append(metric("\u6700\u4f73\u53c2\u6570\u96c6", compactJsonValue(optimization.get("bestParamSetJson"))))
+                .append(metric("\u7a33\u5b9a\u53c2\u6570\u533a\u95f4", compactJsonValue(optimization.get("stableParamRangeJson"))))
                 .append("</div>")
-                .append(renderOptimizationTrials(optimization))
+                .append(renderOptimizationTrialsV2(optimization))
                 .append("</div>");
 
         html.append("<div class=\"section\"><div class=\"tips\">")
@@ -691,6 +747,8 @@ public class BacktestReportService {
                     .append(metric("\u80dc\u7387%", itemSummary.get("winRate")))
                     .append(metric("Maker \u624b\u7eed\u8d39", itemSummary.get("entryFeeTotal")))
                     .append(metric("Taker \u624b\u7eed\u8d39", itemSummary.get("exitFeeTotal")))
+                    .append(metric("\u7a97\u53e3\u914d\u7f6e", s(itemSummary.get("fitWindowDays")) + "/" + s(itemSummary.get("validateWindowDays")) + "/" + s(itemSummary.get("forwardWindowDays"))))
+                    .append(metric("\u6700\u4f73\u70b9\u8106\u5f31", isTrue(itemSummary.get("fragileBest")) ? "\u662f" : "\u5426"))
                     .append("</div></div>");
 
             html.append("<div class=\"section\"><h2>\u8d26\u6237\u4f59\u989d\u53d8\u52a8\u66f2\u7ebf</h2><div class=\"svg-box\">").append(renderEquitySvg(equityCurve, phaseWindow)).append("</div></div>");
@@ -1070,7 +1128,7 @@ public class BacktestReportService {
         List<Map<String, Object>> trials = (List<Map<String, Object>>) optimization.get("trials");
         if (trials != null && !trials.isEmpty()) {
             md.append("\\n## \u53c2\u6570\u4f18\u5316 Top Trials\\n\\n");
-            md.append("| Trial | Phase | Rank | Total PnL | Forward Score | Max DD | Param Set |\\n|---|---|---:|---:|---:|---:|---|\\n");
+            md.append("| Trial | Phase | Rank | Total PnL | Forward Score | Max DD | Elapsed(ms) | Fragile | Param Set |\\n|---|---|---:|---:|---:|---:|---:|---|---|\\n");
             for (Map<String, Object> trial : trials) {
                 md.append("| ").append(s(trial.get("trialNo")))
                         .append(" | ").append(s(trial.get("phase")))
@@ -1078,6 +1136,8 @@ public class BacktestReportService {
                         .append(" | ").append(s(trial.get("totalPnl")))
                         .append(" | ").append(s(trial.get("forwardScore")))
                         .append(" | ").append(s(trial.get("maxDrawdownPct")))
+                        .append(" | ").append(s(trial.get("elapsedMs")))
+                        .append(" | ").append(nzInt(trial.get("fragileBest")) > 0 ? "Y" : "N")
                         .append(" | `").append(s(trial.get("paramSetJson"))).append("` |\\n");
             }
         }
@@ -1097,6 +1157,21 @@ public class BacktestReportService {
                 new String[]{"Trial", "Phase", "Rank", "Fit", "Validate", "Forward", "Total", "Forward Score", "Max DD", "参数集"},
                 trials,
                 new String[]{"trialNo", "phase", "rank", "fitPnl", "validatePnl", "forwardPnl", "totalPnl", "forwardScore", "maxDrawdownPct", "paramSetJson"});
+    }
+
+    @SuppressWarnings("unchecked")
+    private String renderOptimizationTrialsV2(Map<String, Object> optimization) {
+        if (optimization == null) {
+            return "";
+        }
+        List<Map<String, Object>> trials = (List<Map<String, Object>>) optimization.get("trials");
+        if (trials == null || trials.isEmpty()) {
+            return "<div class=\"table-wrap\"><table><thead><tr><th>说明</th></tr></thead><tbody><tr><td>暂无参数优化试验明细</td></tr></tbody></table></div>";
+        }
+        return renderTable(
+                new String[]{"Trial", "Phase", "Rank", "Fit", "Validate", "Forward", "Total", "Forward Score", "Max DD", "Elapsed(ms)", "Fragile", "参数集"},
+                trials,
+                new String[]{"trialNo", "phase", "rank", "fitPnl", "validatePnl", "forwardPnl", "totalPnl", "forwardScore", "maxDrawdownPct", "elapsedMs", "fragileBest", "paramSetJson"});
     }
 
     private String compactJsonValue(Object value) {

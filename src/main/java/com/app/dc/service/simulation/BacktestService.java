@@ -12,6 +12,8 @@ import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
 import com.app.dc.service.simulation.runtime.WalkForwardBacktestRunner;
 import com.gateway.connector.utils.JsonUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
 import org.ta4j.core.BaseBar;
@@ -25,9 +27,14 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
 
 @Service
 public class BacktestService {
@@ -46,6 +53,10 @@ public class BacktestService {
 
     @Autowired
     private BacktestOptimizationService backtestOptimizationService;
+
+    @Autowired(required = false)
+    @Qualifier("strategyBacktestSymbolExecutor")
+    private ThreadPoolTaskExecutor strategyBacktestSymbolExecutor;
 
     public BacktestResponse run(BacktestParam param) throws Exception {
         return run(param, 120, 30, 14);
@@ -77,24 +88,26 @@ public class BacktestService {
 
         BacktestOptimizationService.OptimizationPlan plan =
                 backtestOptimizationService.buildPlan(candidate.parametersJson);
+        WindowConfig windowConfig = resolveWindowConfig(plan, fitWindowDays, validateWindowDays, forwardWindowDays);
         List<TrialExecution> executions = new ArrayList<TrialExecution>();
         int trialNo = 1;
+        Map<String, List<TTbookOhlc>> ohlcCache = new ConcurrentHashMap<String, List<TTbookOhlc>>();
 
         List<Map<String, Object>> coarseParamSets = plan.optimizationSupported
                 ? backtestOptimizationService.buildCoarseParamSets(plan)
                 : backtestOptimizationService.buildDefaultOnly(plan);
         executions.addAll(executeTrials("COARSE", trialNo, candidate, req, symbols, coarseParamSets,
-                fitWindowDays, validateWindowDays, forwardWindowDays));
+                windowConfig, plan, ohlcCache));
         trialNo += coarseParamSets.size();
 
         List<OptimizationTrial> rankedTrials = collectTrials(executions);
-        backtestOptimizationService.rankTrials(rankedTrials);
+        backtestOptimizationService.rankTrials(plan, rankedTrials);
         if (plan.optimizationSupported) {
             List<Map<String, Object>> fineParamSets = backtestOptimizationService.buildFineParamSets(plan, rankedTrials);
             executions.addAll(executeTrials("FINE", trialNo, candidate, req, symbols, fineParamSets,
-                    fitWindowDays, validateWindowDays, forwardWindowDays));
+                    windowConfig, plan, ohlcCache));
             rankedTrials = collectTrials(executions);
-            backtestOptimizationService.rankTrials(rankedTrials);
+            backtestOptimizationService.rankTrials(plan, rankedTrials);
         }
 
         TrialExecution best = bestTrial(executions);
@@ -103,9 +116,21 @@ public class BacktestService {
         }
         BacktestResponse response = best.response;
         response.optimizationMode = plan.optimizationMode;
+        response.optimizationObjective = plan.objective;
+        response.minForwardContribution = plan.minForwardContribution;
         response.trialCount = executions.size();
         response.bestRank = best.trial.rank == null ? 0 : best.trial.rank;
         response.bestParamSetJson = best.trial.paramSetJson == null ? "{}" : best.trial.paramSetJson;
+        response.elapsedMs = best.response == null ? 0 : nzInt(best.response.elapsedMs);
+        response.symbolCount = best.response == null ? symbols.size() : nzInt(best.response.symbolCount);
+        response.fitWindowDays = windowConfig.fitWindowDays;
+        response.validateWindowDays = windowConfig.validateWindowDays;
+        response.forwardWindowDays = windowConfig.forwardWindowDays;
+        response.minSliceCount = windowConfig.minSliceCount;
+        response.fragileBest = best.trial.fragileBest;
+        response.stableParamRangeJson = best.trial.stableParamRangeJson == null ? "{}" : best.trial.stableParamRangeJson;
+        response.neighborAvgPnl = nz(best.trial.neighborAvgPnl);
+        response.neighborWorstPnl = nz(best.trial.neighborWorstPnl);
         response.trials = rankedTrials;
         if (response.results != null) {
             for (BacktestResult result : response.results) {
@@ -113,9 +138,19 @@ public class BacktestService {
                     continue;
                 }
                 result.optimizationMode = response.optimizationMode;
+                result.optimizationObjective = response.optimizationObjective;
+                result.minForwardContribution = response.minForwardContribution;
                 result.trialCount = response.trialCount;
                 result.bestRank = response.bestRank;
                 result.bestParamSetJson = response.bestParamSetJson;
+                result.fitWindowDays = response.fitWindowDays;
+                result.validateWindowDays = response.validateWindowDays;
+                result.forwardWindowDays = response.forwardWindowDays;
+                result.minSliceCount = response.minSliceCount;
+                result.fragileBest = response.fragileBest;
+                result.stableParamRangeJson = response.stableParamRangeJson;
+                result.neighborAvgPnl = response.neighborAvgPnl;
+                result.neighborWorstPnl = response.neighborWorstPnl;
             }
         }
         return response;
@@ -127,9 +162,9 @@ public class BacktestService {
                                                BacktestParam baseParam,
                                                List<String> symbols,
                                                List<Map<String, Object>> paramSets,
-                                               int fitWindowDays,
-                                               int validateWindowDays,
-                                               int forwardWindowDays) throws Exception {
+                                               WindowConfig windowConfig,
+                                               BacktestOptimizationService.OptimizationPlan plan,
+                                               Map<String, List<TTbookOhlc>> ohlcCache) throws Exception {
         if (paramSets == null || paramSets.isEmpty()) {
             return Collections.emptyList();
         }
@@ -137,7 +172,7 @@ public class BacktestService {
         int trialNo = startTrialNo;
         for (Map<String, Object> paramSet : paramSets) {
             BacktestResponse response = runSingle(candidate, baseParam, symbols, paramSet,
-                    fitWindowDays, validateWindowDays, forwardWindowDays);
+                    windowConfig, plan, ohlcCache);
             OptimizationTrial trial = backtestOptimizationService.buildTrial(trialNo, phase,
                     candidate.strategyName, candidate.strategyVersion,
                     response.symbol, response.text, paramSet, response);
@@ -189,12 +224,14 @@ public class BacktestService {
                                        BacktestParam req,
                                        List<String> symbols,
                                        Map<String, Object> trialParams,
-                                       int fitWindowDays,
-                                       int validateWindowDays,
-                                       int forwardWindowDays) throws Exception {
+                                       WindowConfig windowConfig,
+                                       BacktestOptimizationService.OptimizationPlan plan,
+                                       Map<String, List<TTbookOhlc>> ohlcCache) throws Exception {
+        long startNs = System.nanoTime();
         BacktestResponse response = new BacktestResponse();
         response.symbol = symbols.size() == 1 ? symbols.get(0) : "MULTI";
         response.symbols = symbols;
+        response.symbolCount = symbols == null ? 0 : symbols.size();
         response.text = req.text;
         response.beginDate = req.beginDate;
         response.endDate = req.endDate;
@@ -204,6 +241,13 @@ public class BacktestService {
         response.runtimeType = candidate.runtimeType;
         response.scene = candidate.scene;
         response.windowMode = "WALK_FORWARD";
+        response.fitWindowDays = windowConfig.fitWindowDays;
+        response.validateWindowDays = windowConfig.validateWindowDays;
+        response.forwardWindowDays = windowConfig.forwardWindowDays;
+        response.minSliceCount = windowConfig.minSliceCount;
+        response.optimizationMode = plan == null ? "" : plan.optimizationMode;
+        response.optimizationObjective = plan == null ? "" : plan.objective;
+        response.minForwardContribution = plan == null ? BigDecimal.ZERO : plan.minForwardContribution;
 
         List<BacktestResult> results = new ArrayList<BacktestResult>();
         BigDecimal fitPnl = BigDecimal.ZERO;
@@ -213,12 +257,17 @@ public class BacktestService {
         int sliceCount = Integer.MAX_VALUE;
         boolean overfitPass = true;
         String overfitReason = "";
-        for (String symbol : symbols) {
-            List<TTbookOhlc> ohlcList = queryService.queryOhlc(symbol, req.text, req.beginDate, req.endDate);
-            BacktestParam symbolParam = copyParamForSymbol(req, symbol);
-            applyTrialParamOverrides(symbolParam, trialParams);
-            BacktestResult result = walkForwardBacktestRunner.run(candidate, symbolParam, ohlcList,
-                    fitWindowDays, validateWindowDays, forwardWindowDays);
+        List<BacktestResult> symbolResults = executeSymbols(candidate, req, symbols, trialParams, windowConfig, ohlcCache);
+        symbolResults.sort(new Comparator<BacktestResult>() {
+            @Override
+            public int compare(BacktestResult left, BacktestResult right) {
+                return safeString(left == null ? null : left.symbol).compareTo(safeString(right == null ? null : right.symbol));
+            }
+        });
+        for (BacktestResult result : symbolResults) {
+            if (result == null) {
+                continue;
+            }
             results.add(result);
             fitPnl = fitPnl.add(nz(result.fitPnl));
             validatePnl = validatePnl.add(nz(result.validatePnl));
@@ -240,10 +289,117 @@ public class BacktestService {
         response.sliceCount = results.isEmpty() ? 0 : sliceCount;
         response.overfitPass = results.isEmpty() ? 0 : (overfitPass ? 1 : 0);
         response.overfitReason = overfitReason;
+        response.elapsedMs = elapsedMs(startNs);
         response.bestParamSetJson = JsonUtils.Serializer(trialParams == null
                 ? Collections.<String, Object>emptyMap()
                 : new LinkedHashMap<String, Object>(trialParams));
         return response;
+    }
+
+    private List<BacktestResult> executeSymbols(final StrategyCandidateRow candidate,
+                                                final BacktestParam req,
+                                                List<String> symbols,
+                                                final Map<String, Object> trialParams,
+                                                final WindowConfig windowConfig,
+                                                final Map<String, List<TTbookOhlc>> ohlcCache) throws Exception {
+        if (symbols == null || symbols.isEmpty()) {
+            return Collections.emptyList();
+        }
+        if (strategyBacktestSymbolExecutor == null || symbols.size() <= 1 || requiresSerialSymbolExecution(candidate)) {
+            return executeSymbolsSerial(candidate, req, symbols, trialParams, windowConfig, ohlcCache);
+        }
+        List<Future<BacktestResult>> futures = new ArrayList<Future<BacktestResult>>();
+        for (final String symbol : symbols) {
+            futures.add(strategyBacktestSymbolExecutor.submit(new Callable<BacktestResult>() {
+                @Override
+                public BacktestResult call() throws Exception {
+                    return runSingleSymbol(candidate, req, symbol, trialParams, windowConfig, ohlcCache);
+                }
+            }));
+        }
+        List<BacktestResult> results = new ArrayList<BacktestResult>();
+        for (Future<BacktestResult> future : futures) {
+            results.add(future.get());
+        }
+        return results;
+    }
+
+    private boolean requiresSerialSymbolExecution(StrategyCandidateRow candidate) {
+        if (candidate == null) {
+            return true;
+        }
+        // Versioned/JAR strategies are loaded into a shared BuySellSignalFacade registry.
+        // Parallel symbol execution can unload/reload the same strategy handle mid-run.
+        return "JAR".equalsIgnoreCase(candidate.runtimeType);
+    }
+
+    private List<BacktestResult> executeSymbolsSerial(StrategyCandidateRow candidate,
+                                                      BacktestParam req,
+                                                      List<String> symbols,
+                                                      Map<String, Object> trialParams,
+                                                      WindowConfig windowConfig,
+                                                      Map<String, List<TTbookOhlc>> ohlcCache) throws Exception {
+        List<BacktestResult> results = new ArrayList<BacktestResult>();
+        for (String symbol : symbols) {
+            results.add(runSingleSymbol(candidate, req, symbol, trialParams, windowConfig, ohlcCache));
+        }
+        return results;
+    }
+
+    private BacktestResult runSingleSymbol(StrategyCandidateRow candidate,
+                                           BacktestParam req,
+                                           String symbol,
+                                           Map<String, Object> trialParams,
+                                           WindowConfig windowConfig,
+                                           Map<String, List<TTbookOhlc>> ohlcCache) throws Exception {
+        List<TTbookOhlc> ohlcList = loadOhlc(req, symbol, ohlcCache);
+        BacktestParam symbolParam = copyParamForSymbol(req, symbol);
+        applyTrialParamOverrides(symbolParam, trialParams);
+        BacktestResult result = walkForwardBacktestRunner.run(candidate, symbolParam, ohlcList,
+                windowConfig.fitWindowDays, windowConfig.validateWindowDays,
+                windowConfig.forwardWindowDays, windowConfig.minSliceCount);
+        result.symbolCount = 1;
+        result.fitWindowDays = windowConfig.fitWindowDays;
+        result.validateWindowDays = windowConfig.validateWindowDays;
+        result.forwardWindowDays = windowConfig.forwardWindowDays;
+        result.minSliceCount = windowConfig.minSliceCount;
+        return result;
+    }
+
+    private List<TTbookOhlc> loadOhlc(BacktestParam req, String symbol, Map<String, List<TTbookOhlc>> ohlcCache) throws Exception {
+        String cacheKey = buildOhlcCacheKey(symbol, req.text, req.beginDate, req.endDate);
+        List<TTbookOhlc> cached = ohlcCache == null ? null : ohlcCache.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        List<TTbookOhlc> loaded = queryService.queryOhlc(symbol, req.text, req.beginDate, req.endDate);
+        List<TTbookOhlc> safe = loaded == null ? Collections.<TTbookOhlc>emptyList() : loaded;
+        if (ohlcCache != null) {
+            ohlcCache.put(cacheKey, safe);
+        }
+        return safe;
+    }
+
+    private WindowConfig resolveWindowConfig(BacktestOptimizationService.OptimizationPlan plan,
+                                             int fitWindowDays,
+                                             int validateWindowDays,
+                                             int forwardWindowDays) {
+        WindowConfig config = new WindowConfig();
+        config.fitWindowDays = fitWindowDays > 0
+                ? fitWindowDays
+                : (plan == null ? 120 : plan.fitWindowDays);
+        config.validateWindowDays = validateWindowDays > 0
+                ? validateWindowDays
+                : (plan == null ? 30 : plan.validateWindowDays);
+        config.forwardWindowDays = forwardWindowDays > 0
+                ? forwardWindowDays
+                : (plan == null ? 14 : plan.forwardWindowDays);
+        config.minSliceCount = plan == null ? 3 : plan.minSliceCount;
+        return config;
+    }
+
+    private String buildOhlcCacheKey(String symbol, String text, String beginDate, String endDate) {
+        return safeString(symbol) + "|" + safeString(text) + "|" + safeString(beginDate) + "|" + safeString(endDate);
     }
 
     private void applyTrialParamOverrides(BacktestParam param, Map<String, Object> trialParams) {
@@ -367,9 +523,28 @@ public class BacktestService {
         return value == null ? BigDecimal.ZERO : value;
     }
 
+    private Integer nzInt(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private int elapsedMs(long startNs) {
+        return (int) Math.max(0L, (System.nanoTime() - startNs) / 1_000_000L);
+    }
+
+    private String safeString(String value) {
+        return value == null ? "" : value;
+    }
+
     private static class TrialExecution {
         private OptimizationTrial trial;
         private BacktestResponse response;
+    }
+
+    private static class WindowConfig {
+        private int fitWindowDays;
+        private int validateWindowDays;
+        private int forwardWindowDays;
+        private int minSliceCount;
     }
 
 }

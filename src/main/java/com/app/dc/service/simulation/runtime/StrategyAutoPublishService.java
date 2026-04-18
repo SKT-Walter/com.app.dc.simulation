@@ -92,6 +92,10 @@ public class StrategyAutoPublishService {
                 decision.reason = "forward_score <= 0";
                 return decision;
             }
+            if (!gte(forwardContribution(current.forwardPnl, current.totalPnl), current.minForwardContribution)) {
+                decision.reason = "forward contribution below threshold";
+                return decision;
+            }
 
             StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadCurrentActive(candidate.strategyName);
             StrategyLiveRegistryPublishRow baselineRow = active;
@@ -229,6 +233,7 @@ public class StrategyAutoPublishService {
         payload.put("currentForwardPnl", current.forwardPnl);
         payload.put("currentTotalPnl", current.totalPnl);
         payload.put("currentForwardScore", current.forwardScore);
+        payload.put("minForwardContribution", current.minForwardContribution);
         payload.put("overfitPass", current.overfitPass);
         payload.put("overfitReason", current.overfitReason);
         if (active != null) {
@@ -265,6 +270,7 @@ public class StrategyAutoPublishService {
         summary.trialCount = response == null ? 0 : response.trialCount;
         summary.bestRank = response == null ? 0 : response.bestRank;
         summary.bestParamSetJson = response == null ? "{}" : blankTo(response.bestParamSetJson, "{}");
+        summary.minForwardContribution = response == null ? 0D : toDouble(response.minForwardContribution);
         List<BacktestModels.BacktestResult> results = response == null
                 ? null
                 : response.results;
@@ -329,6 +335,10 @@ public class StrategyAutoPublishService {
         return toDouble(left) > toDouble(right);
     }
 
+    private boolean gte(Double left, Double right) {
+        return toDouble(left) >= toDouble(right);
+    }
+
     private boolean isTrue(Integer value) {
         return value != null && value.intValue() > 0;
     }
@@ -343,6 +353,14 @@ public class StrategyAutoPublishService {
 
     private Double scale(double value) {
         return BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP).doubleValue();
+    }
+
+    private Double forwardContribution(Double forwardPnl, Double totalPnl) {
+        double total = toDouble(totalPnl);
+        if (total <= 0D) {
+            return 0D;
+        }
+        return scale(toDouble(forwardPnl) / total);
     }
 
     private String blankTo(String value, String fallback) {

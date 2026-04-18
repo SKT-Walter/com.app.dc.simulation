@@ -55,8 +55,10 @@ public class BacktestResultClickHouseDao {
                 + "symbol,text,begin_date,end_date,trade_count,win_count,loss_count,flat_count,"
                 + "win_rate,total_return_pct,max_drawdown_pct,initial_capital,final_capital,total_pnl,"
                 + "forward_score,window_mode,slice_count,fit_pnl,validate_pnl,forward_pnl,overfit_pass,overfit_reason,"
-                + "optimization_mode,trial_count,best_param_set,best_rank,report_path,payload)"
-                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                + "optimization_mode,trial_count,best_param_set,best_rank,symbol_count,fit_window_days,validate_window_days,"
+                + "forward_window_days,min_slice_count,optimization_objective,min_forward_contribution,elapsed_ms,fragile_best,"
+                + "stable_param_range,neighbor_avg_pnl,neighbor_worst_pnl,report_path,payload)"
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         String sliceSql = "INSERT INTO " + sliceTable
                 + " (run_time,sid,strategy_name,strategy_version,symbol,text,slice_no,"
                 + "fit_begin,fit_end,validate_begin,validate_end,forward_begin,forward_end,"
@@ -65,8 +67,10 @@ public class BacktestResultClickHouseDao {
                 + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         String trialSql = "INSERT INTO " + trialTable
                 + " (run_time,sid,strategy_name,strategy_version,symbol_scope,text_scope,trial_no,phase,param_set,"
-                + "fit_pnl,validate_pnl,forward_pnl,total_pnl,forward_score,max_drawdown_pct,overfit_pass,overfit_reason,rank,payload)"
-                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                + "fit_pnl,validate_pnl,forward_pnl,total_pnl,forward_score,max_drawdown_pct,overfit_pass,overfit_reason,rank,"
+                + "elapsed_ms,symbol_count,slice_count,fit_window_days,validate_window_days,forward_window_days,min_slice_count,"
+                + "optimization_objective,min_forward_contribution,fragile_best,stable_param_range,neighbor_avg_pnl,neighbor_worst_pnl,payload)"
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
         for (BacktestModels.BacktestResult result : results) {
             try {
@@ -106,6 +110,18 @@ public class BacktestResultClickHouseDao {
                         nzInt(result.trialCount),
                         safe(result.bestParamSetJson),
                         nzInt(result.bestRank),
+                        nzInt(result.symbolCount),
+                        nzInt(result.fitWindowDays),
+                        nzInt(result.validateWindowDays),
+                        nzInt(result.forwardWindowDays),
+                        nzInt(result.minSliceCount),
+                        safe(result.optimizationObjective),
+                        nzDouble(result.minForwardContribution),
+                        nzInt(result.elapsedMs),
+                        nzInt(result.fragileBest),
+                        safe(result.stableParamRangeJson),
+                        nzDouble(result.neighborAvgPnl),
+                        nzDouble(result.neighborWorstPnl),
                         safe(reportPath),
                         JsonUtils.Serializer(result)
                 };
@@ -183,6 +199,19 @@ public class BacktestResultClickHouseDao {
                         nzInt(trial.overfitPass),
                         safe(trial.overfitReason),
                         nzInt(trial.rank),
+                        nzInt(trial.elapsedMs),
+                        nzInt(trial.symbolCount),
+                        nzInt(trial.sliceCount),
+                        nzInt(trial.fitWindowDays),
+                        nzInt(trial.validateWindowDays),
+                        nzInt(trial.forwardWindowDays),
+                        nzInt(trial.minSliceCount),
+                        safe(trial.optimizationObjective),
+                        nzDouble(trial.minForwardContribution),
+                        nzInt(trial.fragileBest),
+                        safe(trial.stableParamRangeJson),
+                        nzDouble(trial.neighborAvgPnl),
+                        nzDouble(trial.neighborWorstPnl),
                         JsonUtils.Serializer(trial)
                 };
                 ClickHouseDBUtils.update(sql, args);

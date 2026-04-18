@@ -33,18 +33,23 @@ public class WalkForwardBacktestRunner {
                                              List<TTbookOhlc> ohlcList,
                                              int fitWindowDays,
                                              int validateWindowDays,
-                                             int forwardWindowDays) throws Exception {
+                                             int forwardWindowDays,
+                                             int minSliceCount) throws Exception {
         BacktestParam param = rawParam == null ? new BacktestParam() : rawParam;
         List<TTbookOhlc> rows = ohlcList == null ? new ArrayList<TTbookOhlc>() : ohlcList;
         LocalDate beginDate = LocalDate.parse(param.beginDate);
         LocalDate endDate = LocalDate.parse(param.endDate);
         List<WindowSlice> slices = buildSlices(beginDate, endDate, fitWindowDays, validateWindowDays, forwardWindowDays);
-        if (slices.size() < 3) {
+        if (slices.size() < Math.max(1, minSliceCount)) {
             throw insufficient(candidate, param, fitWindowDays, validateWindowDays, forwardWindowDays, rows, beginDate, endDate,
-                    "window slices less than 3");
+                    "window slices less than " + Math.max(1, minSliceCount));
         }
 
         BacktestModels.BacktestResult aggregate = initAggregateResult(candidate, param);
+        aggregate.fitWindowDays = fitWindowDays;
+        aggregate.validateWindowDays = validateWindowDays;
+        aggregate.forwardWindowDays = forwardWindowDays;
+        aggregate.minSliceCount = Math.max(1, minSliceCount);
         BigDecimal fitPnl = BigDecimal.ZERO;
         BigDecimal validatePnl = BigDecimal.ZERO;
         BigDecimal forwardPnl = BigDecimal.ZERO;
@@ -112,9 +117,9 @@ public class WalkForwardBacktestRunner {
                 .divide(BigDecimal.valueOf(aggregate.tradeCount), 6, RoundingMode.HALF_UP));
         aggregate.profitFactor = calcProfitFactor(aggregate.tradeList);
 
-        if (aggregate.sliceCount.intValue() < 3) {
+        if (aggregate.sliceCount.intValue() < Math.max(1, minSliceCount)) {
             aggregate.overfitPass = 0;
-            aggregate.overfitReason = "slice_count < 3";
+            aggregate.overfitReason = "slice_count < " + Math.max(1, minSliceCount);
         } else if (aggregate.fitPnl.compareTo(BigDecimal.ZERO) > 0
                 && aggregate.validatePnl.compareTo(BigDecimal.ZERO) <= 0) {
             aggregate.overfitPass = 0;
@@ -222,6 +227,9 @@ public class WalkForwardBacktestRunner {
         payload.put("validateReturnPct", validateResult.totalReturnPct);
         payload.put("forwardReturnPct", forwardResult.totalReturnPct);
         payload.put("forwardScore", forwardResult.totalReturnPct);
+        payload.put("fitWindowDays", fitWindowDays(param, slice));
+        payload.put("validateWindowDays", validateWindowDays(param, slice));
+        payload.put("forwardWindowDays", forwardWindowDays(param, slice));
         row.payload = com.gateway.connector.utils.JsonUtils.Serializer(payload);
         return row;
     }
@@ -279,6 +287,18 @@ public class WalkForwardBacktestRunner {
         detail.put("resumeHint", "run BinanceKlineImportCli then wait for retry");
         detail.put("message", message);
         return new BacktestTaskSuspendedException("INSUFFICIENT_KLINE", detail);
+    }
+
+    private long fitWindowDays(BacktestParam param, WindowSlice slice) {
+        return java.time.temporal.ChronoUnit.DAYS.between(slice.fitBegin, slice.fitEnd) + 1L;
+    }
+
+    private long validateWindowDays(BacktestParam param, WindowSlice slice) {
+        return java.time.temporal.ChronoUnit.DAYS.between(slice.validateBegin, slice.validateEnd) + 1L;
+    }
+
+    private long forwardWindowDays(BacktestParam param, WindowSlice slice) {
+        return java.time.temporal.ChronoUnit.DAYS.between(slice.forwardBegin, slice.forwardEnd) + 1L;
     }
 
     private List<WindowSlice> buildSlices(LocalDate beginDate, LocalDate endDate,

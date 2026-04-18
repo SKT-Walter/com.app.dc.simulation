@@ -24,6 +24,11 @@ public final class BacktestModels {
         public String endDate;
         public String windowMode;
         public Integer sliceCount = 0;
+        public Integer symbolCount = 0;
+        public Integer fitWindowDays = 0;
+        public Integer validateWindowDays = 0;
+        public Integer forwardWindowDays = 0;
+        public Integer minSliceCount = 0;
         public BigDecimal fitPnl = BigDecimal.ZERO;
         public BigDecimal validatePnl = BigDecimal.ZERO;
         public BigDecimal forwardPnl = BigDecimal.ZERO;
@@ -31,9 +36,16 @@ public final class BacktestModels {
         public Integer overfitPass = 0;
         public String overfitReason = "";
         public String optimizationMode = "";
+        public String optimizationObjective = "";
+        public BigDecimal minForwardContribution = BigDecimal.ZERO;
         public Integer trialCount = 0;
         public Integer bestRank = 0;
         public String bestParamSetJson = "{}";
+        public Integer elapsedMs = 0;
+        public Integer fragileBest = 0;
+        public String stableParamRangeJson = "{}";
+        public BigDecimal neighborAvgPnl = BigDecimal.ZERO;
+        public BigDecimal neighborWorstPnl = BigDecimal.ZERO;
         public List<OptimizationTrial> trials;
         public List<BacktestResult> results;
     }
@@ -48,6 +60,11 @@ public final class BacktestModels {
         public BigDecimal forwardScore = BigDecimal.ZERO;
         public String windowMode = "";
         public Integer sliceCount = 0;
+        public Integer symbolCount = 1;
+        public Integer fitWindowDays = 0;
+        public Integer validateWindowDays = 0;
+        public Integer forwardWindowDays = 0;
+        public Integer minSliceCount = 0;
         public BigDecimal fitPnl = BigDecimal.ZERO;
         public BigDecimal validatePnl = BigDecimal.ZERO;
         public BigDecimal forwardPnl = BigDecimal.ZERO;
@@ -55,9 +72,16 @@ public final class BacktestModels {
         public Integer overfitPass = 0;
         public String overfitReason = "";
         public String optimizationMode = "";
+        public String optimizationObjective = "";
+        public BigDecimal minForwardContribution = BigDecimal.ZERO;
         public Integer trialCount = 0;
         public Integer bestRank = 0;
         public String bestParamSetJson = "{}";
+        public Integer elapsedMs = 0;
+        public Integer fragileBest = 0;
+        public String stableParamRangeJson = "{}";
+        public BigDecimal neighborAvgPnl = BigDecimal.ZERO;
+        public BigDecimal neighborWorstPnl = BigDecimal.ZERO;
         public String symbol;
         public String text;
         public String beginDate;
@@ -113,6 +137,19 @@ public final class BacktestModels {
         public Integer overfitPass = 0;
         public String overfitReason = "";
         public Integer rank = 0;
+        public Integer elapsedMs = 0;
+        public Integer symbolCount = 0;
+        public Integer sliceCount = 0;
+        public Integer fitWindowDays = 0;
+        public Integer validateWindowDays = 0;
+        public Integer forwardWindowDays = 0;
+        public Integer minSliceCount = 0;
+        public String optimizationObjective = "";
+        public BigDecimal minForwardContribution = BigDecimal.ZERO;
+        public Integer fragileBest = 0;
+        public String stableParamRangeJson = "{}";
+        public BigDecimal neighborAvgPnl = BigDecimal.ZERO;
+        public BigDecimal neighborWorstPnl = BigDecimal.ZERO;
     }
 
     public static class BacktestSliceResult {

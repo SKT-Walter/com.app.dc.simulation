@@ -7,7 +7,9 @@ import com.gateway.connector.utils.JsonUtils;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -15,6 +17,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 
 @Service
@@ -24,20 +27,46 @@ public class BacktestOptimizationService {
     private static final int DEFAULT_MAX_FULL_GRID = 256;
     private static final int DEFAULT_MAX_COARSE_CANDIDATES = 256;
     private static final int DEFAULT_MAX_FINE_CANDIDATES = 384;
+    private static final int DEFAULT_FIT_WINDOW_DAYS = 120;
+    private static final int DEFAULT_VALIDATE_WINDOW_DAYS = 30;
+    private static final int DEFAULT_FORWARD_WINDOW_DAYS = 14;
+    private static final int DEFAULT_MIN_SLICE_COUNT = 3;
+    private static final long DEFAULT_RANDOM_SEED = 20260418L;
+    private static final BigDecimal DEFAULT_MIN_FORWARD_CONTRIBUTION = new BigDecimal("0.20");
+    private static final String MODE_LAYERED_GRID = "LAYERED_GRID";
+    private static final String MODE_RANDOM_LOCAL = "RANDOM_LOCAL";
+    private static final String OBJECTIVE_PROFIT_FIRST = "PROFIT_FIRST";
 
     public OptimizationPlan buildPlan(String parametersJson) {
         StrategyParametersJson parsed = StrategyParametersSupport.parse(parametersJson);
         OptimizationPlan plan = new OptimizationPlan();
         plan.optimizationSupported = StrategyParametersSupport.isOptimizationSupported(parametersJson);
-        plan.optimizationMode = string(parsed.optimizationProfile.get("mode"), "LAYERED_GRID");
+        plan.optimizationMode = normalizeMode(string(parsed.optimizationProfile.get("mode"), MODE_LAYERED_GRID));
+        plan.objective = normalizeObjective(string(parsed.optimizationProfile.get("objective"), OBJECTIVE_PROFIT_FIRST));
         plan.topN = Math.max(1, intValue(parsed.optimizationProfile.get("topN"), DEFAULT_TOP_N));
         plan.maxFullGrid = Math.max(1, intValue(parsed.optimizationProfile.get("maxFullGrid"), DEFAULT_MAX_FULL_GRID));
         plan.maxCoarseCandidates = Math.max(1,
                 intValue(parsed.optimizationProfile.get("maxCoarseCandidates"), DEFAULT_MAX_COARSE_CANDIDATES));
         plan.maxFineCandidates = Math.max(1,
                 intValue(parsed.optimizationProfile.get("maxFineCandidates"), DEFAULT_MAX_FINE_CANDIDATES));
+        plan.fitWindowDays = Math.max(1,
+                intValue(parsed.optimizationProfile.get("fitWindowDays"), DEFAULT_FIT_WINDOW_DAYS));
+        plan.validateWindowDays = Math.max(1,
+                intValue(parsed.optimizationProfile.get("validateWindowDays"), DEFAULT_VALIDATE_WINDOW_DAYS));
+        plan.forwardWindowDays = Math.max(1,
+                intValue(parsed.optimizationProfile.get("forwardWindowDays"), DEFAULT_FORWARD_WINDOW_DAYS));
+        plan.minSliceCount = Math.max(1,
+                intValue(parsed.optimizationProfile.get("minSliceCount"), DEFAULT_MIN_SLICE_COUNT));
+        plan.randomSeed = longValue(parsed.optimizationProfile.get("randomSeed"), DEFAULT_RANDOM_SEED);
+        plan.minForwardContribution = decimalValue(
+                parsed.optimizationProfile.get("minForwardContribution"),
+                DEFAULT_MIN_FORWARD_CONTRIBUTION);
+        plan.lockedParams.addAll(stringSet(parsed.optimizationProfile.get("lockedParams")));
+        plan.priorityParams.addAll(stringSet(parsed.optimizationProfile.get("priorityParams")));
+        plan.coarseOnlyParams.addAll(stringSet(parsed.optimizationProfile.get("coarseOnlyParams")));
+        plan.fineOnlyParams.addAll(stringSet(parsed.optimizationProfile.get("fineOnlyParams")));
         plan.defaultParams.putAll(StrategyParametersSupport.extractDefaultParams(parametersJson));
-        plan.dimensions.addAll(parseDimensions(parsed.parameterSchema, plan.defaultParams));
+        plan.dimensions.addAll(parseDimensions(parsed.parameterSchema, plan.defaultParams, plan));
         if (plan.dimensions.isEmpty()) {
             plan.optimizationSupported = false;
         }
@@ -54,17 +83,22 @@ public class BacktestOptimizationService {
     }
 
     public List<Map<String, Object>> buildCoarseParamSets(OptimizationPlan plan) {
-        if (plan == null || !plan.optimizationSupported || plan.dimensions.isEmpty()) {
+        if (plan == null || !plan.optimizationSupported || activeDimensions(plan, true).isEmpty()) {
             return buildDefaultOnly(plan);
         }
-        if (estimateGridSize(plan.dimensions, false) <= plan.maxFullGrid) {
-            return uniqueParamSets(cartesian(plan.dimensions, false, plan.maxFullGrid), plan.defaultParams);
+        List<ParameterDimension> coarseDimensions = activeDimensions(plan, true);
+        if (MODE_RANDOM_LOCAL.equalsIgnoreCase(plan.optimizationMode)) {
+            return uniqueParamSets(randomSample(coarseDimensions, plan.defaultParams, plan.maxCoarseCandidates, plan.randomSeed),
+                    plan.defaultParams);
         }
-        return uniqueParamSets(cartesian(plan.dimensions, true, plan.maxCoarseCandidates), plan.defaultParams);
+        if (estimateGridSize(coarseDimensions, false) <= plan.maxFullGrid) {
+            return uniqueParamSets(cartesian(coarseDimensions, false, plan.maxFullGrid), plan.defaultParams);
+        }
+        return uniqueParamSets(cartesian(coarseDimensions, true, plan.maxCoarseCandidates), plan.defaultParams);
     }
 
     public List<Map<String, Object>> buildFineParamSets(OptimizationPlan plan, List<OptimizationTrial> rankedTrials) {
-        if (plan == null || !plan.optimizationSupported || plan.dimensions.isEmpty()) {
+        if (plan == null || !plan.optimizationSupported || activeDimensions(plan, false).isEmpty()) {
             return Collections.emptyList();
         }
         List<OptimizationTrial> topTrials = topRanked(rankedTrials, plan.topN);
@@ -73,10 +107,11 @@ public class BacktestOptimizationService {
         }
         Set<String> seen = new LinkedHashSet<String>();
         List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        List<ParameterDimension> fineDimensions = activeDimensions(plan, false);
         for (OptimizationTrial trial : topTrials) {
             Map<String, Object> paramSet = parseParamSet(trial.paramSetJson);
             List<Map<String, Object>> candidates = cartesian(
-                    buildNeighborDimensions(plan.dimensions, paramSet),
+                    buildNeighborDimensions(fineDimensions, paramSet),
                     false,
                     plan.maxFineCandidates);
             for (Map<String, Object> candidate : uniqueParamSets(candidates, plan.defaultParams)) {
@@ -92,13 +127,18 @@ public class BacktestOptimizationService {
         return result;
     }
 
-    public void rankTrials(List<OptimizationTrial> trials) {
+    public void rankTrials(OptimizationPlan plan, List<OptimizationTrial> trials) {
         if (trials == null || trials.isEmpty()) {
             return;
         }
+        final OptimizationPlan effectivePlan = plan == null ? new OptimizationPlan() : plan;
         Collections.sort(trials, new Comparator<OptimizationTrial>() {
             @Override
             public int compare(OptimizationTrial left, OptimizationTrial right) {
+                int gate = Integer.compare(passProfitGate(right, effectivePlan), passProfitGate(left, effectivePlan));
+                if (gate != 0) {
+                    return gate;
+                }
                 int overfit = Integer.compare(intValue(right.overfitPass), intValue(left.overfitPass));
                 if (overfit != 0) {
                     return overfit;
@@ -119,6 +159,10 @@ public class BacktestOptimizationService {
                 if (total != 0) {
                     return total;
                 }
+                int forwardPnl = nz(right.forwardPnl).compareTo(nz(left.forwardPnl));
+                if (forwardPnl != 0) {
+                    return forwardPnl;
+                }
                 int score = nz(right.forwardScore).compareTo(nz(left.forwardScore));
                 if (score != 0) {
                     return score;
@@ -129,6 +173,7 @@ public class BacktestOptimizationService {
         for (int i = 0; i < trials.size(); i++) {
             trials.get(i).rank = Integer.valueOf(i + 1);
         }
+        applyStabilityAnalysis(effectivePlan, trials);
     }
 
     public OptimizationTrial buildTrial(int trialNo,
@@ -157,7 +202,154 @@ public class BacktestOptimizationService {
         trial.maxDrawdownPct = maxDrawdown(response == null ? null : response.results);
         trial.overfitPass = response == null ? 0 : intValue(response.overfitPass);
         trial.overfitReason = response == null ? "" : string(response.overfitReason, "");
+        trial.elapsedMs = response == null ? 0 : intValue(response.elapsedMs);
+        trial.symbolCount = response == null ? 0 : intValue(response.symbolCount);
+        trial.sliceCount = response == null ? 0 : intValue(response.sliceCount);
+        trial.fitWindowDays = response == null ? 0 : intValue(response.fitWindowDays);
+        trial.validateWindowDays = response == null ? 0 : intValue(response.validateWindowDays);
+        trial.forwardWindowDays = response == null ? 0 : intValue(response.forwardWindowDays);
+        trial.minSliceCount = response == null ? 0 : intValue(response.minSliceCount);
+        trial.optimizationObjective = response == null ? "" : string(response.optimizationObjective, "");
+        trial.minForwardContribution = response == null ? BigDecimal.ZERO : nz(response.minForwardContribution);
+        trial.fragileBest = 0;
+        trial.stableParamRangeJson = "{}";
+        trial.neighborAvgPnl = BigDecimal.ZERO;
+        trial.neighborWorstPnl = BigDecimal.ZERO;
         return trial;
+    }
+
+    private void applyStabilityAnalysis(OptimizationPlan plan, List<OptimizationTrial> rankedTrials) {
+        if (plan == null || rankedTrials == null || rankedTrials.isEmpty()) {
+            return;
+        }
+        OptimizationTrial best = rankedTrials.get(0);
+        Map<String, Object> bestParamSet = parseParamSet(best.paramSetJson);
+        List<OptimizationTrial> neighbors = collectNeighbors(best, bestParamSet, plan, rankedTrials);
+        if (neighbors.isEmpty()) {
+            best.fragileBest = 1;
+            best.stableParamRangeJson = "{}";
+            best.neighborAvgPnl = BigDecimal.ZERO;
+            best.neighborWorstPnl = BigDecimal.ZERO;
+            return;
+        }
+        BigDecimal sum = BigDecimal.ZERO;
+        BigDecimal worst = null;
+        for (OptimizationTrial neighbor : neighbors) {
+            BigDecimal pnl = nz(neighbor.totalPnl);
+            sum = sum.add(pnl);
+            worst = worst == null ? pnl : worst.min(pnl);
+        }
+        BigDecimal avg = neighbors.isEmpty()
+                ? BigDecimal.ZERO
+                : sum.divide(BigDecimal.valueOf(neighbors.size()), 6, RoundingMode.HALF_UP);
+        best.neighborAvgPnl = avg;
+        best.neighborWorstPnl = worst == null ? BigDecimal.ZERO : worst;
+        best.stableParamRangeJson = buildStableParamRangeJson(neighbors, plan);
+        best.fragileBest = isFragile(best, neighbors, avg, worst) ? 1 : 0;
+    }
+
+    private List<OptimizationTrial> collectNeighbors(OptimizationTrial best,
+                                                     Map<String, Object> bestParamSet,
+                                                     OptimizationPlan plan,
+                                                     List<OptimizationTrial> rankedTrials) {
+        List<OptimizationTrial> result = new ArrayList<OptimizationTrial>();
+        if (best == null || rankedTrials == null || rankedTrials.isEmpty()) {
+            return result;
+        }
+        List<ParameterDimension> fineDimensions = activeDimensions(plan, false);
+        for (OptimizationTrial trial : rankedTrials) {
+            if (trial == null || trial.rank == null || trial.rank.intValue() > plan.topN) {
+                continue;
+            }
+            if (passProfitGate(trial, plan) <= 0) {
+                continue;
+            }
+            if (isNeighborTrial(trial, bestParamSet, fineDimensions)) {
+                result.add(trial);
+            }
+        }
+        return result;
+    }
+
+    private boolean isNeighborTrial(OptimizationTrial trial,
+                                    Map<String, Object> bestParamSet,
+                                    List<ParameterDimension> dimensions) {
+        Map<String, Object> current = parseParamSet(trial == null ? null : trial.paramSetJson);
+        if (dimensions == null || dimensions.isEmpty()) {
+            return true;
+        }
+        for (ParameterDimension dimension : dimensions) {
+            int bestIndex = indexOf(dimension.candidates, bestParamSet.get(dimension.name));
+            int currentIndex = indexOf(dimension.candidates, current.get(dimension.name));
+            if (bestIndex < 0 || currentIndex < 0) {
+                continue;
+            }
+            if (Math.abs(bestIndex - currentIndex) > 1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private String buildStableParamRangeJson(List<OptimizationTrial> neighbors, OptimizationPlan plan) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        if (neighbors == null || neighbors.isEmpty()) {
+            return "{}";
+        }
+        List<ParameterDimension> dimensions = activeDimensions(plan, false);
+        for (ParameterDimension dimension : dimensions) {
+            List<Object> values = new ArrayList<Object>();
+            for (OptimizationTrial neighbor : neighbors) {
+                Map<String, Object> paramSet = parseParamSet(neighbor.paramSetJson);
+                if (paramSet.containsKey(dimension.name)) {
+                    Object value = normalizeValue(dimension.type, paramSet.get(dimension.name));
+                    if (!containsValue(values, value)) {
+                        values.add(value);
+                    }
+                }
+            }
+            if (values.isEmpty()) {
+                continue;
+            }
+            if (isNumericType(dimension.type)) {
+                BigDecimal min = null;
+                BigDecimal max = null;
+                for (Object value : values) {
+                    BigDecimal current = decimalValue(value, BigDecimal.ZERO);
+                    min = min == null ? current : min.min(current);
+                    max = max == null ? current : max.max(current);
+                }
+                Map<String, Object> range = new LinkedHashMap<String, Object>();
+                range.put("min", min == null ? 0 : min);
+                range.put("max", max == null ? 0 : max);
+                range.put("values", values);
+                result.put(dimension.name, range);
+            } else {
+                result.put(dimension.name, values);
+            }
+        }
+        return JsonUtils.Serializer(result);
+    }
+
+    private boolean isFragile(OptimizationTrial best,
+                              List<OptimizationTrial> neighbors,
+                              BigDecimal avg,
+                              BigDecimal worst) {
+        if (best == null) {
+            return true;
+        }
+        if (neighbors == null || neighbors.size() <= 1) {
+            return true;
+        }
+        BigDecimal bestPnl = nz(best.totalPnl);
+        if (bestPnl.compareTo(BigDecimal.ZERO) <= 0) {
+            return true;
+        }
+        if (nz(worst).compareTo(BigDecimal.ZERO) <= 0) {
+            return true;
+        }
+        BigDecimal threshold = bestPnl.multiply(new BigDecimal("0.50"));
+        return nz(avg).compareTo(threshold) < 0;
     }
 
     private BigDecimal averageForwardScore(List<BacktestModels.BacktestResult> results) {
@@ -196,6 +388,33 @@ public class BacktestOptimizationService {
         return 0;
     }
 
+    private int passProfitGate(OptimizationTrial trial, OptimizationPlan plan) {
+        if (trial == null) {
+            return 0;
+        }
+        if (intValue(trial.overfitPass) <= 0) {
+            return 0;
+        }
+        if (nz(trial.validatePnl).compareTo(BigDecimal.ZERO) <= 0) {
+            return 0;
+        }
+        if (nz(trial.forwardPnl).compareTo(BigDecimal.ZERO) <= 0) {
+            return 0;
+        }
+        if (nz(trial.totalPnl).compareTo(BigDecimal.ZERO) <= 0) {
+            return 0;
+        }
+        BigDecimal contribution = forwardContribution(trial.forwardPnl, trial.totalPnl);
+        return contribution.compareTo(nz(plan == null ? null : plan.minForwardContribution)) >= 0 ? 1 : 0;
+    }
+
+    public BigDecimal forwardContribution(BigDecimal forwardPnl, BigDecimal totalPnl) {
+        if (totalPnl == null || totalPnl.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return nz(forwardPnl).divide(totalPnl, 6, RoundingMode.HALF_UP);
+    }
+
     private List<OptimizationTrial> topRanked(List<OptimizationTrial> trials, int topN) {
         if (trials == null || trials.isEmpty()) {
             return Collections.emptyList();
@@ -211,7 +430,8 @@ public class BacktestOptimizationService {
     }
 
     private List<ParameterDimension> parseDimensions(Map<String, Object> parameterSchema,
-                                                     Map<String, Object> defaultParams) {
+                                                     Map<String, Object> defaultParams,
+                                                     OptimizationPlan plan) {
         List<ParameterDimension> result = new ArrayList<ParameterDimension>();
         if (parameterSchema == null || parameterSchema.isEmpty()) {
             return result;
@@ -227,7 +447,7 @@ public class BacktestOptimizationService {
             @SuppressWarnings("unchecked")
             Map<String, Object> row = (Map<String, Object>) item;
             String name = string(row.get("name"), "");
-            if (isBlank(name)) {
+            if (isBlank(name) || plan.lockedParams.contains(name)) {
                 continue;
             }
             ParameterDimension dimension = new ParameterDimension();
@@ -243,7 +463,56 @@ public class BacktestOptimizationService {
             if (dimension.candidates.isEmpty()) {
                 continue;
             }
+            dimension.coarseActive = isCoarseActive(plan, name);
+            dimension.fineActive = isFineActive(plan, name);
+            if (!dimension.coarseActive && !dimension.fineActive) {
+                continue;
+            }
             result.add(dimension);
+        }
+        return result;
+    }
+
+    private boolean isCoarseActive(OptimizationPlan plan, String name) {
+        if (plan == null || isBlank(name) || plan.lockedParams.contains(name)) {
+            return false;
+        }
+        if (plan.priorityParams.isEmpty() && plan.coarseOnlyParams.isEmpty() && plan.fineOnlyParams.isEmpty()) {
+            return true;
+        }
+        if (plan.fineOnlyParams.contains(name)) {
+            return false;
+        }
+        return plan.priorityParams.contains(name) || plan.coarseOnlyParams.contains(name);
+    }
+
+    private boolean isFineActive(OptimizationPlan plan, String name) {
+        if (plan == null || isBlank(name) || plan.lockedParams.contains(name)) {
+            return false;
+        }
+        if (plan.priorityParams.isEmpty() && plan.coarseOnlyParams.isEmpty() && plan.fineOnlyParams.isEmpty()) {
+            return true;
+        }
+        if (plan.coarseOnlyParams.contains(name)) {
+            return false;
+        }
+        return plan.priorityParams.contains(name) || plan.fineOnlyParams.contains(name);
+    }
+
+    private List<ParameterDimension> activeDimensions(OptimizationPlan plan, boolean coarse) {
+        List<ParameterDimension> result = new ArrayList<ParameterDimension>();
+        if (plan == null || plan.dimensions == null) {
+            return result;
+        }
+        for (ParameterDimension dimension : plan.dimensions) {
+            if (dimension == null) {
+                continue;
+            }
+            if (coarse && dimension.coarseActive) {
+                result.add(dimension);
+            } else if (!coarse && dimension.fineActive) {
+                result.add(dimension);
+            }
         }
         return result;
     }
@@ -282,6 +551,8 @@ public class BacktestOptimizationService {
             target.name = source.name;
             target.type = source.type;
             target.defaultValue = source.defaultValue;
+            target.coarseActive = source.coarseActive;
+            target.fineActive = source.fineActive;
             Object selected = selectedParamSet.get(source.name);
             int index = indexOf(source.candidates, selected);
             if (index < 0 || source.candidates.size() <= 3) {
@@ -334,6 +605,40 @@ public class BacktestOptimizationService {
             current.put(dimension.name, candidate);
             cartesianRecursive(dimensions, index + 1, current, result, coarse, limit);
         }
+    }
+
+    private List<Map<String, Object>> randomSample(List<ParameterDimension> dimensions,
+                                                   Map<String, Object> defaultParams,
+                                                   int limit,
+                                                   long seed) {
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        if (dimensions == null || dimensions.isEmpty()) {
+            result.add(copy(defaultParams));
+            return result;
+        }
+        Random random = new Random(seed);
+        Set<String> seen = new LinkedHashSet<String>();
+        Map<String, Object> baseline = copy(defaultParams);
+        if (seen.add(JsonUtils.Serializer(baseline))) {
+            result.add(baseline);
+        }
+        int maxAttempts = Math.max(limit * 20, 50);
+        int attempt = 0;
+        while (result.size() < limit && attempt++ < maxAttempts) {
+            Map<String, Object> candidate = copy(defaultParams);
+            for (ParameterDimension dimension : dimensions) {
+                if (dimension.candidates.isEmpty()) {
+                    continue;
+                }
+                Object sampled = dimension.candidates.get(random.nextInt(dimension.candidates.size()));
+                candidate.put(dimension.name, sampled);
+            }
+            String key = JsonUtils.Serializer(candidate);
+            if (seen.add(key)) {
+                result.add(candidate);
+            }
+        }
+        return result;
     }
 
     private List<Object> sampleCandidates(ParameterDimension dimension) {
@@ -398,6 +703,31 @@ public class BacktestOptimizationService {
         return new LinkedHashMap<String, Object>();
     }
 
+    private Set<String> stringSet(Object value) {
+        Set<String> result = new LinkedHashSet<String>();
+        if (value instanceof List) {
+            for (Object item : (List<?>) value) {
+                String text = string(item, "");
+                if (!isBlank(text)) {
+                    result.add(text);
+                }
+            }
+            return result;
+        }
+        String text = string(value, "");
+        if (isBlank(text)) {
+            return result;
+        }
+        result.addAll(Arrays.asList(text.split(",")));
+        Set<String> normalized = new LinkedHashSet<String>();
+        for (String item : result) {
+            if (!isBlank(item)) {
+                normalized.add(item.trim());
+            }
+        }
+        return normalized;
+    }
+
     private boolean containsValue(List<Object> values, Object target) {
         return indexOf(values, target) >= 0;
     }
@@ -438,6 +768,14 @@ public class BacktestOptimizationService {
         return String.valueOf(value);
     }
 
+    private boolean isNumericType(String type) {
+        return "int".equalsIgnoreCase(type)
+                || "integer".equalsIgnoreCase(type)
+                || "double".equalsIgnoreCase(type)
+                || "float".equalsIgnoreCase(type)
+                || "decimal".equalsIgnoreCase(type);
+    }
+
     private Map<String, Object> copy(Map<String, Object> source) {
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         if (source == null || source.isEmpty()) {
@@ -447,6 +785,50 @@ public class BacktestOptimizationService {
             result.put(entry.getKey(), entry.getValue());
         }
         return result;
+    }
+
+    private String normalizeMode(String value) {
+        String mode = string(value, MODE_LAYERED_GRID).toUpperCase(Locale.ENGLISH);
+        if (MODE_RANDOM_LOCAL.equals(mode)) {
+            return MODE_RANDOM_LOCAL;
+        }
+        return MODE_LAYERED_GRID;
+    }
+
+    private String normalizeObjective(String value) {
+        String objective = string(value, OBJECTIVE_PROFIT_FIRST).toUpperCase(Locale.ENGLISH);
+        if (OBJECTIVE_PROFIT_FIRST.equals(objective)) {
+            return OBJECTIVE_PROFIT_FIRST;
+        }
+        return OBJECTIVE_PROFIT_FIRST;
+    }
+
+    private BigDecimal decimalValue(Object value, BigDecimal fallback) {
+        try {
+            if (value instanceof BigDecimal) {
+                return (BigDecimal) value;
+            }
+            if (value instanceof Number) {
+                return BigDecimal.valueOf(((Number) value).doubleValue()).setScale(6, RoundingMode.HALF_UP);
+            }
+            if (value == null) {
+                return fallback;
+            }
+            return new BigDecimal(String.valueOf(value)).setScale(6, RoundingMode.HALF_UP);
+        } catch (Exception ignore) {
+            return fallback;
+        }
+    }
+
+    private long longValue(Object value, long fallback) {
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        try {
+            return value == null ? fallback : Long.parseLong(String.valueOf(value));
+        } catch (Exception ignore) {
+            return fallback;
+        }
     }
 
     private BigDecimal nz(BigDecimal value) {
@@ -490,11 +872,22 @@ public class BacktestOptimizationService {
 
     public static class OptimizationPlan {
         public boolean optimizationSupported;
-        public String optimizationMode = "LAYERED_GRID";
+        public String optimizationMode = MODE_LAYERED_GRID;
+        public String objective = OBJECTIVE_PROFIT_FIRST;
         public int topN = DEFAULT_TOP_N;
         public int maxFullGrid = DEFAULT_MAX_FULL_GRID;
         public int maxCoarseCandidates = DEFAULT_MAX_COARSE_CANDIDATES;
         public int maxFineCandidates = DEFAULT_MAX_FINE_CANDIDATES;
+        public int fitWindowDays = DEFAULT_FIT_WINDOW_DAYS;
+        public int validateWindowDays = DEFAULT_VALIDATE_WINDOW_DAYS;
+        public int forwardWindowDays = DEFAULT_FORWARD_WINDOW_DAYS;
+        public int minSliceCount = DEFAULT_MIN_SLICE_COUNT;
+        public long randomSeed = DEFAULT_RANDOM_SEED;
+        public BigDecimal minForwardContribution = DEFAULT_MIN_FORWARD_CONTRIBUTION;
+        public Set<String> lockedParams = new LinkedHashSet<String>();
+        public Set<String> priorityParams = new LinkedHashSet<String>();
+        public Set<String> coarseOnlyParams = new LinkedHashSet<String>();
+        public Set<String> fineOnlyParams = new LinkedHashSet<String>();
         public Map<String, Object> defaultParams = new LinkedHashMap<String, Object>();
         public List<ParameterDimension> dimensions = new ArrayList<ParameterDimension>();
     }
@@ -504,5 +897,7 @@ public class BacktestOptimizationService {
         public String type;
         public Object defaultValue;
         public List<Object> candidates = new ArrayList<Object>();
+        public boolean coarseActive = true;
+        public boolean fineActive = true;
     }
 }

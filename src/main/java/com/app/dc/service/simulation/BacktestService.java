@@ -11,6 +11,7 @@ import com.app.dc.service.simulation.runtime.StrategyBacktestTaskDao;
 import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
 import com.app.dc.service.simulation.runtime.WalkForwardBacktestRunner;
 import com.gateway.connector.utils.JsonUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -37,6 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 
 @Service
+@Slf4j
 public class BacktestService {
 
     @Autowired
@@ -89,6 +91,22 @@ public class BacktestService {
         BacktestOptimizationService.OptimizationPlan plan =
                 backtestOptimizationService.buildPlan(candidate.parametersJson);
         WindowConfig windowConfig = resolveWindowConfig(plan, fitWindowDays, validateWindowDays, forwardWindowDays);
+        log.info("BacktestService run start, strategy:{}@{}, symbols:{}, text:{}, range:{}~{}, runtimeType:{}, scene:{}, optimizationSupported:{}, optimizationMode:{}, objective:{}, window:{}/{}/{}, minSliceCount:{}",
+                candidate.strategyName,
+                candidate.strategyVersion,
+                symbols,
+                req.text,
+                req.beginDate,
+                req.endDate,
+                candidate.runtimeType,
+                candidate.scene,
+                plan.optimizationSupported,
+                plan.optimizationMode,
+                plan.objective,
+                windowConfig.fitWindowDays,
+                windowConfig.validateWindowDays,
+                windowConfig.forwardWindowDays,
+                windowConfig.minSliceCount);
         List<TrialExecution> executions = new ArrayList<TrialExecution>();
         int trialNo = 1;
         Map<String, List<TTbookOhlc>> ohlcCache = new ConcurrentHashMap<String, List<TTbookOhlc>>();
@@ -153,6 +171,17 @@ public class BacktestService {
                 result.neighborWorstPnl = response.neighborWorstPnl;
             }
         }
+        log.info("BacktestService run end, strategy:{}@{}, bestRank:{}, trialCount:{}, totalPnl:{}, validatePnl:{}, forwardPnl:{}, sliceCount:{}, elapsedMs:{}, fragileBest:{}",
+                candidate.strategyName,
+                candidate.strategyVersion,
+                response.bestRank,
+                response.trialCount,
+                response.totalPnl,
+                response.validatePnl,
+                response.forwardPnl,
+                response.sliceCount,
+                response.elapsedMs,
+                response.fragileBest);
         return response;
     }
 
@@ -168,9 +197,14 @@ public class BacktestService {
         if (paramSets == null || paramSets.isEmpty()) {
             return Collections.emptyList();
         }
+        log.info("BacktestService phase start, strategy:{}@{}, phase:{}, startTrialNo:{}, paramSetCount:{}, symbols:{}",
+                candidate.strategyName, candidate.strategyVersion, phase, startTrialNo, paramSets.size(), symbols);
         List<TrialExecution> executions = new ArrayList<TrialExecution>();
         int trialNo = startTrialNo;
         for (Map<String, Object> paramSet : paramSets) {
+            long trialStartNs = System.nanoTime();
+            log.info("BacktestService trial start, strategy:{}@{}, phase:{}, trialNo:{}, params:{}",
+                    candidate.strategyName, candidate.strategyVersion, phase, trialNo, JsonUtils.Serializer(paramSet));
             BacktestResponse response = runSingle(candidate, baseParam, symbols, paramSet,
                     windowConfig, plan, ohlcCache);
             OptimizationTrial trial = backtestOptimizationService.buildTrial(trialNo, phase,
@@ -180,8 +214,21 @@ public class BacktestService {
             execution.trial = trial;
             execution.response = response;
             executions.add(execution);
+            log.info("BacktestService trial end, strategy:{}@{}, phase:{}, trialNo:{}, totalPnl:{}, validatePnl:{}, forwardPnl:{}, overfitPass:{}, sliceCount:{}, elapsedMs:{}",
+                    candidate.strategyName,
+                    candidate.strategyVersion,
+                    phase,
+                    trialNo,
+                    response.totalPnl,
+                    response.validatePnl,
+                    response.forwardPnl,
+                    response.overfitPass,
+                    response.sliceCount,
+                    Math.max(0L, (System.nanoTime() - trialStartNs) / 1_000_000L));
             trialNo++;
         }
+        log.info("BacktestService phase end, strategy:{}@{}, phase:{}, executedTrials:{}",
+                candidate.strategyName, candidate.strategyVersion, phase, executions.size());
         return executions;
     }
 
@@ -248,6 +295,8 @@ public class BacktestService {
         response.optimizationMode = plan == null ? "" : plan.optimizationMode;
         response.optimizationObjective = plan == null ? "" : plan.objective;
         response.minForwardContribution = plan == null ? BigDecimal.ZERO : plan.minForwardContribution;
+        log.info("BacktestService runSingle start, strategy:{}@{}, symbols:{}, trialParams:{}",
+                candidate.strategyName, candidate.strategyVersion, symbols, JsonUtils.Serializer(trialParams));
 
         List<BacktestResult> results = new ArrayList<BacktestResult>();
         BigDecimal fitPnl = BigDecimal.ZERO;
@@ -293,6 +342,9 @@ public class BacktestService {
         response.bestParamSetJson = JsonUtils.Serializer(trialParams == null
                 ? Collections.<String, Object>emptyMap()
                 : new LinkedHashMap<String, Object>(trialParams));
+        log.info("BacktestService runSingle end, strategy:{}@{}, totalPnl:{}, validatePnl:{}, forwardPnl:{}, sliceCount:{}, elapsedMs:{}",
+                candidate.strategyName, candidate.strategyVersion,
+                response.totalPnl, response.validatePnl, response.forwardPnl, response.sliceCount, response.elapsedMs);
         return response;
     }
 
@@ -306,8 +358,20 @@ public class BacktestService {
             return Collections.emptyList();
         }
         if (strategyBacktestSymbolExecutor == null || symbols.size() <= 1 || requiresSerialSymbolExecution(candidate)) {
+            log.info("BacktestService executeSymbols serial, strategy:{}@{}, symbolCount:{}, reason:{}",
+                    candidate.strategyName,
+                    candidate.strategyVersion,
+                    symbols.size(),
+                    strategyBacktestSymbolExecutor == null ? "executor_null"
+                            : (symbols.size() <= 1 ? "single_symbol" : "shared_runtime"));
             return executeSymbolsSerial(candidate, req, symbols, trialParams, windowConfig, ohlcCache);
         }
+        log.info("BacktestService executeSymbols parallel, strategy:{}@{}, symbolCount:{}, executorActive:{}, executorPool:{}",
+                candidate.strategyName,
+                candidate.strategyVersion,
+                symbols.size(),
+                strategyBacktestSymbolExecutor.getActiveCount(),
+                strategyBacktestSymbolExecutor.getPoolSize());
         List<Future<BacktestResult>> futures = new ArrayList<Future<BacktestResult>>();
         for (final String symbol : symbols) {
             futures.add(strategyBacktestSymbolExecutor.submit(new Callable<BacktestResult>() {
@@ -370,13 +434,19 @@ public class BacktestService {
         String cacheKey = buildOhlcCacheKey(symbol, req.text, req.beginDate, req.endDate);
         List<TTbookOhlc> cached = ohlcCache == null ? null : ohlcCache.get(cacheKey);
         if (cached != null) {
+            log.info("BacktestService loadOhlc cache hit, symbol:{}, text:{}, range:{}~{}, bars:{}",
+                    symbol, req.text, req.beginDate, req.endDate, cached.size());
             return cached;
         }
+        log.info("BacktestService loadOhlc query, symbol:{}, text:{}, range:{}~{}",
+                symbol, req.text, req.beginDate, req.endDate);
         List<TTbookOhlc> loaded = queryService.queryOhlc(symbol, req.text, req.beginDate, req.endDate);
         List<TTbookOhlc> safe = loaded == null ? Collections.<TTbookOhlc>emptyList() : loaded;
         if (ohlcCache != null) {
             ohlcCache.put(cacheKey, safe);
         }
+        log.info("BacktestService loadOhlc loaded, symbol:{}, text:{}, range:{}~{}, bars:{}",
+                symbol, req.text, req.beginDate, req.endDate, safe.size());
         return safe;
     }
 

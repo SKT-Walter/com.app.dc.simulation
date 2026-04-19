@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class SourceLiveBaselineMigrationCli {
 
@@ -32,6 +34,7 @@ public class SourceLiveBaselineMigrationCli {
     private static final String DEFAULT_REPORT_DIR = "./log/live-baseline-migration";
     private static final DateTimeFormatter FILE_TAG = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
     private static final String GENERATION_TYPE = "LIVE_BASELINE_MIGRATION";
+    private static final Pattern VERSION_PATTERN = Pattern.compile("^v(\\d+)$", Pattern.CASE_INSENSITIVE);
 
     public static void main(String[] args) throws Exception {
         CliOptions options = CliOptions.parse(args);
@@ -84,10 +87,12 @@ public class SourceLiveBaselineMigrationCli {
                     summary.items.add(item);
                     continue;
                 }
-                String newVersion = buildCandidateVersion(row.strategyVersion, options.batchTag);
+                String newVersion = allocateCandidateVersion(connection, row.strategyName);
                 String candidateId = buildCandidateId(row.strategyName, newVersion, options.batchTag);
                 String taskId = buildTaskId(row.strategyName, newVersion, options.batchTag);
                 String payload = buildCandidatePayload(row, scope, options);
+                System.out.println("allocated strategy version, strategyName:" + safe(row.strategyName)
+                        + ", strategyVersion:" + safe(newVersion) + ", source:candidate/live");
                 if (!options.dryRun) {
                     insertCandidate(connection, candidateId, row, newVersion, parametersJson, payload);
                     insertTask(connection, taskId, row, newVersion, scope, payload, options);
@@ -135,7 +140,8 @@ public class SourceLiveBaselineMigrationCli {
                 .append("strategy_name, strategy_version, category, scene, runtime_type, symbol_scope, text_scope, ")
                 .append("artifact_uri, entry_class, parameters_json, status, effective_time, payload, description ")
                 .append("from dc.strategy_live_registry ")
-                .append("where lower(entry_class) like 'com.app.dc.signal.live.%' ");
+                .append("where status='ACTIVE' ")
+                .append("and lower(entry_class) like 'com.app.dc.signal.live.%' ");
         List<Object> args = new ArrayList<Object>();
         if (strategyNames != null && !strategyNames.isEmpty()) {
             sql.append("and lower(strategy_name) in (");
@@ -362,9 +368,35 @@ public class SourceLiveBaselineMigrationCli {
                 + slug(safe(options.batchTag));
     }
 
-    private static String buildCandidateVersion(String baselineVersion, String batchTag) {
-        String base = isBlank(baselineVersion) ? "baseline" : baselineVersion.trim();
-        return base + ".opt." + batchTag.replace("_", "");
+    private static String allocateCandidateVersion(Connection connection, String strategyName) throws Exception {
+        int max = 0;
+        max = Math.max(max, loadMaxVn(connection,
+                "select strategy_version from dc.strategy_candidate where lower(strategy_name)=lower(?)",
+                strategyName));
+        max = Math.max(max, loadMaxVn(connection,
+                "select strategy_version from dc.strategy_live_registry where lower(strategy_name)=lower(?)",
+                strategyName));
+        return "v" + (max + 1);
+    }
+
+    private static int loadMaxVn(Connection connection, String sql, String strategyName) throws Exception {
+        int max = 0;
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, safe(strategyName));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String version = rs.getString(1);
+                    Matcher matcher = VERSION_PATTERN.matcher(safe(version).trim());
+                    if (matcher.matches()) {
+                        int value = Integer.parseInt(matcher.group(1));
+                        if (value > max) {
+                            max = value;
+                        }
+                    }
+                }
+            }
+        }
+        return max;
     }
 
     private static String buildCandidateId(String strategyName, String version, String batchTag) {

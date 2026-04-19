@@ -25,6 +25,11 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
 
     @Override
     public List<StrategyBacktestTaskRow> pullPending(int limit) {
+        return pullRunnable(limit, null);
+    }
+
+    @Override
+    public List<StrategyBacktestTaskRow> pullRunnable(int limit, String reclaimRunningBefore) {
         if (!ready()) {
             return Collections.emptyList();
         }
@@ -58,13 +63,18 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 + "attemptCount, createTime, updateTime, payload "
                 + "from (" + innerSql + ") latest"
                 + " where latest.status='PENDING'"
-                + " or (latest.status='SUSPENDED' and (latest.nextRetryTimeRaw is null or latest.nextRetryTimeRaw <= now()))"
+                + " or (latest.status='SUSPENDED' and (latest.nextRetryTimeRaw is null or latest.nextRetryTimeRaw <= now()))";
+        if (!StringUtils.isBlank(reclaimRunningBefore)) {
+            sql = sql + " or (latest.status='RUNNING' and parseDateTimeBestEffortOrNull(latest.updateTime) < parseDateTimeBestEffortOrNull('"
+                    + escape(reclaimRunningBefore) + "'))";
+        }
+        sql = sql
                 + " order by latest.priority asc, latest.createTime asc limit " + Math.max(1, limit);
         try {
             List<StrategyBacktestTaskRow> rows = ClickHouseDBUtils.queryList(sql, new Object[]{}, StrategyBacktestTaskRow.class);
             return rows == null ? Collections.<StrategyBacktestTaskRow>emptyList() : rows;
         } catch (Exception e) {
-            log.error("pullPending error", e);
+            log.error("pullRunnable error, reclaimRunningBefore:{}", reclaimRunningBefore, e);
             return Collections.emptyList();
         }
     }

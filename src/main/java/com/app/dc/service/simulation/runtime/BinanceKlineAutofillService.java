@@ -17,12 +17,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 @Slf4j
 public class BinanceKlineAutofillService {
 
     private static final String INSUFFICIENT_KLINE = "INSUFFICIENT_KLINE";
+    private static final AtomicLong NEXT_ALLOWED_START_MS = new AtomicLong(0L);
 
     @Autowired(required = false)
     private ClickHouseDBUtils clickHouseDBUtils;
@@ -48,6 +50,9 @@ public class BinanceKlineAutofillService {
 
     @Value("${strategy.backtest.kline-autofill.sleepMs:250}")
     private long sleepMs;
+
+    @Value("${strategy.backtest.kline-autofill.minStartIntervalMs:3000}")
+    private long minStartIntervalMs;
 
     @Value("${dbpool.cfg:./config/DBPoolConfig.ini}")
     private String dbpoolCfg;
@@ -93,7 +98,7 @@ public class BinanceKlineAutofillService {
                     task == null ? null : task.id, request.key(), e);
         } catch (Exception e) {
             inFlightBackfillKeys.remove(request.key());
-            log.error("BinanceKlineAutofillService schedule error, task:{}, key:{}",
+            log.warn("BinanceKlineAutofillService schedule error, task:{}, key:{}",
                     task == null ? null : task.id, request.key(), e);
         }
     }
@@ -102,6 +107,16 @@ public class BinanceKlineAutofillService {
         String threadName = Thread.currentThread().getName();
         long startNs = System.nanoTime();
         try {
+            long throttleWaitMs = reserveThrottleDelay();
+            if (throttleWaitMs > 0) {
+                log.info("BinanceKlineAutofillService throttle wait, task:{}, key:{}, thread:{}, waitMs:{}, minStartIntervalMs:{}",
+                        task == null ? null : task.id,
+                        request.key(),
+                        threadName,
+                        throttleWaitMs,
+                        minStartIntervalMs);
+                Thread.sleep(throttleWaitMs);
+            }
             log.info("BinanceKlineAutofillService start, task:{}, key:{}, thread:{}, earliestDate:{}, requiredBeginDate:{}, requiredEndDate:{}",
                     task == null ? null : task.id,
                     request.key(),
@@ -128,7 +143,7 @@ public class BinanceKlineAutofillService {
                     request.startDate,
                     request.endDate);
         } catch (Exception e) {
-            log.error("BinanceKlineAutofillService failed, task:{}, key:{}, thread:{}",
+            log.warn("BinanceKlineAutofillService failed, task:{}, key:{}, thread:{}",
                     task == null ? null : task.id,
                     request.key(),
                     threadName,
@@ -142,6 +157,22 @@ public class BinanceKlineAutofillService {
                     threadName,
                     elapsedMs,
                     inFlightBackfillKeys.size());
+        }
+    }
+
+    private long reserveThrottleDelay() {
+        long minGap = Math.max(0L, minStartIntervalMs);
+        if (minGap <= 0L) {
+            return 0L;
+        }
+        while (true) {
+            long now = System.currentTimeMillis();
+            long nextAllowed = NEXT_ALLOWED_START_MS.get();
+            long scheduledStart = Math.max(now, nextAllowed);
+            long newNextAllowed = scheduledStart + minGap;
+            if (NEXT_ALLOWED_START_MS.compareAndSet(nextAllowed, newNextAllowed)) {
+                return Math.max(0L, scheduledStart - now);
+            }
         }
     }
 
@@ -224,7 +255,7 @@ public class BinanceKlineAutofillService {
         return value == null ? "" : String.valueOf(value).trim();
     }
 
-    private static class EarliestKlineRow {
+    public static class EarliestKlineRow {
         public String earliestDate;
     }
 

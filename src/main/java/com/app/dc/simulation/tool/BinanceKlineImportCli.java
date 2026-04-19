@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -260,7 +261,7 @@ public class BinanceKlineImportCli {
                 return;
             }
             if ("interval".equalsIgnoreCase(name)) {
-                interval = value.trim();
+                interval = normalizeInterval(value);
                 return;
             }
             if ("start-date".equalsIgnoreCase(name)) {
@@ -303,6 +304,10 @@ public class BinanceKlineImportCli {
                 dbSourceName = value.trim();
             }
         }
+    }
+
+    private static String normalizeInterval(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ENGLISH);
     }
 
     private static class DbConfig {

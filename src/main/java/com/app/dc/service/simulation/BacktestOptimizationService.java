@@ -4,6 +4,7 @@ import com.app.dc.service.simulation.BacktestModels.OptimizationTrial;
 import com.app.dc.signal.StrategyParametersJson;
 import com.app.dc.signal.StrategyParametersSupport;
 import com.gateway.connector.utils.JsonUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -21,6 +22,7 @@ import java.util.Random;
 import java.util.Set;
 
 @Service
+@Slf4j
 public class BacktestOptimizationService {
 
     private static final int DEFAULT_TOP_N = 10;
@@ -70,6 +72,19 @@ public class BacktestOptimizationService {
         if (plan.dimensions.isEmpty()) {
             plan.optimizationSupported = false;
         }
+        log.info("BacktestOptimizationService buildPlan, optimizationSupported:{}, mode:{}, objective:{}, dimensions:{}, topN:{}, maxCoarseCandidates:{}, maxFineCandidates:{}, window:{}/{}/{}, minSliceCount:{}, minForwardContribution:{}",
+                plan.optimizationSupported,
+                plan.optimizationMode,
+                plan.objective,
+                plan.dimensions.size(),
+                plan.topN,
+                plan.maxCoarseCandidates,
+                plan.maxFineCandidates,
+                plan.fitWindowDays,
+                plan.validateWindowDays,
+                plan.forwardWindowDays,
+                plan.minSliceCount,
+                plan.minForwardContribution);
         return plan;
     }
 
@@ -88,13 +103,22 @@ public class BacktestOptimizationService {
         }
         List<ParameterDimension> coarseDimensions = activeDimensions(plan, true);
         if (MODE_RANDOM_LOCAL.equalsIgnoreCase(plan.optimizationMode)) {
-            return uniqueParamSets(randomSample(coarseDimensions, plan.defaultParams, plan.maxCoarseCandidates, plan.randomSeed),
+            List<Map<String, Object>> result = uniqueParamSets(randomSample(coarseDimensions, plan.defaultParams, plan.maxCoarseCandidates, plan.randomSeed),
                     plan.defaultParams);
+            log.info("BacktestOptimizationService buildCoarseParamSets, mode:{}, dimensions:{}, paramSetCount:{}, randomSeed:{}",
+                    plan.optimizationMode, coarseDimensions.size(), result.size(), plan.randomSeed);
+            return result;
         }
         if (estimateGridSize(coarseDimensions, false) <= plan.maxFullGrid) {
-            return uniqueParamSets(cartesian(coarseDimensions, false, plan.maxFullGrid), plan.defaultParams);
+            List<Map<String, Object>> result = uniqueParamSets(cartesian(coarseDimensions, false, plan.maxFullGrid), plan.defaultParams);
+            log.info("BacktestOptimizationService buildCoarseParamSets, mode:{}, dimensions:{}, paramSetCount:{}, fullGrid:{}",
+                    plan.optimizationMode, coarseDimensions.size(), result.size(), true);
+            return result;
         }
-        return uniqueParamSets(cartesian(coarseDimensions, true, plan.maxCoarseCandidates), plan.defaultParams);
+        List<Map<String, Object>> result = uniqueParamSets(cartesian(coarseDimensions, true, plan.maxCoarseCandidates), plan.defaultParams);
+        log.info("BacktestOptimizationService buildCoarseParamSets, mode:{}, dimensions:{}, paramSetCount:{}, sampledGrid:{}",
+                plan.optimizationMode, coarseDimensions.size(), result.size(), true);
+        return result;
     }
 
     public List<Map<String, Object>> buildFineParamSets(OptimizationPlan plan, List<OptimizationTrial> rankedTrials) {
@@ -124,6 +148,8 @@ public class BacktestOptimizationService {
                 }
             }
         }
+        log.info("BacktestOptimizationService buildFineParamSets, topTrials:{}, dimensions:{}, paramSetCount:{}",
+                topTrials.size(), fineDimensions.size(), result.size());
         return result;
     }
 
@@ -174,6 +200,17 @@ public class BacktestOptimizationService {
             trials.get(i).rank = Integer.valueOf(i + 1);
         }
         applyStabilityAnalysis(effectivePlan, trials);
+        if (!trials.isEmpty()) {
+            OptimizationTrial best = trials.get(0);
+            log.info("BacktestOptimizationService rankTrials, trialCount:{}, bestRank:{}, bestTotalPnl:{}, bestValidatePnl:{}, bestForwardPnl:{}, bestForwardScore:{}, fragileBest:{}",
+                    trials.size(),
+                    best.rank,
+                    best.totalPnl,
+                    best.validatePnl,
+                    best.forwardPnl,
+                    best.forwardScore,
+                    best.fragileBest);
+        }
     }
 
     public OptimizationTrial buildTrial(int trialNo,

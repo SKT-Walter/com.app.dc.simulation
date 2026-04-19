@@ -50,6 +50,15 @@ public class VersionedBacktestRunner {
         if (candidate == null) {
             throw new IllegalArgumentException("candidate is null");
         }
+        log.info("VersionedBacktestRunner start, strategy:{}@{}, symbol:{}, text:{}, bars:{}, beginDate:{}, endDate:{}, runtimeType:{}",
+                candidate.strategyName,
+                candidate.strategyVersion,
+                param.symbol,
+                param.text,
+                ohlcList == null ? 0 : ohlcList.size(),
+                param.beginDate,
+                param.endDate,
+                candidate.runtimeType);
 
         StrategyDefinition definition = candidate.toDefinition(param.strategyParams);
         runtimeFacade.load(definition);
@@ -131,6 +140,16 @@ public class VersionedBacktestRunner {
         }
 
         metricService.finishResult(result, equityContext);
+        log.info("VersionedBacktestRunner end, strategy:{}@{}, symbol:{}, trades:{}, winCount:{}, lossCount:{}, totalPnl:{}, maxDrawdownPct:{}, rejectReasons:{}",
+                candidate.strategyName,
+                candidate.strategyVersion,
+                param.symbol,
+                result.tradeCount,
+                result.winCount,
+                result.lossCount,
+                result.totalPnl,
+                result.maxDrawdownPct,
+                result.rejectReasonCounts);
         return result;
     }
 

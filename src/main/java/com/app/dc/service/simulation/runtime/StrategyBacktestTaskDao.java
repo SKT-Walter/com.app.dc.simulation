@@ -5,6 +5,8 @@ import java.util.List;
 public interface StrategyBacktestTaskDao {
     List<StrategyBacktestTaskRow> pullPending(int limit);
 
+    List<StrategyBacktestTaskRow> pullRunnable(int limit, String reclaimRunningBefore);
+
     void markRunning(String id);
 
     void markSuccess(String id, String payload);

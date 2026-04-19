@@ -33,6 +33,7 @@ public class StrategyBacktestPullJob {
 
     private static final DateTimeFormatter CLICKHOUSE_TIME =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private final String processBootTime = CLICKHOUSE_TIME.format(LocalDateTime.now());
 
     @Value("${strategy.backtest.task.enabled:false}")
     private boolean enabled;
@@ -84,10 +85,10 @@ public class StrategyBacktestPullJob {
             return;
         }
         int fetchLimit = Math.min(Math.max(1, batchSize), availableSlots);
-        List<StrategyBacktestTaskRow> tasks = taskDao.pullPending(fetchLimit);
+        List<StrategyBacktestTaskRow> tasks = taskDao.pullRunnable(fetchLimit, processBootTime);
         int pulledCount = tasks == null ? 0 : tasks.size();
-        log.info("StrategyBacktestPullJob pulled tasks, requested:{}, pulled:{}",
-                fetchLimit, pulledCount);
+        log.info("StrategyBacktestPullJob pulled tasks, requested:{}, pulled:{}, reclaimRunningBefore:{}",
+                fetchLimit, pulledCount, processBootTime);
         if (tasks == null || tasks.isEmpty()) {
             return;
         }
@@ -130,6 +131,10 @@ public class StrategyBacktestPullJob {
         try {
             log.info("StrategyBacktestPullJob task start, task:{}, strategy:{}@{}, thread:{}, fromStatus:{}",
                     task.id, task.strategyName, task.strategyVersion, threadName, task.status);
+            if ("RUNNING".equalsIgnoreCase(task.status)) {
+                log.warn("StrategyBacktestPullJob reclaim stale RUNNING task after restart, task:{}, strategy:{}@{}, lastUpdate:{}",
+                        task.id, task.strategyName, task.strategyVersion, task.updateTime);
+            }
             taskDao.markRunning(task.id);
             log.info("StrategyBacktestPullJob task status -> RUNNING, task:{}, thread:{}",
                     task.id, threadName);
@@ -254,7 +259,14 @@ public class StrategyBacktestPullJob {
                     e.getReason(),
                     buildSuspendPayload(task, e),
                     CLICKHOUSE_TIME.format(LocalDateTime.now().plusMinutes(30)));
-            binanceKlineAutofillService.triggerIfNeeded(task, e);
+            try {
+                binanceKlineAutofillService.triggerIfNeeded(task, e);
+            } catch (Exception autofillEx) {
+                log.warn("StrategyBacktestPullJob autofill trigger ignored, task:{}, reason:{}",
+                        task == null ? null : task.id,
+                        autofillEx.getMessage(),
+                        autofillEx);
+            }
             log.info("StrategyBacktestPullJob task status -> SUSPENDED, task:{}, thread:{}, nextRetryTime:{}",
                     task == null ? null : task.id,
                     threadName,

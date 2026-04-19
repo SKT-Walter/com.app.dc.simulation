@@ -40,6 +40,19 @@ public class WalkForwardBacktestRunner {
         LocalDate beginDate = LocalDate.parse(param.beginDate);
         LocalDate endDate = LocalDate.parse(param.endDate);
         List<WindowSlice> slices = buildSlices(beginDate, endDate, fitWindowDays, validateWindowDays, forwardWindowDays);
+        log.info("WalkForwardBacktestRunner start, strategy:{}@{}, symbol:{}, text:{}, bars:{}, range:{}~{}, window:{}/{}/{}, minSliceCount:{}, builtSlices:{}",
+                candidate.strategyName,
+                candidate.strategyVersion,
+                param.symbol,
+                param.text,
+                rows.size(),
+                beginDate,
+                endDate,
+                fitWindowDays,
+                validateWindowDays,
+                forwardWindowDays,
+                minSliceCount,
+                slices.size());
         if (slices.size() < Math.max(1, minSliceCount)) {
             throw insufficient(candidate, param, fitWindowDays, validateWindowDays, forwardWindowDays, rows, beginDate, endDate,
                     "window slices less than " + Math.max(1, minSliceCount));
@@ -62,6 +75,20 @@ public class WalkForwardBacktestRunner {
             List<TTbookOhlc> fitRows = filterRows(rows, slice.fitBegin, slice.fitEnd);
             List<TTbookOhlc> validateRows = filterRows(rows, slice.validateBegin, slice.validateEnd);
             List<TTbookOhlc> forwardRows = filterRows(rows, slice.forwardBegin, slice.forwardEnd);
+            log.info("WalkForwardBacktestRunner slice start, strategy:{}@{}, symbol:{}, sliceNo:{}, fit:{}~{} bars:{}, validate:{}~{} bars:{}, forward:{}~{} bars:{}",
+                    candidate.strategyName,
+                    candidate.strategyVersion,
+                    param.symbol,
+                    sliceNo,
+                    slice.fitBegin,
+                    slice.fitEnd,
+                    fitRows.size(),
+                    slice.validateBegin,
+                    slice.validateEnd,
+                    validateRows.size(),
+                    slice.forwardBegin,
+                    slice.forwardEnd,
+                    forwardRows.size());
 
             ensureEnoughBars(candidate, param, rows, slice.fitBegin, slice.fitEnd, fitRows.size(),
                     fitWindowDays * barsPerDay, "fit");
@@ -87,6 +114,16 @@ public class WalkForwardBacktestRunner {
             mergePhase(aggregate, forwardResult);
             aggregate.maxDrawdownPct = max(aggregate.maxDrawdownPct, max(validateResult.maxDrawdownPct, forwardResult.maxDrawdownPct));
             aggregate.totalBars += nz(validateResult.totalBars) + nz(forwardResult.totalBars);
+            log.info("WalkForwardBacktestRunner slice end, strategy:{}@{}, symbol:{}, sliceNo:{}, fitPnl:{}, validatePnl:{}, forwardPnl:{}, validateTrades:{}, forwardTrades:{}",
+                    candidate.strategyName,
+                    candidate.strategyVersion,
+                    param.symbol,
+                    sliceNo,
+                    calcTotalPnl(fitResult),
+                    calcTotalPnl(validateResult),
+                    calcTotalPnl(forwardResult),
+                    validateResult.tradeCount,
+                    forwardResult.tradeCount);
         }
 
         aggregate.sliceCount = slices.size();
@@ -132,6 +169,17 @@ public class WalkForwardBacktestRunner {
             aggregate.overfitPass = 1;
             aggregate.overfitReason = "";
         }
+        log.info("WalkForwardBacktestRunner end, strategy:{}@{}, symbol:{}, sliceCount:{}, fitPnl:{}, validatePnl:{}, forwardPnl:{}, totalPnl:{}, overfitPass:{}, overfitReason:{}",
+                candidate.strategyName,
+                candidate.strategyVersion,
+                param.symbol,
+                aggregate.sliceCount,
+                aggregate.fitPnl,
+                aggregate.validatePnl,
+                aggregate.forwardPnl,
+                aggregate.totalPnl,
+                aggregate.overfitPass,
+                aggregate.overfitReason);
 
         return aggregate;
     }

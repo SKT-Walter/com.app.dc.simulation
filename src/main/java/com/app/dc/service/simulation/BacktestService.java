@@ -132,15 +132,23 @@ public class BacktestService {
         if (best == null) {
             throw new IllegalStateException("no backtest trial result produced");
         }
-        BacktestResponse response = best.response;
+        log.info("BacktestService rerun best trial for full payload retention, strategy:{}@{}, bestRank:{}, trialNo:{}, phase:{}, heap:{}",
+                candidate.strategyName,
+                candidate.strategyVersion,
+                best.trial == null ? 0 : best.trial.rank,
+                best.trial == null ? 0 : best.trial.trialNo,
+                best.trial == null ? "" : best.trial.phase,
+                heapSummary());
+        BacktestResponse response = runSingle(candidate, req, symbols, best.paramSet,
+                windowConfig, plan, ohlcCache);
         response.optimizationMode = plan.optimizationMode;
         response.optimizationObjective = plan.objective;
         response.minForwardContribution = plan.minForwardContribution;
         response.trialCount = executions.size();
         response.bestRank = best.trial.rank == null ? 0 : best.trial.rank;
         response.bestParamSetJson = best.trial.paramSetJson == null ? "{}" : best.trial.paramSetJson;
-        response.elapsedMs = best.response == null ? 0 : nzInt(best.response.elapsedMs);
-        response.symbolCount = best.response == null ? symbols.size() : nzInt(best.response.symbolCount);
+        response.elapsedMs = nzInt(response.elapsedMs);
+        response.symbolCount = nzInt(response.symbolCount);
         response.fitWindowDays = windowConfig.fitWindowDays;
         response.validateWindowDays = windowConfig.validateWindowDays;
         response.forwardWindowDays = windowConfig.forwardWindowDays;
@@ -212,7 +220,9 @@ public class BacktestService {
                     response.symbol, response.text, paramSet, response);
             TrialExecution execution = new TrialExecution();
             execution.trial = trial;
-            execution.response = response;
+            execution.paramSet = paramSet == null
+                    ? new LinkedHashMap<String, Object>()
+                    : new LinkedHashMap<String, Object>(paramSet);
             executions.add(execution);
             log.info("BacktestService trial end, strategy:{}@{}, phase:{}, trialNo:{}, totalPnl:{}, validatePnl:{}, forwardPnl:{}, overfitPass:{}, sliceCount:{}, elapsedMs:{}",
                     candidate.strategyName,
@@ -227,8 +237,8 @@ public class BacktestService {
                     Math.max(0L, (System.nanoTime() - trialStartNs) / 1_000_000L));
             trialNo++;
         }
-        log.info("BacktestService phase end, strategy:{}@{}, phase:{}, executedTrials:{}",
-                candidate.strategyName, candidate.strategyVersion, phase, executions.size());
+        log.info("BacktestService phase end, strategy:{}@{}, phase:{}, executedTrials:{}, heap:{}",
+                candidate.strategyName, candidate.strategyVersion, phase, executions.size(), heapSummary());
         return executions;
     }
 
@@ -607,7 +617,7 @@ public class BacktestService {
 
     private static class TrialExecution {
         private OptimizationTrial trial;
-        private BacktestResponse response;
+        private Map<String, Object> paramSet;
     }
 
     private static class WindowConfig {
@@ -615,6 +625,15 @@ public class BacktestService {
         private int validateWindowDays;
         private int forwardWindowDays;
         private int minSliceCount;
+    }
+
+    private String heapSummary() {
+        Runtime runtime = Runtime.getRuntime();
+        long maxMb = runtime.maxMemory() / (1024L * 1024L);
+        long totalMb = runtime.totalMemory() / (1024L * 1024L);
+        long freeMb = runtime.freeMemory() / (1024L * 1024L);
+        long usedMb = totalMb - freeMb;
+        return "usedMb=" + usedMb + ", freeMb=" + freeMb + ", totalMb=" + totalMb + ", maxMb=" + maxMb;
     }
 
 }

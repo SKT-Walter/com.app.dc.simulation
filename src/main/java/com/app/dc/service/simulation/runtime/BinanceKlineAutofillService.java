@@ -2,6 +2,7 @@ package com.app.dc.service.simulation.runtime;
 
 import com.app.common.db.ClickHouseDBUtils;
 import com.app.dc.simulation.tool.BinanceKlineImportCli;
+import com.app.dc.service.simulation.BacktestQueryService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,9 @@ public class BinanceKlineAutofillService {
 
     @Autowired(required = false)
     private ClickHouseDBUtils clickHouseDBUtils;
+
+    @Autowired
+    private BacktestQueryService backtestQueryService;
 
     @Autowired
     @Qualifier("strategyBacktestKlineAutofillExecutor")
@@ -136,12 +140,28 @@ public class BinanceKlineAutofillService {
                     "--dbpool-cfg", dbpoolCfg,
                     "--db-source", dbSourceName
             });
-            log.info("BinanceKlineAutofillService success, task:{}, key:{}, thread:{}, startDate:{}, endDate:{}",
-                    task == null ? null : task.id,
-                    request.key(),
-                    threadName,
-                    request.startDate,
-                    request.endDate);
+            int actualBars = queryBars(request.symbol, request.text, request.requiredBeginDate, request.requiredEndDate);
+            if (actualBars >= request.requiredBars) {
+                log.info("BinanceKlineAutofillService success, task:{}, key:{}, thread:{}, startDate:{}, endDate:{}, requiredBars:{}, actualBars:{}, missingBars:{}",
+                        task == null ? null : task.id,
+                        request.key(),
+                        threadName,
+                        request.startDate,
+                        request.endDate,
+                        request.requiredBars,
+                        actualBars,
+                        Math.max(0, request.requiredBars - actualBars));
+            } else {
+                log.warn("BinanceKlineAutofillService validation not enough, task:{}, key:{}, thread:{}, requiredBeginDate:{}, requiredEndDate:{}, requiredBars:{}, actualBars:{}, missingBars:{}",
+                        task == null ? null : task.id,
+                        request.key(),
+                        threadName,
+                        request.requiredBeginDate,
+                        request.requiredEndDate,
+                        request.requiredBars,
+                        actualBars,
+                        Math.max(0, request.requiredBars - actualBars));
+            }
         } catch (Exception e) {
             log.warn("BinanceKlineAutofillService failed, task:{}, key:{}, thread:{}",
                     task == null ? null : task.id,
@@ -191,18 +211,13 @@ public class BinanceKlineAutofillService {
         LocalDate earliestDate = queryEarliestDate(symbol, text);
         LocalDate requiredBeginDate = parseDate(detail.get("requiredBeginDate"));
         LocalDate requiredEndDate = parseDate(detail.get("requiredEndDate"));
-        LocalDate startDate;
-        LocalDate endDate;
-        if (earliestDate != null) {
-            startDate = earliestDate.minusYears(Math.max(1, yearsBack));
-            endDate = earliestDate.minusDays(1L);
-        } else {
-            endDate = requiredEndDate == null ? LocalDate.now(ZoneOffset.UTC) : requiredEndDate;
-            startDate = endDate.minusYears(Math.max(1, yearsBack));
-        }
-        if (requiredEndDate != null && endDate.isAfter(requiredEndDate)) {
-            endDate = requiredEndDate;
-        }
+        int requiredBars = intValue(detail.get("requiredBars"));
+        int actualBars = intValue(detail.get("actualBars"));
+        int missingBars = intValue(detail.get("missingBars"));
+        LocalDate endDate = requiredEndDate == null ? LocalDate.now(ZoneOffset.UTC) : requiredEndDate;
+        LocalDate startDate = requiredBeginDate == null
+                ? endDate.minusYears(Math.max(1, yearsBack))
+                : requiredBeginDate;
         if (endDate.isBefore(startDate)) {
             endDate = startDate;
         }
@@ -212,10 +227,26 @@ public class BinanceKlineAutofillService {
         request.earliestDate = earliestDate;
         request.requiredBeginDate = requiredBeginDate;
         request.requiredEndDate = requiredEndDate;
+        request.requiredBars = requiredBars;
+        request.actualBars = actualBars;
+        request.missingBars = missingBars;
         request.startDate = startDate;
         request.endDate = endDate;
         request.venue = venue;
         return request;
+    }
+
+    private int queryBars(String symbol, String text, LocalDate beginDate, LocalDate endDate) {
+        if (beginDate == null || endDate == null) {
+            return 0;
+        }
+        try {
+            return backtestQueryService.queryOhlcCount(symbol, text, beginDate.toString(), endDate.toString());
+        } catch (Exception e) {
+            log.warn("BinanceKlineAutofillService queryBars error, symbol:{}, text:{}, beginDate:{}, endDate:{}",
+                    symbol, text, beginDate, endDate, e);
+            return 0;
+        }
     }
 
     private LocalDate queryEarliestDate(String symbol, String text) {
@@ -255,6 +286,17 @@ public class BinanceKlineAutofillService {
         return value == null ? "" : String.valueOf(value).trim();
     }
 
+    private int intValue(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            return value == null ? 0 : Integer.parseInt(String.valueOf(value).trim());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     public static class EarliestKlineRow {
         public String earliestDate;
     }
@@ -265,6 +307,9 @@ public class BinanceKlineAutofillService {
         private LocalDate earliestDate;
         private LocalDate requiredBeginDate;
         private LocalDate requiredEndDate;
+        private int requiredBars;
+        private int actualBars;
+        private int missingBars;
         private LocalDate startDate;
         private LocalDate endDate;
         private String venue;

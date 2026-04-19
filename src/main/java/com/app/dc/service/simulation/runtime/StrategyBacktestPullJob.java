@@ -129,8 +129,8 @@ public class StrategyBacktestPullJob {
         String threadName = Thread.currentThread().getName();
         LocalDateTime backtestStart = LocalDateTime.now();
         try {
-            log.info("StrategyBacktestPullJob task start, task:{}, strategy:{}@{}, thread:{}, fromStatus:{}",
-                    task.id, task.strategyName, task.strategyVersion, threadName, task.status);
+            log.info("StrategyBacktestPullJob task start, task:{}, strategy:{}@{}, thread:{}, fromStatus:{}, heap:{}",
+                    task.id, task.strategyName, task.strategyVersion, threadName, task.status, memorySummary());
             if ("RUNNING".equalsIgnoreCase(task.status)) {
                 log.warn("StrategyBacktestPullJob reclaim stale RUNNING task after restart, task:{}, strategy:{}@{}, lastUpdate:{}",
                         task.id, task.strategyName, task.strategyVersion, task.updateTime);
@@ -249,8 +249,8 @@ public class StrategyBacktestPullJob {
                     task.id, candidate.strategyName, candidate.strategyVersion, threadName,
                     publishDecision.published, publishDecision.reason);
         } catch (BacktestTaskSuspendedException e) {
-            log.warn("StrategyBacktestPullJob suspend task:{}, reason:{}, detail:{}",
-                    task == null ? null : task.id, e.getReason(), JsonUtils.Serializer(e.getDetail()));
+            log.warn("StrategyBacktestPullJob suspend task:{}, reason:{}, detail:{}, heap:{}",
+                    task == null ? null : task.id, e.getReason(), JsonUtils.Serializer(e.getDetail()), memorySummary());
             Map<String, Object> pipelinePayload = resolvePipelinePayload(task, null);
             pipelinePayload.put("suspendDetail", e.getDetail());
             markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.SUSPENDED,
@@ -267,21 +267,24 @@ public class StrategyBacktestPullJob {
                         autofillEx.getMessage(),
                         autofillEx);
             }
-            log.info("StrategyBacktestPullJob task status -> SUSPENDED, task:{}, thread:{}, nextRetryTime:{}",
+            log.info("StrategyBacktestPullJob task status -> SUSPENDED, task:{}, thread:{}, nextRetryTime:{}, heap:{}",
                     task == null ? null : task.id,
                     threadName,
-                    CLICKHOUSE_TIME.format(LocalDateTime.now().plusMinutes(30)));
+                    CLICKHOUSE_TIME.format(LocalDateTime.now().plusMinutes(30)),
+                    memorySummary());
         } catch (Exception e) {
-            log.error("StrategyBacktestPullJob handleTask error, task:{}", task == null ? null : task.id, e);
+            log.error("StrategyBacktestPullJob handleTask error, task:{}, heap:{}",
+                    task == null ? null : task.id, memorySummary(), e);
             Map<String, Object> pipelinePayload = resolvePipelinePayload(task, null);
             pipelinePayload.put("error", e.getMessage());
             markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.FAILED,
                     e.getMessage(), backtestStart, pipelinePayload);
             taskDao.markFailed(task == null ? null : task.id, e.getMessage());
-            log.info("StrategyBacktestPullJob task status -> FAILED, task:{}, thread:{}, error:{}",
-                    task == null ? null : task.id, threadName, e.getMessage());
+            log.info("StrategyBacktestPullJob task status -> FAILED, task:{}, thread:{}, error:{}, heap:{}",
+                    task == null ? null : task.id, threadName, e.getMessage(), memorySummary());
         } catch (Throwable t) {
-            log.error("StrategyBacktestPullJob handleTask throwable, task:{}", task == null ? null : task.id, t);
+            log.error("StrategyBacktestPullJob handleTask throwable, task:{}, heap:{}",
+                    task == null ? null : task.id, memorySummary(), t);
             try {
                 Map<String, Object> pipelinePayload = resolvePipelinePayload(task, null);
                 pipelinePayload.put("error", t.getMessage());
@@ -292,18 +295,19 @@ public class StrategyBacktestPullJob {
                 log.error("StrategyBacktestPullJob secondary failure while marking throwable state, task:{}",
                         task == null ? null : task.id, inner);
             }
-            log.info("StrategyBacktestPullJob task status -> FAILED, task:{}, thread:{}, error:{}",
-                    task == null ? null : task.id, threadName, t.getMessage());
+            log.info("StrategyBacktestPullJob task status -> FAILED, task:{}, thread:{}, error:{}, heap:{}",
+                    task == null ? null : task.id, threadName, t.getMessage(), memorySummary());
         } finally {
             inFlightTaskIds.remove(task == null ? null : task.id);
             long elapsedMs = Math.max(0L, (System.nanoTime() - startNs) / 1_000_000L);
-            log.info("StrategyBacktestPullJob task end, task:{}, strategy:{}@{}, thread:{}, elapsedMs:{}, inFlight:{}",
+            log.info("StrategyBacktestPullJob task end, task:{}, strategy:{}@{}, thread:{}, elapsedMs:{}, inFlight:{}, heap:{}",
                     task == null ? null : task.id,
                     task == null ? null : task.strategyName,
                     task == null ? null : task.strategyVersion,
                     threadName,
                     elapsedMs,
-                    inFlightTaskIds.size());
+                    inFlightTaskIds.size(),
+                    memorySummary());
         }
     }
 
@@ -415,6 +419,15 @@ public class StrategyBacktestPullJob {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private String memorySummary() {
+        Runtime runtime = Runtime.getRuntime();
+        long maxMb = runtime.maxMemory() / (1024L * 1024L);
+        long totalMb = runtime.totalMemory() / (1024L * 1024L);
+        long freeMb = runtime.freeMemory() / (1024L * 1024L);
+        long usedMb = totalMb - freeMb;
+        return "usedMb=" + usedMb + ", freeMb=" + freeMb + ", totalMb=" + totalMb + ", maxMb=" + maxMb;
     }
 
     @SuppressWarnings("unchecked")

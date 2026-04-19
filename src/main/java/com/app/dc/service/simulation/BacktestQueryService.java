@@ -28,6 +28,19 @@ public class BacktestQueryService {
         return clickHouseDBUtils.queryList(qa.sql, qa.args.toArray(), TTbookOhlc.class);
     }
 
+    public int queryOhlcCount(String symbol, String text, String beginDate, String endDate) {
+        if (StringUtils.isBlank(clickHouseDBUtils.getDbSourceName())) {
+            return 0;
+        }
+        QueryAndArgs qa = buildOhlcCountSql(symbol, text, beginDate, endDate);
+        log.info("BacktestQueryService count sql:{}, args:{}", qa.sql, qa.args);
+        List<OhlcCountRow> rows = clickHouseDBUtils.queryList(qa.sql, qa.args.toArray(), OhlcCountRow.class);
+        if (rows == null || rows.isEmpty()) {
+            return 0;
+        }
+        return rows.get(0) == null ? 0 : rows.get(0).count;
+    }
+
     public QueryAndArgs buildOhlcSql(String symbol, String text, String beginDate, String endDate) {
         StringBuilder sql = new StringBuilder();
         sql.append("SELECT ")
@@ -62,6 +75,30 @@ public class BacktestQueryService {
         return new QueryAndArgs(sql.toString(), args);
     }
 
+    public QueryAndArgs buildOhlcCountSql(String symbol, String text, String beginDate, String endDate) {
+        StringBuilder sql = new StringBuilder();
+        sql.append("SELECT count(1) AS count FROM dc.kline_view WHERE 1=1");
+
+        List<Object> args = new ArrayList<Object>();
+        if (StringUtils.isNotBlank(symbol)) {
+            sql.append(" AND securityID=?");
+            args.add(symbol.trim());
+        }
+        if (StringUtils.isNotBlank(text)) {
+            sql.append(" AND lowerUTF8(text)=lowerUTF8(?)");
+            args.add(normalizeText(text));
+        }
+        if (StringUtils.isNotBlank(beginDate)) {
+            sql.append(" AND toDate(startTime)>=toDate(?)");
+            args.add(beginDate.trim());
+        }
+        if (StringUtils.isNotBlank(endDate)) {
+            sql.append(" AND toDate(startTime)<=toDate(?)");
+            args.add(endDate.trim());
+        }
+        return new QueryAndArgs(sql.toString(), args);
+    }
+
     public String normalizeText(String text) {
         return StringUtils.isBlank(text) ? text : text.trim();
     }
@@ -74,5 +111,9 @@ public class BacktestQueryService {
             this.sql = sql;
             this.args = args;
         }
+    }
+
+    public static class OhlcCountRow {
+        public int count;
     }
 }

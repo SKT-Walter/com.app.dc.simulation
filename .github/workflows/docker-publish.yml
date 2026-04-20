@@ -1,0 +1,85 @@
+name: Publish SIMSvr image
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/simsvr
+  SERVICE_NAME: SIMSvr
+  MAIN_CLASS: SIMSvr
+  COMMON_REPO: https://github.com/bliplink/com.app.dc.git
+  COMMON_BRANCH: 0.0.3
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout SIMSvr repo
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+          cache: maven
+
+      - name: Clone common repo
+        run: |
+          git clone --branch "${COMMON_BRANCH}" "${COMMON_REPO}" /tmp/com.app.dc
+
+      - name: Build common package
+        working-directory: /tmp/com.app.dc
+        run: mvn -B -U clean install -DskipTests
+
+      - name: Build SIMSvr
+        run: |
+          mvn -B -U clean package dependency:copy-dependencies \
+            -DskipTests \
+            -DoutputDirectory=target/dependency
+
+      - name: Verify build output
+        run: |
+          test -d target/classes
+          test -d target/dependency
+          test -d config
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push SIMSvr image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          build-args: |
+            SERVICE_NAME=${{ env.SERVICE_NAME }}
+            MAIN_CLASS=${{ env.MAIN_CLASS }}
+            REPO_URL=${{ github.server_url }}/${{ github.repository }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

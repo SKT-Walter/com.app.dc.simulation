@@ -18,7 +18,7 @@ WORKDIR /srv/dc/dc/${SERVICE_NAME}
 
 COPY target/classes/ /srv/dc/dc/${SERVICE_NAME}/classes/
 COPY target/dependency/ /srv/dc/dc/${SERVICE_NAME}/lib/
-COPY config/ /srv/dc/dc/${SERVICE_NAME}/config/
+COPY salt-formula/SIMSvr/files/config/ /srv/dc/dc/${SERVICE_NAME}/config/
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \

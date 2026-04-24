@@ -38,6 +38,8 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 + "from " + safe(taskTable);
         String innerSql = "select "
                 + "id as id,"
+                + "argMax(candidate_id, versionKey) as candidateId,"
+                + "argMax(generation_task_id, versionKey) as generationTaskId,"
                 + "argMax(strategy_name, versionKey) as strategyName,"
                 + "argMax(strategy_version, versionKey) as strategyVersion,"
                 + "argMax(baseline_version, versionKey) as baselineVersion,"
@@ -53,14 +55,15 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 + "argMax(attempt_count, versionKey) as attemptCount,"
                 + "toString(argMax(create_time, versionKey)) as createTime,"
                 + "toString(argMax(update_time, versionKey)) as updateTime,"
-                + "argMax(payload, versionKey) as payload "
+                + "argMax(payload, versionKey) as payload,"
+                + "argMax(failure_reason, versionKey) as failureReason "
                 + "from (" + baseSql + ")"
                 + " group by id";
         String sql = "select "
-                + "id, strategyName, strategyVersion, baselineVersion, runtimeType, taskType,"
+                + "id, candidateId, generationTaskId, strategyName, strategyVersion, baselineVersion, runtimeType, taskType,"
                 + "fitWindowDays, validateWindowDays, forwardWindowDays, priority, status,"
                 + "suspendReason, ifNull(toString(nextRetryTimeRaw), '') as nextRetryTime,"
-                + "attemptCount, createTime, updateTime, payload "
+                + "attemptCount, createTime, updateTime, payload, failureReason "
                 + "from (" + innerSql + ") latest"
                 + " where latest.status='PENDING'"
                 + " or (latest.status='SUSPENDED' and (latest.nextRetryTimeRaw is null or latest.nextRetryTimeRaw <= now()))";
@@ -81,22 +84,22 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
 
     @Override
     public void markRunning(String id) {
-        updateStatus(id, "RUNNING", null, null, null, true);
+        updateStatus(id, "RUNNING", null, null, null, "", true);
     }
 
     @Override
     public void markSuccess(String id, String payload) {
-        updateStatus(id, "SUCCESS", payload, "", null, false);
+        updateStatus(id, "SUCCESS", payload, "", null, "", false);
     }
 
     @Override
     public void markFailed(String id, String errorMsg) {
-        updateStatus(id, "FAILED", errorMsg, "", null, false);
+        updateStatus(id, "FAILED", errorMsg, "", null, errorMsg, false);
     }
 
     @Override
     public void markSuspended(String id, String reason, String payload, String nextRetryTime) {
-        updateStatus(id, "SUSPENDED", payload, reason, nextRetryTime, false);
+        updateStatus(id, "SUSPENDED", payload, reason, nextRetryTime, "", false);
     }
 
     @Override
@@ -135,15 +138,15 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
     }
 
     private void updateStatus(String id, String status, String payload, String suspendReason,
-                              String nextRetryTime, boolean increaseAttempt) {
+                              String nextRetryTime, String failureReason, boolean increaseAttempt) {
         if (!ready() || StringUtils.isBlank(id)) {
             return;
         }
         String sql = "insert into " + safe(taskTable)
-                + " (id, strategy_name, strategy_version, baseline_version, runtime_type, task_type, "
+                + " (id, candidate_id, generation_task_id, strategy_name, strategy_version, baseline_version, runtime_type, task_type, "
                 + "fit_window_days, validate_window_days, forward_window_days, priority, status, suspend_reason, "
-                + "next_retry_time, attempt_count, create_time, update_time, payload) "
-                + "select id, strategy_name, strategy_version, baseline_version, runtime_type, task_type, "
+                + "next_retry_time, attempt_count, create_time, update_time, payload, failure_reason) "
+                + "select id, ifNull(candidate_id, ''), ifNull(generation_task_id, ''), strategy_name, strategy_version, baseline_version, runtime_type, task_type, "
                 + "fit_window_days, validate_window_days, forward_window_days, priority, '"
                 + escape(status) + "', '"
                 + escape(suspendReason == null ? "" : suspendReason) + "', "
@@ -154,6 +157,7 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 + (increaseAttempt ? "ifNull(attempt_count, 0) + 1" : "ifNull(attempt_count, 0)")
                 + ", create_time, now(), "
                 + (payload == null ? "payload" : "'" + escape(payload) + "'")
+                + ", '" + escape(failureReason == null ? "" : failureReason) + "'"
                 + " "
                 + "from " + safe(taskTable) + " where id='" + escape(id) + "' order by update_time desc limit 1";
         try {

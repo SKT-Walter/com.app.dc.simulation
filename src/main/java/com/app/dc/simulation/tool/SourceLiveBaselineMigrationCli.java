@@ -4,6 +4,7 @@ import com.app.common.utils.JsonUtils;
 import com.app.dc.pipeline.StrategyPipelineService;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -42,7 +43,11 @@ public class SourceLiveBaselineMigrationCli {
         DbConfig dbConfig = DbConfig.load(options.dbpoolCfg, options.dbSourceName);
         try (Connection connection = DriverManager.getConnection(dbConfig.url, dbConfig.username, dbConfig.password)) {
             BatchSummary summary;
-            if ("OFFLINE".equalsIgnoreCase(options.mode)) {
+            if ("EXPORT_LATEST_LIVE".equalsIgnoreCase(options.mode)) {
+                summary = executeExportLatestLive(connection, options);
+            } else if ("SEED_FROM_SNAPSHOT".equalsIgnoreCase(options.mode)) {
+                summary = executeSeedFromSnapshot(connection, options);
+            } else if ("OFFLINE".equalsIgnoreCase(options.mode)) {
                 summary = executeOffline(connection, options);
             } else if ("SEED_OFFLINE".equalsIgnoreCase(options.mode)) {
                 summary = executeSeed(connection, options);
@@ -59,12 +64,52 @@ public class SourceLiveBaselineMigrationCli {
         }
     }
 
+    private static BatchSummary executeExportLatestLive(Connection connection, CliOptions options) throws Exception {
+        BatchSummary summary = new BatchSummary();
+        summary.mode = "EXPORT_LATEST_LIVE";
+        summary.batchTag = options.batchTag;
+        List<LiveRow> rows = loadLatestLiveRows(connection, options.strategyNames, false);
+        summary.total = rows.size();
+        for (LiveRow row : rows) {
+            ItemSummary item = new ItemSummary();
+            item.strategyName = row.strategyName;
+            item.baselineVersion = row.strategyVersion;
+            item.entryClass = row.entryClass;
+            item.status = "EXPORTED";
+            item.text = normalizeSingle(row.textScope);
+            item.symbols = normalizeScope(row.symbolScope);
+            summary.items.add(item);
+        }
+        if (!options.dryRun) {
+            writeSnapshot(rows, options);
+        }
+        return summary;
+    }
+
     private static BatchSummary executeSeed(Connection connection, CliOptions options) throws Exception {
         BatchSummary summary = new BatchSummary();
         summary.mode = "SEED";
         summary.batchTag = options.batchTag;
-        List<LiveRow> rows = loadLatestSourceLiveRows(connection, options.strategyNames);
+        List<LiveRow> rows = loadLatestLiveRows(connection, options.strategyNames, true);
         summary.total = rows.size();
+        seedRows(connection, options, rows, summary);
+        return summary;
+    }
+
+    private static BatchSummary executeSeedFromSnapshot(Connection connection, CliOptions options) throws Exception {
+        BatchSummary summary = new BatchSummary();
+        summary.mode = "SEED_FROM_SNAPSHOT";
+        summary.batchTag = options.batchTag;
+        List<LiveRow> rows = loadSnapshotRows(options.snapshotIn, options.strategyNames);
+        summary.total = rows.size();
+        seedRows(connection, options, rows, summary);
+        return summary;
+    }
+
+    private static void seedRows(Connection connection,
+                                 CliOptions options,
+                                 List<LiveRow> rows,
+                                 BatchSummary summary) throws Exception {
         for (LiveRow row : rows) {
             ItemSummary item = new ItemSummary();
             item.strategyName = row.strategyName;
@@ -110,14 +155,13 @@ public class SourceLiveBaselineMigrationCli {
             }
             summary.items.add(item);
         }
-        return summary;
     }
 
     private static BatchSummary executeOffline(Connection connection, CliOptions options) throws Exception {
         BatchSummary summary = new BatchSummary();
         summary.mode = "OFFLINE";
         summary.batchTag = options.batchTag;
-        List<LiveRow> rows = loadLatestSourceLiveRows(connection, options.strategyNames);
+        List<LiveRow> rows = loadLatestLiveRows(connection, options.strategyNames, true);
         summary.total = rows.size();
         if (!options.dryRun && !rows.isEmpty()) {
             bulkOffline(connection, rows);
@@ -134,14 +178,18 @@ public class SourceLiveBaselineMigrationCli {
         return summary;
     }
 
-    private static List<LiveRow> loadLatestSourceLiveRows(Connection connection, Set<String> strategyNames) throws Exception {
+    private static List<LiveRow> loadLatestLiveRows(Connection connection,
+                                                    Set<String> strategyNames,
+                                                    boolean activeOnly) throws Exception {
         StringBuilder sql = new StringBuilder();
         sql.append("select ")
                 .append("strategy_name, strategy_version, category, scene, runtime_type, symbol_scope, text_scope, ")
                 .append("artifact_uri, entry_class, parameters_json, status, effective_time, payload, description ")
                 .append("from dc.strategy_live_registry ")
-                .append("where status='ACTIVE' ")
-                .append("and lower(entry_class) like 'com.app.dc.signal.live.%' ");
+                .append("where lower(entry_class) like 'com.app.dc.signal.live.%' ");
+        if (activeOnly) {
+            sql.append("and status='ACTIVE' ");
+        }
         List<Object> args = new ArrayList<Object>();
         if (strategyNames != null && !strategyNames.isEmpty()) {
             sql.append("and lower(strategy_name) in (");
@@ -186,10 +234,73 @@ public class SourceLiveBaselineMigrationCli {
         return new ArrayList<LiveRow>(latest.values());
     }
 
+    private static void writeSnapshot(List<LiveRow> rows, CliOptions options) throws IOException {
+        File file = resolveSnapshotOut(options);
+        File parent = file.getParentFile();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+        Map<String, Object> data = new LinkedHashMap<String, Object>();
+        data.put("mode", "LATEST_LIVE_SNAPSHOT");
+        data.put("batchTag", options.batchTag);
+        data.put("exportedAt", LocalDateTime.now().toString());
+        List<Map<String, Object>> detail = new ArrayList<Map<String, Object>>();
+        for (LiveRow row : rows) {
+            detail.add(row.toMap());
+        }
+        data.put("rows", detail);
+        try (FileWriter writer = new FileWriter(file)) {
+            writer.write(JsonUtils.Serializer(data));
+        }
+        System.out.println("live snapshot written, file=" + file.getAbsolutePath() + ", rowCount=" + rows.size());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<LiveRow> loadSnapshotRows(String path, Set<String> strategyNames) throws Exception {
+        if (isBlank(path)) {
+            throw new IllegalArgumentException("--snapshot-in is required for SEED_FROM_SNAPSHOT");
+        }
+        String json = readAll(path);
+        if (isBlank(json)) {
+            throw new IllegalArgumentException("snapshot file is empty: " + path);
+        }
+        Object root = JsonUtils.Deserialize(json, Map.class);
+        if (!(root instanceof Map)) {
+            throw new IllegalArgumentException("invalid snapshot json: " + path);
+        }
+        Object rowsObj = ((Map<?, ?>) root).get("rows");
+        if (!(rowsObj instanceof List)) {
+            throw new IllegalArgumentException("snapshot rows missing: " + path);
+        }
+        List<LiveRow> rows = new ArrayList<LiveRow>();
+        for (Object item : (List<?>) rowsObj) {
+            if (!(item instanceof Map)) {
+                continue;
+            }
+            LiveRow row = LiveRow.fromMap((Map<String, Object>) item);
+            if (row == null || isBlank(row.strategyName)) {
+                continue;
+            }
+            if (strategyNames != null && !strategyNames.isEmpty()
+                    && !strategyNames.contains(row.strategyName)) {
+                continue;
+            }
+            rows.add(row);
+        }
+        return rows;
+    }
+
     private static BacktestScope resolveBacktestScope(Connection connection, LiveRow row) throws Exception {
         BacktestScope scope = new BacktestScope();
         scope.symbols = normalizeScope(row.symbolScope);
         scope.text = normalizeSingle(row.textScope);
+        Map<String, Object> payload = parsePayload(row.payload);
+        if (isBlank(scope.symbols) || "*".equals(scope.symbols)) {
+            scope.symbols = normalizeScope(safeString(payload.get("symbolScope")));
+        }
+        if (isBlank(scope.text) || "*".equals(scope.text)) {
+            scope.text = normalizeSingle(safeString(payload.get("textScope")));
+        }
         if (isBlank(scope.text) || "*".equals(scope.text)) {
             scope.text = normalizeSingle(SourceLiveParameterCatalog.defaultText(row.strategyName));
         }
@@ -205,12 +316,30 @@ public class SourceLiveBaselineMigrationCli {
             }
         }
         if (isBlank(scope.symbols) || "*".equals(scope.symbols)) {
+            scope.symbols = normalizeScope(SourceLiveParameterCatalog.defaultSymbols(row.strategyName));
+        }
+        if (isBlank(scope.symbols) || "*".equals(scope.symbols)) {
             scope.symbols = "";
         }
         if (isBlank(scope.text) || "*".equals(scope.text)) {
             scope.text = "";
         }
         return scope;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> parsePayload(String payload) {
+        if (isBlank(payload)) {
+            return new LinkedHashMap<String, Object>();
+        }
+        try {
+            Object value = JsonUtils.Deserialize(payload, Map.class);
+            if (value instanceof Map) {
+                return (Map<String, Object>) value;
+            }
+        } catch (Exception ignored) {
+        }
+        return new LinkedHashMap<String, Object>();
     }
 
     private static LatestBacktestRow loadLatestBacktestRow(Connection connection, String strategyName, String strategyVersion) throws Exception {
@@ -498,6 +627,27 @@ public class SourceLiveBaselineMigrationCli {
         return value == null ? "" : value.replace("\\", "\\\\").replace("'", "''");
     }
 
+    private static File resolveSnapshotOut(CliOptions options) {
+        if (!isBlank(options.snapshotOut)) {
+            return new File(options.snapshotOut);
+        }
+        return new File(options.reportDir, "live-baseline-snapshot-" + options.batchTag + ".json");
+    }
+
+    private static String readAll(String path) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        BufferedReader reader = new BufferedReader(new FileReader(path));
+        try {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append('\n');
+            }
+        } finally {
+            reader.close();
+        }
+        return sb.toString();
+    }
+
     private static class CliOptions {
         private String mode = "SEED";
         private String dbpoolCfg = DEFAULT_DBPOOL_CFG;
@@ -505,6 +655,8 @@ public class SourceLiveBaselineMigrationCli {
         private String reportDir = DEFAULT_REPORT_DIR;
         private String batchTag = FILE_TAG.format(LocalDateTime.now());
         private Set<String> strategyNames = new LinkedHashSet<String>();
+        private String snapshotIn = "";
+        private String snapshotOut = "";
         private int fitWindowDays = 120;
         private int validateWindowDays = 30;
         private int forwardWindowDays = 14;
@@ -554,6 +706,14 @@ public class SourceLiveBaselineMigrationCli {
                 batchTag = defaultIfBlank(value, batchTag);
                 return;
             }
+            if ("snapshot-in".equalsIgnoreCase(name)) {
+                snapshotIn = defaultIfBlank(value, snapshotIn);
+                return;
+            }
+            if ("snapshot-out".equalsIgnoreCase(name)) {
+                snapshotOut = defaultIfBlank(value, snapshotOut);
+                return;
+            }
             if ("strategy-names".equalsIgnoreCase(name)) {
                 strategyNames.clear();
                 for (String part : value.split(",")) {
@@ -585,8 +745,11 @@ public class SourceLiveBaselineMigrationCli {
         }
 
         void validate() {
-            if (!Arrays.asList("SEED", "OFFLINE", "SEED_OFFLINE").contains(mode)) {
-                throw new IllegalArgumentException("--mode must be SEED, OFFLINE or SEED_OFFLINE");
+            if (!Arrays.asList("SEED", "OFFLINE", "SEED_OFFLINE", "EXPORT_LATEST_LIVE", "SEED_FROM_SNAPSHOT").contains(mode)) {
+                throw new IllegalArgumentException("--mode must be SEED, OFFLINE, SEED_OFFLINE, EXPORT_LATEST_LIVE or SEED_FROM_SNAPSHOT");
+            }
+            if ("SEED_FROM_SNAPSHOT".equals(mode) && isBlank(snapshotIn)) {
+                throw new IllegalArgumentException("--snapshot-in is required when --mode=SEED_FROM_SNAPSHOT");
             }
         }
     }
@@ -645,6 +808,47 @@ public class SourceLiveBaselineMigrationCli {
         private String effectiveTime;
         private String payload;
         private String description;
+
+        Map<String, Object> toMap() {
+            Map<String, Object> data = new LinkedHashMap<String, Object>();
+            data.put("strategy_name", strategyName);
+            data.put("strategy_version", strategyVersion);
+            data.put("category", category);
+            data.put("scene", scene);
+            data.put("runtime_type", runtimeType);
+            data.put("symbol_scope", symbolScope);
+            data.put("text_scope", textScope);
+            data.put("artifact_uri", artifactUri);
+            data.put("entry_class", entryClass);
+            data.put("parameters_json", parametersJson);
+            data.put("status", status);
+            data.put("effective_time", effectiveTime);
+            data.put("payload", payload);
+            data.put("description", description);
+            return data;
+        }
+
+        static LiveRow fromMap(Map<String, Object> data) {
+            if (data == null || data.isEmpty()) {
+                return null;
+            }
+            LiveRow row = new LiveRow();
+            row.strategyName = safeString(data.get("strategy_name"));
+            row.strategyVersion = safeString(data.get("strategy_version"));
+            row.category = safeString(data.get("category"));
+            row.scene = safeString(data.get("scene"));
+            row.runtimeType = safeString(data.get("runtime_type"));
+            row.symbolScope = safeString(data.get("symbol_scope"));
+            row.textScope = safeString(data.get("text_scope"));
+            row.artifactUri = safeString(data.get("artifact_uri"));
+            row.entryClass = safeString(data.get("entry_class"));
+            row.parametersJson = safeString(data.get("parameters_json"));
+            row.status = safeString(data.get("status"));
+            row.effectiveTime = safeString(data.get("effective_time"));
+            row.payload = safeString(data.get("payload"));
+            row.description = safeString(data.get("description"));
+            return row;
+        }
     }
 
     private static class LatestBacktestRow {
@@ -738,5 +942,9 @@ public class SourceLiveBaselineMigrationCli {
             data.put("reason", reason);
             return data;
         }
+    }
+
+    private static String safeString(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 }

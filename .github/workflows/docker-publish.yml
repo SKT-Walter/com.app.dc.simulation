@@ -11,7 +11,7 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/simsvr
   SERVICE_NAME: SIMSvr
   MAIN_CLASS: SIMSvr
-  COMMON_REPO: https://github.com/bliplink/com.app.dc.git
+  COMMON_REPO: github.com/bliplink/com.app.dc.git
   COMMON_BRANCH: 0.0.3
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
 
       - name: Clone common repo
         run: |
-          git clone --branch "${COMMON_BRANCH}" "${COMMON_REPO}" /tmp/com.app.dc
+          git clone --branch "${COMMON_BRANCH}" "https://x-access-token:${{ secrets.GH_REPO_TOKEN }}@${COMMON_REPO}" /tmp/com.app.dc
 
       - name: Build common package
         working-directory: /tmp/com.app.dc

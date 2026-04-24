@@ -32,6 +32,11 @@ final class SourceLiveParameterCatalog {
                             doubleParam("atrBufferMultiplier", 0.5D, 0.35D, 0.5D, 0.65D),
                             doubleParam("takeProfitWidthMultiplier", 1.0D, 0.8D, 1.0D, 1.2D)));
         }
+        if ("binanceRange".equalsIgnoreCase(name)) {
+            return build(
+                    mapOf(),
+                    parameters());
+        }
         if ("binanceTrend".equalsIgnoreCase(name)) {
             return build(
                     mapOf("fastPeriod", 9, "midPeriod", 21, "slowPeriod", 55,
@@ -94,6 +99,17 @@ final class SourceLiveParameterCatalog {
                             doubleParam("minRecoveryRsi", 50.0D, 48.0D, 50.0D, 52.0D),
                             doubleParam("minRecoveryCloseLocation", 0.6D, 0.55D, 0.60D, 0.65D)));
         }
+        if ("compressionBreak".equalsIgnoreCase(name)) {
+            return build(
+                    mapOf("atrPeriod", 14, "compressLookback", 6, "baseLookback", 20,
+                            "stopAtrBuffer", 0.35D, "minTargetAtr", 1.0D),
+                    parameters(
+                            intParam("atrPeriod", 14, 10, 14, 18),
+                            intParam("compressLookback", 6, 4, 6, 8),
+                            intParam("baseLookback", 20, 16, 20, 24),
+                            doubleParam("stopAtrBuffer", 0.35D, 0.20D, 0.35D, 0.50D),
+                            doubleParam("minTargetAtr", 1.0D, 0.8D, 1.0D, 1.2D)));
+        }
         if ("failedBreakReversal".equalsIgnoreCase(name)) {
             return build(
                     mapOf("fastEmaPeriod", 10, "slowEmaPeriod", 30, "rsiPeriod", 14,
@@ -144,6 +160,17 @@ final class SourceLiveParameterCatalog {
                             doubleParam("riskRewardRatio", 1.2D, 1.0D, 1.2D, 1.5D),
                             doubleParam("minTargetAtr", 0.8D, 0.6D, 0.8D, 1.0D)));
         }
+        if ("smallRangeBreakout".equalsIgnoreCase(name)) {
+            return build(
+                    mapOf("atrPeriod", 14, "compressLookback", 6, "baseLookback", 20,
+                            "stopAtrBuffer", 0.35D, "minTargetAtr", 1.0D),
+                    parameters(
+                            intParam("atrPeriod", 14, 10, 14, 18),
+                            intParam("compressLookback", 6, 4, 6, 8),
+                            intParam("baseLookback", 20, 16, 20, 24),
+                            doubleParam("stopAtrBuffer", 0.35D, 0.20D, 0.35D, 0.50D),
+                            doubleParam("minTargetAtr", 1.0D, 0.8D, 1.0D, 1.2D)));
+        }
         if ("trendPullbackRecovery".equalsIgnoreCase(name)
                 || "trendRestart".equalsIgnoreCase(name)) {
             return build(
@@ -180,7 +207,53 @@ final class SourceLiveParameterCatalog {
     }
 
     static String defaultText(String strategyName) {
+        if ("smallRangeBreakout".equalsIgnoreCase(strategyName)) {
+            return "1H";
+        }
         return supported(strategyName) ? DEFAULT_TEXT : "";
+    }
+
+    static String defaultSymbols(String strategyName) {
+        if ("binanceChannel".equalsIgnoreCase(strategyName)) {
+            return "SOLUSDT";
+        }
+        if ("binanceRange".equalsIgnoreCase(strategyName)) {
+            return "ETHUSDT";
+        }
+        if ("binanceTrend".equalsIgnoreCase(strategyName)) {
+            return "BTCUSDT";
+        }
+        if ("breakoutRetestContinuation".equalsIgnoreCase(strategyName)) {
+            return "ETHUSDT";
+        }
+        if ("breakoutRetestContinuationTrend".equalsIgnoreCase(strategyName)) {
+            return "BTCUSDT";
+        }
+        if ("compressionBreak".equalsIgnoreCase(strategyName)) {
+            return "ETHUSDT";
+        }
+        if ("emaPullbackBuy".equalsIgnoreCase(strategyName)) {
+            return "BTCUSDT";
+        }
+        if ("failedBreakReversal".equalsIgnoreCase(strategyName)) {
+            return "ETHUSDT";
+        }
+        if ("impulseReclaim".equalsIgnoreCase(strategyName)) {
+            return "ETHUSDT";
+        }
+        if ("smallRangeBreakout".equalsIgnoreCase(strategyName)) {
+            return "BTCUSDT";
+        }
+        if ("strongMomentumContinuation".equalsIgnoreCase(strategyName)) {
+            return "BTCUSDT";
+        }
+        if ("trendPullbackRecovery".equalsIgnoreCase(strategyName)) {
+            return "ETHUSDT";
+        }
+        if ("trendRestart".equalsIgnoreCase(strategyName)) {
+            return "BTCUSDT";
+        }
+        return "";
     }
 
     private static String build(Map<String, Object> defaultParams, List<Map<String, Object>> parameters) {

@@ -2,6 +2,8 @@ package com.app.dc.service.simulation.runtime;
 
 public class StrategyBacktestTaskRow {
     public String id;
+    public String candidateId;
+    public String generationTaskId;
     public String strategyName;
     public String strategyVersion;
     public String baselineVersion;
@@ -18,4 +20,5 @@ public class StrategyBacktestTaskRow {
     public String createTime;
     public String updateTime;
     public String payload;
+    public String failureReason;
 }

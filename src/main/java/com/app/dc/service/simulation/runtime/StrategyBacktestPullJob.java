@@ -129,15 +129,16 @@ public class StrategyBacktestPullJob {
         String threadName = Thread.currentThread().getName();
         LocalDateTime backtestStart = LocalDateTime.now();
         try {
-            log.info("StrategyBacktestPullJob task start, task:{}, strategy:{}@{}, thread:{}, fromStatus:{}, heap:{}",
-                    task.id, task.strategyName, task.strategyVersion, threadName, task.status, memorySummary());
+            log.info("StrategyBacktestPullJob task start, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, fromStatus:{}, heap:{}",
+                    task.id, task.generationTaskId, task.candidateId, task.strategyName, task.strategyVersion,
+                    threadName, task.status, memorySummary());
             if ("RUNNING".equalsIgnoreCase(task.status)) {
-                log.warn("StrategyBacktestPullJob reclaim stale RUNNING task after restart, task:{}, strategy:{}@{}, lastUpdate:{}",
-                        task.id, task.strategyName, task.strategyVersion, task.updateTime);
+                log.warn("StrategyBacktestPullJob reclaim stale RUNNING task after restart, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, lastUpdate:{}",
+                        task.id, task.generationTaskId, task.candidateId, task.strategyName, task.strategyVersion, task.updateTime);
             }
             taskDao.markRunning(task.id);
-            log.info("StrategyBacktestPullJob task status -> RUNNING, task:{}, thread:{}",
-                    task.id, threadName);
+            log.info("StrategyBacktestPullJob task status -> RUNNING, task:{}, generationTaskId:{}, candidateId:{}, thread:{}",
+                    task.id, task.generationTaskId, task.candidateId, threadName);
             StrategyCandidateRow candidate = taskDao.loadCandidate(task.strategyName, task.strategyVersion);
             if (candidate == null) {
                 throw new IllegalStateException("candidate not found: " + task.strategyName + "@" + task.strategyVersion);
@@ -151,8 +152,10 @@ public class StrategyBacktestPullJob {
                     task.fitWindowDays == null ? 120 : task.fitWindowDays.intValue(),
                     task.validateWindowDays == null ? 30 : task.validateWindowDays.intValue(),
                     task.forwardWindowDays == null ? 14 : task.forwardWindowDays.intValue());
-            log.info("StrategyBacktestPullJob backtest run finished, task:{}, strategy:{}@{}, thread:{}, resultCount:{}, trialCount:{}, optimizationMode:{}, bestRank:{}",
+            log.info("StrategyBacktestPullJob backtest run finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, resultCount:{}, trialCount:{}, optimizationMode:{}, bestRank:{}",
                     task.id,
+                    task.generationTaskId,
+                    firstNotBlank(task.candidateId, candidate.id),
                     candidate.strategyName,
                     candidate.strategyVersion,
                     threadName,
@@ -171,8 +174,10 @@ public class StrategyBacktestPullJob {
                     "", backtestStart, optimizePayload);
             StrategyAutoPublishDecision publishDecision =
                     strategyAutoPublishService.maybePublish(task, candidate, response);
-            log.info("StrategyBacktestPullJob publish decision finished, task:{}, strategy:{}@{}, thread:{}, published:{}, action:{}, reason:{}",
+            log.info("StrategyBacktestPullJob publish decision finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, published:{}, action:{}, reason:{}",
                     task.id,
+                    task.generationTaskId,
+                    firstNotBlank(task.candidateId, candidate.id),
                     candidate.strategyName,
                     candidate.strategyVersion,
                     threadName,
@@ -181,19 +186,24 @@ public class StrategyBacktestPullJob {
                     publishDecision == null ? "" : publishDecision.reason);
             String reportPath = backtestReportService.writeReport(task.id, response, publishDecision);
             String compareReportPath = backtestReportService.writeCompareReport(response);
-            log.info("StrategyBacktestPullJob report generation finished, task:{}, strategy:{}@{}, thread:{}, reportPath:{}, compareReportPath:{}",
+            log.info("StrategyBacktestPullJob report generation finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, reportPath:{}, compareReportPath:{}",
                     task.id,
+                    task.generationTaskId,
+                    firstNotBlank(task.candidateId, candidate.id),
                     candidate.strategyName,
                     candidate.strategyVersion,
                     threadName,
                     reportPath,
                     compareReportPath);
             backtestResultClickHouseDao.insertResults(task.id, reportPath, response);
-            log.info("StrategyBacktestPullJob result persistence finished, task:{}, strategy:{}@{}, thread:{}",
-                    task.id, candidate.strategyName, candidate.strategyVersion, threadName);
+            log.info("StrategyBacktestPullJob result persistence finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}",
+                    task.id, task.generationTaskId, firstNotBlank(task.candidateId, candidate.id),
+                    candidate.strategyName, candidate.strategyVersion, threadName);
 
             Map<String, Object> taskResult = new LinkedHashMap<String, Object>();
             taskResult.put("taskId", task.id);
+            taskResult.put("generationTaskId", task.generationTaskId);
+            taskResult.put("candidateId", firstNotBlank(task.candidateId, candidate.id));
             taskResult.put("strategyName", candidate.strategyName);
             taskResult.put("strategyVersion", candidate.strategyVersion);
             taskResult.put("runtimeType", candidate.runtimeType);
@@ -232,8 +242,9 @@ public class StrategyBacktestPullJob {
             taskResult.put("baselineTotalPnl", publishDecision.baselineTotalPnl);
             taskResult.put("baselineForwardScore", publishDecision.baselineForwardScore);
             taskDao.markSuccess(task.id, JsonUtils.Serializer(taskResult));
-            log.info("StrategyBacktestPullJob task state persistence finished, task:{}, strategy:{}@{}, thread:{}",
-                    task.id, candidate.strategyName, candidate.strategyVersion, threadName);
+            log.info("StrategyBacktestPullJob task state persistence finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}",
+                    task.id, task.generationTaskId, firstNotBlank(task.candidateId, candidate.id),
+                    candidate.strategyName, candidate.strategyVersion, threadName);
             Map<String, Object> publishPayload = new LinkedHashMap<String, Object>(pipelinePayload);
             publishPayload.put("reportPath", reportPath);
             publishPayload.put("compareReportPath", compareReportPath);
@@ -245,12 +256,16 @@ public class StrategyBacktestPullJob {
                     publishDecision == null ? "" : publishDecision.reason,
                     backtestStart,
                     publishPayload);
-            log.info("StrategyBacktestPullJob task status -> SUCCESS, task:{}, strategy:{}@{}, thread:{}, autoPublish:{}, reason:{}",
-                    task.id, candidate.strategyName, candidate.strategyVersion, threadName,
+            log.info("StrategyBacktestPullJob task status -> SUCCESS, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, autoPublish:{}, reason:{}",
+                    task.id, task.generationTaskId, firstNotBlank(task.candidateId, candidate.id),
+                    candidate.strategyName, candidate.strategyVersion, threadName,
                     publishDecision.published, publishDecision.reason);
         } catch (BacktestTaskSuspendedException e) {
-            log.warn("StrategyBacktestPullJob suspend task:{}, reason:{}, detail:{}, heap:{}",
-                    task == null ? null : task.id, e.getReason(), JsonUtils.Serializer(e.getDetail()), memorySummary());
+            log.warn("StrategyBacktestPullJob suspend task:{}, generationTaskId:{}, candidateId:{}, reason:{}, detail:{}, heap:{}",
+                    task == null ? null : task.id,
+                    task == null ? null : task.generationTaskId,
+                    task == null ? null : task.candidateId,
+                    e.getReason(), JsonUtils.Serializer(e.getDetail()), memorySummary());
             Map<String, Object> pipelinePayload = resolvePipelinePayload(task, null);
             pipelinePayload.put("suspendDetail", e.getDetail());
             markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.SUSPENDED,
@@ -267,24 +282,35 @@ public class StrategyBacktestPullJob {
                         autofillEx.getMessage(),
                         autofillEx);
             }
-            log.info("StrategyBacktestPullJob task status -> SUSPENDED, task:{}, thread:{}, nextRetryTime:{}, heap:{}",
+            log.info("StrategyBacktestPullJob task status -> SUSPENDED, task:{}, generationTaskId:{}, candidateId:{}, thread:{}, nextRetryTime:{}, heap:{}",
                     task == null ? null : task.id,
+                    task == null ? null : task.generationTaskId,
+                    task == null ? null : task.candidateId,
                     threadName,
                     CLICKHOUSE_TIME.format(LocalDateTime.now().plusMinutes(30)),
                     memorySummary());
         } catch (Exception e) {
-            log.error("StrategyBacktestPullJob handleTask error, task:{}, heap:{}",
-                    task == null ? null : task.id, memorySummary(), e);
+            log.error("StrategyBacktestPullJob handleTask error, task:{}, generationTaskId:{}, candidateId:{}, heap:{}",
+                    task == null ? null : task.id,
+                    task == null ? null : task.generationTaskId,
+                    task == null ? null : task.candidateId,
+                    memorySummary(), e);
             Map<String, Object> pipelinePayload = resolvePipelinePayload(task, null);
             pipelinePayload.put("error", e.getMessage());
             markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.FAILED,
                     e.getMessage(), backtestStart, pipelinePayload);
             taskDao.markFailed(task == null ? null : task.id, e.getMessage());
-            log.info("StrategyBacktestPullJob task status -> FAILED, task:{}, thread:{}, error:{}, heap:{}",
-                    task == null ? null : task.id, threadName, e.getMessage(), memorySummary());
+            log.info("StrategyBacktestPullJob task status -> FAILED, task:{}, generationTaskId:{}, candidateId:{}, thread:{}, error:{}, heap:{}",
+                    task == null ? null : task.id,
+                    task == null ? null : task.generationTaskId,
+                    task == null ? null : task.candidateId,
+                    threadName, e.getMessage(), memorySummary());
         } catch (Throwable t) {
-            log.error("StrategyBacktestPullJob handleTask throwable, task:{}, heap:{}",
-                    task == null ? null : task.id, memorySummary(), t);
+            log.error("StrategyBacktestPullJob handleTask throwable, task:{}, generationTaskId:{}, candidateId:{}, heap:{}",
+                    task == null ? null : task.id,
+                    task == null ? null : task.generationTaskId,
+                    task == null ? null : task.candidateId,
+                    memorySummary(), t);
             try {
                 Map<String, Object> pipelinePayload = resolvePipelinePayload(task, null);
                 pipelinePayload.put("error", t.getMessage());
@@ -295,13 +321,18 @@ public class StrategyBacktestPullJob {
                 log.error("StrategyBacktestPullJob secondary failure while marking throwable state, task:{}",
                         task == null ? null : task.id, inner);
             }
-            log.info("StrategyBacktestPullJob task status -> FAILED, task:{}, thread:{}, error:{}, heap:{}",
-                    task == null ? null : task.id, threadName, t.getMessage(), memorySummary());
+            log.info("StrategyBacktestPullJob task status -> FAILED, task:{}, generationTaskId:{}, candidateId:{}, thread:{}, error:{}, heap:{}",
+                    task == null ? null : task.id,
+                    task == null ? null : task.generationTaskId,
+                    task == null ? null : task.candidateId,
+                    threadName, t.getMessage(), memorySummary());
         } finally {
             inFlightTaskIds.remove(task == null ? null : task.id);
             long elapsedMs = Math.max(0L, (System.nanoTime() - startNs) / 1_000_000L);
-            log.info("StrategyBacktestPullJob task end, task:{}, strategy:{}@{}, thread:{}, elapsedMs:{}, inFlight:{}, heap:{}",
+            log.info("StrategyBacktestPullJob task end, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, elapsedMs:{}, inFlight:{}, heap:{}",
                     task == null ? null : task.id,
+                    task == null ? null : task.generationTaskId,
+                    task == null ? null : task.candidateId,
                     task == null ? null : task.strategyName,
                     task == null ? null : task.strategyVersion,
                     threadName,
@@ -473,5 +504,12 @@ public class StrategyBacktestPullJob {
                 reason,
                 stageStart,
                 payload);
+    }
+
+    private String firstNotBlank(String first, String second) {
+        if (!isBlank(first)) {
+            return first;
+        }
+        return second;
     }
 }

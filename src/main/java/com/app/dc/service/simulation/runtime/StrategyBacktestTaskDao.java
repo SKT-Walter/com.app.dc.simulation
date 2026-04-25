@@ -7,6 +7,14 @@ public interface StrategyBacktestTaskDao {
 
     List<StrategyBacktestTaskRow> pullRunnable(int limit, String reclaimRunningBefore);
 
+    List<StrategyBacktestTaskRow> loadLatest(String taskId,
+                                             String generationTaskId,
+                                             String candidateId,
+                                             String strategyName,
+                                             String strategyVersion,
+                                             String status,
+                                             int limit);
+
     void markRunning(String id);
 
     void markSuccess(String id, String payload);

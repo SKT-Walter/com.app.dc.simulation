@@ -169,6 +169,11 @@ public class BacktestReportService {
         summary.put("optimizationObjective", s(response.optimizationObjective));
         summary.put("minForwardContribution", scale(response.minForwardContribution));
         summary.put("trialCount", nzInt(response.trialCount));
+        summary.put("trialBudget", nzInt(response.trialBudget));
+        summary.put("trialBudgetUsed", nzInt(response.trialBudgetUsed));
+        summary.put("trialBudgetHit", nzInt(response.trialBudgetHit));
+        summary.put("coarseCandidateCount", nzInt(response.coarseCandidateCount));
+        summary.put("fineCandidateCount", nzInt(response.fineCandidateCount));
         summary.put("bestRank", nzInt(response.bestRank));
         summary.put("bestParamSetJson", defaultIfBlank(response.bestParamSetJson, "{}"));
         summary.put("elapsedMs", nzInt(response.elapsedMs));
@@ -209,6 +214,11 @@ public class BacktestReportService {
         optimization.put("optimizationObjective", s(response == null ? null : response.optimizationObjective));
         optimization.put("minForwardContribution", scale(response == null ? null : response.minForwardContribution));
         optimization.put("trialCount", nzInt(response == null ? null : response.trialCount));
+        optimization.put("trialBudget", nzInt(response == null ? null : response.trialBudget));
+        optimization.put("trialBudgetUsed", nzInt(response == null ? null : response.trialBudgetUsed));
+        optimization.put("trialBudgetHit", nzInt(response == null ? null : response.trialBudgetHit));
+        optimization.put("coarseCandidateCount", nzInt(response == null ? null : response.coarseCandidateCount));
+        optimization.put("fineCandidateCount", nzInt(response == null ? null : response.fineCandidateCount));
         optimization.put("bestRank", nzInt(response == null ? null : response.bestRank));
         optimization.put("bestParamSetJson", defaultIfBlank(response == null ? null : response.bestParamSetJson, "{}"));
         optimization.put("fragileBest", nzInt(response == null ? null : response.fragileBest));

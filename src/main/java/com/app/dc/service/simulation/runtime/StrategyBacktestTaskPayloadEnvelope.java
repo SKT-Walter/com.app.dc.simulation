@@ -7,4 +7,5 @@ import java.util.Map;
 public class StrategyBacktestTaskPayloadEnvelope {
     public BacktestParam backtestParam;
     public Map<String, Object> suspendDetail;
+    public Map<String, Object> recoveryPlan;
 }

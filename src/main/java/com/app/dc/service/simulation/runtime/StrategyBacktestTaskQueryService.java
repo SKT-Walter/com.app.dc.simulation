@@ -110,6 +110,9 @@ public class StrategyBacktestTaskQueryService {
                 if (envelope.suspendDetail != null && !envelope.suspendDetail.isEmpty()) {
                     summary.put("suspendDetail", envelope.suspendDetail);
                 }
+                if (envelope.recoveryPlan != null && !envelope.recoveryPlan.isEmpty()) {
+                    summary.put("recoveryPlan", envelope.recoveryPlan);
+                }
                 return summary;
             }
         } catch (Exception ignored) {

@@ -39,6 +39,11 @@ public final class BacktestModels {
         public String optimizationObjective = "";
         public BigDecimal minForwardContribution = BigDecimal.ZERO;
         public Integer trialCount = 0;
+        public Integer trialBudget = 0;
+        public Integer trialBudgetUsed = 0;
+        public Integer trialBudgetHit = 0;
+        public Integer coarseCandidateCount = 0;
+        public Integer fineCandidateCount = 0;
         public Integer bestRank = 0;
         public String bestParamSetJson = "{}";
         public Integer elapsedMs = 0;
@@ -75,6 +80,11 @@ public final class BacktestModels {
         public String optimizationObjective = "";
         public BigDecimal minForwardContribution = BigDecimal.ZERO;
         public Integer trialCount = 0;
+        public Integer trialBudget = 0;
+        public Integer trialBudgetUsed = 0;
+        public Integer trialBudgetHit = 0;
+        public Integer coarseCandidateCount = 0;
+        public Integer fineCandidateCount = 0;
         public Integer bestRank = 0;
         public String bestParamSetJson = "{}";
         public Integer elapsedMs = 0;

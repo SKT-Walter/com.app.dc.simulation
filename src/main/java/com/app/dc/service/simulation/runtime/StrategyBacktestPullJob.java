@@ -233,6 +233,12 @@ public class StrategyBacktestPullJob {
             taskResult.put("totalPnl", response.totalPnl);
             taskResult.put("optimizationObjective", response.optimizationObjective);
             taskResult.put("minForwardContribution", response.minForwardContribution);
+            taskResult.put("trialCount", response.trialCount);
+            taskResult.put("trialBudget", response.trialBudget);
+            taskResult.put("trialBudgetUsed", response.trialBudgetUsed);
+            taskResult.put("trialBudgetHit", response.trialBudgetHit);
+            taskResult.put("coarseCandidateCount", response.coarseCandidateCount);
+            taskResult.put("fineCandidateCount", response.fineCandidateCount);
             taskResult.put("overfitPass", response.overfitPass);
             taskResult.put("overfitReason", response.overfitReason);
             taskResult.put("elapsedMs", response.elapsedMs);
@@ -280,13 +286,10 @@ public class StrategyBacktestPullJob {
             markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.SUSPENDED,
                     e.getReason(), backtestStart, pipelinePayload);
             String nextRetryTime = CLICKHOUSE_TIME.format(LocalDateTime.now().plusMinutes(Math.max(1, suspendedRetryMinutes)));
-            taskDao.markSuspended(task == null ? null : task.id,
-                    e.getReason(),
-                    buildSuspendPayload(task, e),
-                    nextRetryTime);
+            BinanceKlineAutofillService.AutofillTriggerResult autofillResult = null;
+            String autofillError = "";
             try {
-                BinanceKlineAutofillService.AutofillTriggerResult autofillResult =
-                        binanceKlineAutofillService.triggerIfNeeded(task, e);
+                autofillResult = binanceKlineAutofillService.triggerIfNeeded(task, e);
                 log.info("StrategyBacktestPullJob suspend recovery plan, task:{}, generationTaskId:{}, candidateId:{}, reason:{}, nextRetryTime:{}, autofillTriggered:{}, duplicate:{}, autofillKey:{}, requiredBeginDate:{}, requiredEndDate:{}, requiredBars:{}, actualBars:{}, missingBars:{}, message:{}",
                         task == null ? null : task.id,
                         task == null ? null : task.generationTaskId,
@@ -303,11 +306,16 @@ public class StrategyBacktestPullJob {
                         autofillResult == null ? 0 : autofillResult.missingBars,
                         autofillResult == null ? "" : autofillResult.message);
             } catch (Exception autofillEx) {
+                autofillError = autofillEx.getMessage();
                 log.warn("StrategyBacktestPullJob autofill trigger ignored, task:{}, reason:{}",
                         task == null ? null : task.id,
                         autofillEx.getMessage(),
                         autofillEx);
             }
+            taskDao.markSuspended(task == null ? null : task.id,
+                    e.getReason(),
+                    buildSuspendPayload(task, e, nextRetryTime, autofillResult, autofillError),
+                    nextRetryTime);
             log.info("StrategyBacktestPullJob task status -> SUSPENDED, task:{}, generationTaskId:{}, candidateId:{}, thread:{}, nextRetryTime:{}, heap:{}",
                     task == null ? null : task.id,
                     task == null ? null : task.generationTaskId,
@@ -430,7 +438,11 @@ public class StrategyBacktestPullJob {
         return param;
     }
 
-    private String buildSuspendPayload(StrategyBacktestTaskRow task, BacktestTaskSuspendedException error) {
+    private String buildSuspendPayload(StrategyBacktestTaskRow task,
+                                       BacktestTaskSuspendedException error,
+                                       String nextRetryTime,
+                                       BinanceKlineAutofillService.AutofillTriggerResult autofillResult,
+                                       String autofillError) {
         StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
         if (task != null && task.payload != null && !task.payload.trim().isEmpty()) {
             try {
@@ -454,7 +466,29 @@ public class StrategyBacktestPullJob {
             }
         }
         envelope.suspendDetail = error.getDetail();
+        envelope.recoveryPlan = buildRecoveryPlan(error, nextRetryTime, autofillResult, autofillError);
         return JsonUtils.Serializer(envelope);
+    }
+
+    private Map<String, Object> buildRecoveryPlan(BacktestTaskSuspendedException error,
+                                                  String nextRetryTime,
+                                                  BinanceKlineAutofillService.AutofillTriggerResult autofillResult,
+                                                  String autofillError) {
+        Map<String, Object> recoveryPlan = new LinkedHashMap<String, Object>();
+        recoveryPlan.put("reason", error == null ? "" : error.getReason());
+        recoveryPlan.put("nextRetryTime", nextRetryTime);
+        recoveryPlan.put("autofillTriggered", autofillResult != null && autofillResult.triggered);
+        recoveryPlan.put("autofillDuplicate", autofillResult != null && autofillResult.duplicate);
+        recoveryPlan.put("autofillKey", autofillResult == null ? "" : autofillResult.key);
+        recoveryPlan.put("requiredBeginDate", autofillResult == null ? "" : autofillResult.requiredBeginDate);
+        recoveryPlan.put("requiredEndDate", autofillResult == null ? "" : autofillResult.requiredEndDate);
+        recoveryPlan.put("requiredBars", autofillResult == null ? 0 : autofillResult.requiredBars);
+        recoveryPlan.put("actualBars", autofillResult == null ? 0 : autofillResult.actualBars);
+        recoveryPlan.put("missingBars", autofillResult == null ? 0 : autofillResult.missingBars);
+        recoveryPlan.put("autofillMessage", autofillResult == null ? "" : autofillResult.message);
+        recoveryPlan.put("autofillError", isBlank(autofillError) ? "" : autofillError);
+        recoveryPlan.put("recoverable", true);
+        return recoveryPlan;
     }
 
     private String computeReclaimRunningBefore() {

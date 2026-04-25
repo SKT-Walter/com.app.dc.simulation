@@ -14,6 +14,7 @@ import com.gateway.connector.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
@@ -59,6 +60,9 @@ public class BacktestService {
     @Autowired(required = false)
     @Qualifier("strategyBacktestSymbolExecutor")
     private ThreadPoolTaskExecutor strategyBacktestSymbolExecutor;
+
+    @Value("${strategy.backtest.maxTrialsPerTask:160}")
+    private int maxTrialsPerTask;
 
     public BacktestResponse run(BacktestParam param) throws Exception {
         return run(param, 120, 30, 14);
@@ -110,18 +114,24 @@ public class BacktestService {
         List<TrialExecution> executions = new ArrayList<TrialExecution>();
         int trialNo = 1;
         Map<String, List<TTbookOhlc>> ohlcCache = new ConcurrentHashMap<String, List<TTbookOhlc>>();
+        int trialBudget = Math.max(1, maxTrialsPerTask);
 
         List<Map<String, Object>> coarseParamSets = plan.optimizationSupported
                 ? backtestOptimizationService.buildCoarseParamSets(plan)
                 : backtestOptimizationService.buildDefaultOnly(plan);
+        int coarseCandidateCount = coarseParamSets == null ? 0 : coarseParamSets.size();
+        coarseParamSets = limitTrialSets(coarseParamSets, trialBudget, "COARSE", candidate);
         executions.addAll(executeTrials("COARSE", trialNo, candidate, req, symbols, coarseParamSets,
                 windowConfig, plan, ohlcCache));
         trialNo += coarseParamSets.size();
 
         List<OptimizationTrial> rankedTrials = collectTrials(executions);
         backtestOptimizationService.rankTrials(plan, rankedTrials);
+        int fineCandidateCount = 0;
         if (plan.optimizationSupported) {
             List<Map<String, Object>> fineParamSets = backtestOptimizationService.buildFineParamSets(plan, rankedTrials);
+            fineCandidateCount = fineParamSets == null ? 0 : fineParamSets.size();
+            fineParamSets = limitTrialSets(fineParamSets, Math.max(0, trialBudget - executions.size()), "FINE", candidate);
             executions.addAll(executeTrials("FINE", trialNo, candidate, req, symbols, fineParamSets,
                     windowConfig, plan, ohlcCache));
             rankedTrials = collectTrials(executions);
@@ -145,6 +155,11 @@ public class BacktestService {
         response.optimizationObjective = plan.objective;
         response.minForwardContribution = plan.minForwardContribution;
         response.trialCount = executions.size();
+        response.trialBudget = trialBudget;
+        response.trialBudgetUsed = executions.size();
+        response.trialBudgetHit = executions.size() >= trialBudget ? 1 : 0;
+        response.coarseCandidateCount = coarseCandidateCount;
+        response.fineCandidateCount = fineCandidateCount;
         response.bestRank = best.trial.rank == null ? 0 : best.trial.rank;
         response.bestParamSetJson = best.trial.paramSetJson == null ? "{}" : best.trial.paramSetJson;
         response.elapsedMs = nzInt(response.elapsedMs);
@@ -167,6 +182,11 @@ public class BacktestService {
                 result.optimizationObjective = response.optimizationObjective;
                 result.minForwardContribution = response.minForwardContribution;
                 result.trialCount = response.trialCount;
+                result.trialBudget = response.trialBudget;
+                result.trialBudgetUsed = response.trialBudgetUsed;
+                result.trialBudgetHit = response.trialBudgetHit;
+                result.coarseCandidateCount = response.coarseCandidateCount;
+                result.fineCandidateCount = response.fineCandidateCount;
                 result.bestRank = response.bestRank;
                 result.bestParamSetJson = response.bestParamSetJson;
                 result.fitWindowDays = response.fitWindowDays;
@@ -275,6 +295,30 @@ public class BacktestService {
             }
         }
         return best;
+    }
+
+    private List<Map<String, Object>> limitTrialSets(List<Map<String, Object>> paramSets,
+                                                     int budget,
+                                                     String phase,
+                                                     StrategyCandidateRow candidate) {
+        if (paramSets == null || paramSets.isEmpty()) {
+            return Collections.emptyList();
+        }
+        int safeBudget = Math.max(0, budget);
+        if (paramSets.size() <= safeBudget) {
+            return paramSets;
+        }
+        log.warn("BacktestService trial budget cap, strategy:{}@{}, phase:{}, budgetRemaining:{}, planned:{}, trimmed:{}",
+                candidate == null ? "" : candidate.strategyName,
+                candidate == null ? "" : candidate.strategyVersion,
+                phase,
+                safeBudget,
+                paramSets.size(),
+                Math.max(0, paramSets.size() - safeBudget));
+        if (safeBudget == 0) {
+            return Collections.emptyList();
+        }
+        return new ArrayList<Map<String, Object>>(paramSets.subList(0, safeBudget));
     }
 
     private BacktestResponse runSingle(StrategyCandidateRow candidate,

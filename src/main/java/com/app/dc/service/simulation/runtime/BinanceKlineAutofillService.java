@@ -66,22 +66,40 @@ public class BinanceKlineAutofillService {
 
     private final Set<String> inFlightBackfillKeys = ConcurrentHashMap.newKeySet();
 
-    public void triggerIfNeeded(StrategyBacktestTaskRow task, BacktestTaskSuspendedException error) {
+    public AutofillTriggerResult triggerIfNeeded(StrategyBacktestTaskRow task, BacktestTaskSuspendedException error) {
+        AutofillTriggerResult result = new AutofillTriggerResult();
         if (!enabled) {
             log.info("BinanceKlineAutofillService disabled, task:{}", task == null ? null : task.id);
-            return;
+            result.triggered = false;
+            result.message = "autofill disabled";
+            return result;
         }
         if (error == null || !INSUFFICIENT_KLINE.equalsIgnoreCase(error.getReason())) {
-            return;
+            result.triggered = false;
+            result.message = "suspend reason not insufficient kline";
+            return result;
         }
         AutofillRequest request = buildRequest(task, error.getDetail());
         if (request == null) {
-            return;
+            result.triggered = false;
+            result.message = "autofill request not buildable";
+            return result;
         }
+        result.key = request.key();
+        result.symbol = request.symbol;
+        result.text = request.text;
+        result.requiredBeginDate = request.requiredBeginDate == null ? "" : request.requiredBeginDate.toString();
+        result.requiredEndDate = request.requiredEndDate == null ? "" : request.requiredEndDate.toString();
+        result.requiredBars = request.requiredBars;
+        result.actualBars = request.actualBars;
+        result.missingBars = request.missingBars;
         if (!inFlightBackfillKeys.add(request.key())) {
             log.info("BinanceKlineAutofillService skip duplicate running autofill, task:{}, key:{}",
                     task == null ? null : task.id, request.key());
-            return;
+            result.triggered = false;
+            result.duplicate = true;
+            result.message = "duplicate autofill already running";
+            return result;
         }
         try {
             strategyBacktestKlineAutofillExecutor.execute(new Runnable() {
@@ -96,15 +114,22 @@ public class BinanceKlineAutofillService {
                     request.startDate,
                     request.endDate,
                     strategyBacktestKlineAutofillExecutor.getActiveCount());
+            result.triggered = true;
+            result.message = "autofill scheduled";
         } catch (RejectedExecutionException e) {
             inFlightBackfillKeys.remove(request.key());
             log.warn("BinanceKlineAutofillService rejected, task:{}, key:{}",
                     task == null ? null : task.id, request.key(), e);
+            result.triggered = false;
+            result.message = "autofill rejected: " + e.getMessage();
         } catch (Exception e) {
             inFlightBackfillKeys.remove(request.key());
             log.warn("BinanceKlineAutofillService schedule error, task:{}, key:{}",
                     task == null ? null : task.id, request.key(), e);
+            result.triggered = false;
+            result.message = "autofill schedule error: " + e.getMessage();
         }
+        return result;
     }
 
     private void runAutofill(StrategyBacktestTaskRow task, AutofillRequest request) {
@@ -317,5 +342,19 @@ public class BinanceKlineAutofillService {
         private String key() {
             return venue + "|" + symbol + "|" + text;
         }
+    }
+
+    public static class AutofillTriggerResult {
+        public boolean triggered;
+        public boolean duplicate;
+        public String key;
+        public String symbol;
+        public String text;
+        public String requiredBeginDate;
+        public String requiredEndDate;
+        public int requiredBars;
+        public int actualBars;
+        public int missingBars;
+        public String message;
     }
 }

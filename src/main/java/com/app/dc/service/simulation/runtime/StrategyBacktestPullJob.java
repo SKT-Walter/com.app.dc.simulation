@@ -33,7 +33,8 @@ public class StrategyBacktestPullJob {
 
     private static final DateTimeFormatter CLICKHOUSE_TIME =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private final String processBootTime = CLICKHOUSE_TIME.format(LocalDateTime.now());
+    private final LocalDateTime processBootAt = LocalDateTime.now();
+    private final String processBootTime = CLICKHOUSE_TIME.format(processBootAt);
 
     @Value("${strategy.backtest.task.enabled:false}")
     private boolean enabled;
@@ -43,6 +44,12 @@ public class StrategyBacktestPullJob {
 
     @Value("${strategy.backtest.parallelism:10}")
     private int parallelism;
+
+    @Value("${strategy.backtest.task.runningReclaimMinutes:30}")
+    private int runningReclaimMinutes;
+
+    @Value("${strategy.backtest.task.suspendedRetryMinutes:30}")
+    private int suspendedRetryMinutes;
 
     @Autowired
     private StrategyBacktestTaskDao taskDao;
@@ -85,10 +92,11 @@ public class StrategyBacktestPullJob {
             return;
         }
         int fetchLimit = Math.min(Math.max(1, batchSize), availableSlots);
-        List<StrategyBacktestTaskRow> tasks = taskDao.pullRunnable(fetchLimit, processBootTime);
+        String reclaimRunningBefore = computeReclaimRunningBefore();
+        List<StrategyBacktestTaskRow> tasks = taskDao.pullRunnable(fetchLimit, reclaimRunningBefore);
         int pulledCount = tasks == null ? 0 : tasks.size();
         log.info("StrategyBacktestPullJob pulled tasks, requested:{}, pulled:{}, reclaimRunningBefore:{}",
-                fetchLimit, pulledCount, processBootTime);
+                fetchLimit, pulledCount, reclaimRunningBefore);
         if (tasks == null || tasks.isEmpty()) {
             return;
         }
@@ -133,8 +141,9 @@ public class StrategyBacktestPullJob {
                     task.id, task.generationTaskId, task.candidateId, task.strategyName, task.strategyVersion,
                     threadName, task.status, memorySummary());
             if ("RUNNING".equalsIgnoreCase(task.status)) {
-                log.warn("StrategyBacktestPullJob reclaim stale RUNNING task after restart, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, lastUpdate:{}",
-                        task.id, task.generationTaskId, task.candidateId, task.strategyName, task.strategyVersion, task.updateTime);
+                log.warn("StrategyBacktestPullJob reclaim stale RUNNING task, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, lastUpdate:{}, processBootTime:{}, reclaimWindowMinutes:{}",
+                        task.id, task.generationTaskId, task.candidateId, task.strategyName, task.strategyVersion,
+                        task.updateTime, processBootTime, Math.max(1, runningReclaimMinutes));
             }
             taskDao.markRunning(task.id);
             log.info("StrategyBacktestPullJob task status -> RUNNING, task:{}, generationTaskId:{}, candidateId:{}, thread:{}",
@@ -270,12 +279,29 @@ public class StrategyBacktestPullJob {
             pipelinePayload.put("suspendDetail", e.getDetail());
             markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.SUSPENDED,
                     e.getReason(), backtestStart, pipelinePayload);
+            String nextRetryTime = CLICKHOUSE_TIME.format(LocalDateTime.now().plusMinutes(Math.max(1, suspendedRetryMinutes)));
             taskDao.markSuspended(task == null ? null : task.id,
                     e.getReason(),
                     buildSuspendPayload(task, e),
-                    CLICKHOUSE_TIME.format(LocalDateTime.now().plusMinutes(30)));
+                    nextRetryTime);
             try {
-                binanceKlineAutofillService.triggerIfNeeded(task, e);
+                BinanceKlineAutofillService.AutofillTriggerResult autofillResult =
+                        binanceKlineAutofillService.triggerIfNeeded(task, e);
+                log.info("StrategyBacktestPullJob suspend recovery plan, task:{}, generationTaskId:{}, candidateId:{}, reason:{}, nextRetryTime:{}, autofillTriggered:{}, duplicate:{}, autofillKey:{}, requiredBeginDate:{}, requiredEndDate:{}, requiredBars:{}, actualBars:{}, missingBars:{}, message:{}",
+                        task == null ? null : task.id,
+                        task == null ? null : task.generationTaskId,
+                        task == null ? null : task.candidateId,
+                        e.getReason(),
+                        nextRetryTime,
+                        autofillResult != null && autofillResult.triggered,
+                        autofillResult != null && autofillResult.duplicate,
+                        autofillResult == null ? "" : autofillResult.key,
+                        autofillResult == null ? "" : autofillResult.requiredBeginDate,
+                        autofillResult == null ? "" : autofillResult.requiredEndDate,
+                        autofillResult == null ? 0 : autofillResult.requiredBars,
+                        autofillResult == null ? 0 : autofillResult.actualBars,
+                        autofillResult == null ? 0 : autofillResult.missingBars,
+                        autofillResult == null ? "" : autofillResult.message);
             } catch (Exception autofillEx) {
                 log.warn("StrategyBacktestPullJob autofill trigger ignored, task:{}, reason:{}",
                         task == null ? null : task.id,
@@ -287,7 +313,7 @@ public class StrategyBacktestPullJob {
                     task == null ? null : task.generationTaskId,
                     task == null ? null : task.candidateId,
                     threadName,
-                    CLICKHOUSE_TIME.format(LocalDateTime.now().plusMinutes(30)),
+                    nextRetryTime,
                     memorySummary());
         } catch (Exception e) {
             log.error("StrategyBacktestPullJob handleTask error, task:{}, generationTaskId:{}, candidateId:{}, heap:{}",
@@ -429,6 +455,12 @@ public class StrategyBacktestPullJob {
         }
         envelope.suspendDetail = error.getDetail();
         return JsonUtils.Serializer(envelope);
+    }
+
+    private String computeReclaimRunningBefore() {
+        LocalDateTime staleCutoff = LocalDateTime.now().minusMinutes(Math.max(1, runningReclaimMinutes));
+        LocalDateTime reclaimBefore = staleCutoff.isAfter(processBootAt) ? staleCutoff : processBootAt;
+        return CLICKHOUSE_TIME.format(reclaimBefore);
     }
 
     private String defaultSymbol(String scene) {

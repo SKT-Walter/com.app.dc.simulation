@@ -21,6 +21,8 @@ public class StrategyBacktestTaskQueryService {
     @Autowired
     private StrategyBacktestTaskDao taskDao;
 
+    private static final int STALE_RUNNING_MINUTES = 30;
+
     public Map<String, Object> query(String taskId,
                                      String generationTaskId,
                                      String candidateId,
@@ -82,7 +84,9 @@ public class StrategyBacktestTaskQueryService {
         state.put("isRecoverable", "SUSPENDED".equalsIgnoreCase(status) || "RUNNING".equalsIgnoreCase(status)
                 || "PENDING".equalsIgnoreCase(status));
         state.put("retryReady", "SUSPENDED".equalsIgnoreCase(status) && retryReady(row == null ? null : row.nextRetryTime));
+        state.put("retryDueInSeconds", retryDueInSeconds(row == null ? null : row.nextRetryTime));
         state.put("staleRunningCandidate", "RUNNING".equalsIgnoreCase(status) && staleRunningCandidate(row == null ? null : row.updateTime));
+        state.put("staleRunningThresholdMinutes", STALE_RUNNING_MINUTES);
         return state;
     }
 
@@ -138,9 +142,21 @@ public class StrategyBacktestTaskQueryService {
         }
         try {
             LocalDateTime lastUpdate = LocalDateTime.parse(updateTime.trim(), CLICKHOUSE_TIME);
-            return lastUpdate.isBefore(LocalDateTime.now().minusMinutes(5));
+            return lastUpdate.isBefore(LocalDateTime.now().minusMinutes(STALE_RUNNING_MINUTES));
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    private long retryDueInSeconds(String nextRetryTime) {
+        if (StringUtils.isBlank(nextRetryTime)) {
+            return 0L;
+        }
+        try {
+            LocalDateTime retryAt = LocalDateTime.parse(nextRetryTime.trim(), CLICKHOUSE_TIME);
+            return Math.max(0L, java.time.Duration.between(LocalDateTime.now(), retryAt).getSeconds());
+        } catch (Exception e) {
+            return -1L;
         }
     }
 

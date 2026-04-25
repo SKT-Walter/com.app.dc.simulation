@@ -83,6 +83,56 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
     }
 
     @Override
+    public List<StrategyBacktestTaskRow> loadLatest(String taskId,
+                                                    String generationTaskId,
+                                                    String candidateId,
+                                                    String strategyName,
+                                                    String strategyVersion,
+                                                    String status,
+                                                    int limit) {
+        if (!ready()) {
+            return Collections.emptyList();
+        }
+        String innerSql = latestTaskSql();
+        StringBuilder sql = new StringBuilder();
+        sql.append("select ")
+                .append("id, candidateId, generationTaskId, strategyName, strategyVersion, baselineVersion, runtimeType, taskType,")
+                .append("fitWindowDays, validateWindowDays, forwardWindowDays, priority, status,")
+                .append("suspendReason, ifNull(toString(nextRetryTimeRaw), '') as nextRetryTime,")
+                .append("attemptCount, createTime, updateTime, payload, failureReason ")
+                .append("from (").append(innerSql).append(") latest where 1=1");
+        if (StringUtils.isNotBlank(taskId)) {
+            sql.append(" and latest.id='").append(escape(taskId.trim())).append("'");
+        }
+        if (StringUtils.isNotBlank(generationTaskId)) {
+            sql.append(" and latest.generationTaskId='").append(escape(generationTaskId.trim())).append("'");
+        }
+        if (StringUtils.isNotBlank(candidateId)) {
+            sql.append(" and latest.candidateId='").append(escape(candidateId.trim())).append("'");
+        }
+        if (StringUtils.isNotBlank(strategyName)) {
+            sql.append(" and latest.strategyName='").append(escape(strategyName.trim())).append("'");
+        }
+        if (StringUtils.isNotBlank(strategyVersion)) {
+            sql.append(" and latest.strategyVersion='").append(escape(strategyVersion.trim())).append("'");
+        }
+        if (StringUtils.isNotBlank(status)) {
+            sql.append(" and latest.status='").append(escape(status.trim())).append("'");
+        }
+        sql.append(" order by parseDateTimeBestEffortOrNull(latest.updateTime) desc limit ")
+                .append(Math.max(1, Math.min(limit, 100)));
+        try {
+            List<StrategyBacktestTaskRow> rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{},
+                    StrategyBacktestTaskRow.class);
+            return rows == null ? Collections.<StrategyBacktestTaskRow>emptyList() : rows;
+        } catch (Exception e) {
+            log.error("loadLatest error, taskId:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, status:{}",
+                    taskId, generationTaskId, candidateId, strategyName, strategyVersion, status, e);
+            return Collections.emptyList();
+        }
+    }
+
+    @Override
     public void markRunning(String id) {
         updateStatus(id, "RUNNING", null, null, null, "", true);
     }
@@ -165,6 +215,35 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
         } catch (Exception e) {
             log.error("updateStatus error, id:{}, status:{}", id, status, e);
         }
+    }
+
+    private String latestTaskSql() {
+        String baseSql = "select *, "
+                + "tuple(update_time, multiIf(status='SUCCESS', 4, status='FAILED', 4, status='RUNNING', 3, status='SUSPENDED', 2, 1)) as versionKey "
+                + "from " + safe(taskTable);
+        return "select "
+                + "id as id,"
+                + "argMax(candidate_id, versionKey) as candidateId,"
+                + "argMax(generation_task_id, versionKey) as generationTaskId,"
+                + "argMax(strategy_name, versionKey) as strategyName,"
+                + "argMax(strategy_version, versionKey) as strategyVersion,"
+                + "argMax(baseline_version, versionKey) as baselineVersion,"
+                + "argMax(runtime_type, versionKey) as runtimeType,"
+                + "argMax(task_type, versionKey) as taskType,"
+                + "argMax(fit_window_days, versionKey) as fitWindowDays,"
+                + "argMax(validate_window_days, versionKey) as validateWindowDays,"
+                + "argMax(forward_window_days, versionKey) as forwardWindowDays,"
+                + "argMax(priority, versionKey) as priority,"
+                + "argMax(status, versionKey) as status,"
+                + "argMax(suspend_reason, versionKey) as suspendReason,"
+                + "argMax(next_retry_time, versionKey) as nextRetryTimeRaw,"
+                + "argMax(attempt_count, versionKey) as attemptCount,"
+                + "toString(argMax(create_time, versionKey)) as createTime,"
+                + "toString(argMax(update_time, versionKey)) as updateTime,"
+                + "argMax(payload, versionKey) as payload,"
+                + "argMax(failure_reason, versionKey) as failureReason "
+                + "from (" + baseSql + ")"
+                + " group by id";
     }
 
     private String escape(String value) {

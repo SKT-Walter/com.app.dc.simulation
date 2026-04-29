@@ -34,6 +34,9 @@ public class BinanceKlineAutofillService {
     private BacktestQueryService backtestQueryService;
 
     @Autowired
+    private StrategyBacktestTaskDao strategyBacktestTaskDao;
+
+    @Autowired
     @Qualifier("strategyBacktestKlineAutofillExecutor")
     private ThreadPoolTaskExecutor strategyBacktestKlineAutofillExecutor;
 
@@ -167,6 +170,9 @@ public class BinanceKlineAutofillService {
             });
             int actualBars = queryBars(request.symbol, request.text, request.requiredBeginDate, request.requiredEndDate);
             if (actualBars >= request.requiredBars) {
+                if (task != null && !StringUtils.isBlank(task.id)) {
+                    strategyBacktestTaskDao.markRetryReadyNow(task.id, INSUFFICIENT_KLINE);
+                }
                 log.info("BinanceKlineAutofillService success, task:{}, key:{}, thread:{}, startDate:{}, endDate:{}, requiredBars:{}, actualBars:{}, missingBars:{}",
                         task == null ? null : task.id,
                         request.key(),
@@ -176,6 +182,11 @@ public class BinanceKlineAutofillService {
                         request.requiredBars,
                         actualBars,
                         Math.max(0, request.requiredBars - actualBars));
+                log.info("BinanceKlineAutofillService retry ready now, task:{}, key:{}, thread:{}, reason:{}, nextRetryTime:now()",
+                        task == null ? null : task.id,
+                        request.key(),
+                        threadName,
+                        INSUFFICIENT_KLINE);
             } else {
                 log.warn("BinanceKlineAutofillService validation not enough, task:{}, key:{}, thread:{}, requiredBeginDate:{}, requiredEndDate:{}, requiredBars:{}, actualBars:{}, missingBars:{}",
                         task == null ? null : task.id,

@@ -23,5 +23,7 @@ public interface StrategyBacktestTaskDao {
 
     void markSuspended(String id, String reason, String payload, String nextRetryTime);
 
+    void markRetryReadyNow(String id, String reason);
+
     StrategyCandidateRow loadCandidate(String strategyName, String strategyVersion);
 }

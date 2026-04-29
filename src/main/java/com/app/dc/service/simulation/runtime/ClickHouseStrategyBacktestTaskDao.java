@@ -9,10 +9,15 @@ import org.springframework.stereotype.Component;
 
 import java.util.Collections;
 import java.util.List;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 @Component
 @Slf4j
 public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDao {
+
+    private static final DateTimeFormatter CLICKHOUSE_TIME =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Autowired(required = false)
     private ClickHouseDBUtils clickHouseDBUtils;
@@ -150,6 +155,15 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
     @Override
     public void markSuspended(String id, String reason, String payload, String nextRetryTime) {
         updateStatus(id, "SUSPENDED", payload, reason, nextRetryTime, "", false);
+    }
+
+    @Override
+    public void markRetryReadyNow(String id, String reason) {
+        updateStatus(id, "SUSPENDED", null,
+                StringUtils.defaultString(reason),
+                CLICKHOUSE_TIME.format(LocalDateTime.now()),
+                "",
+                false);
     }
 
     @Override

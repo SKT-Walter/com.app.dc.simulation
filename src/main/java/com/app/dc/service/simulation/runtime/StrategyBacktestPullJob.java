@@ -161,6 +161,7 @@ public class StrategyBacktestPullJob {
                     task.fitWindowDays == null ? 120 : task.fitWindowDays.intValue(),
                     task.validateWindowDays == null ? 30 : task.validateWindowDays.intValue(),
                     task.forwardWindowDays == null ? 14 : task.forwardWindowDays.intValue());
+            normalizeResponseFromTask(task, response);
             log.info("StrategyBacktestPullJob backtest run finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, resultCount:{}, trialCount:{}, optimizationMode:{}, bestRank:{}",
                     task.id,
                     task.generationTaskId,
@@ -324,22 +325,24 @@ public class StrategyBacktestPullJob {
                     nextRetryTime,
                     memorySummary());
         } catch (Exception e) {
+            String failureReason = summarizeThrowable(e);
             log.error("StrategyBacktestPullJob handleTask error, task:{}, generationTaskId:{}, candidateId:{}, heap:{}",
                     task == null ? null : task.id,
                     task == null ? null : task.generationTaskId,
                     task == null ? null : task.candidateId,
                     memorySummary(), e);
             Map<String, Object> pipelinePayload = resolvePipelinePayload(task, null);
-            pipelinePayload.put("error", e.getMessage());
+            pipelinePayload.put("error", failureReason);
             markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.FAILED,
-                    e.getMessage(), backtestStart, pipelinePayload);
-            taskDao.markFailed(task == null ? null : task.id, e.getMessage());
+                    failureReason, backtestStart, pipelinePayload);
+            taskDao.markFailed(task == null ? null : task.id, failureReason);
             log.info("StrategyBacktestPullJob task status -> FAILED, task:{}, generationTaskId:{}, candidateId:{}, thread:{}, error:{}, heap:{}",
                     task == null ? null : task.id,
                     task == null ? null : task.generationTaskId,
                     task == null ? null : task.candidateId,
-                    threadName, e.getMessage(), memorySummary());
+                    threadName, failureReason, memorySummary());
         } catch (Throwable t) {
+            String failureReason = summarizeThrowable(t);
             log.error("StrategyBacktestPullJob handleTask throwable, task:{}, generationTaskId:{}, candidateId:{}, heap:{}",
                     task == null ? null : task.id,
                     task == null ? null : task.generationTaskId,
@@ -347,10 +350,10 @@ public class StrategyBacktestPullJob {
                     memorySummary(), t);
             try {
                 Map<String, Object> pipelinePayload = resolvePipelinePayload(task, null);
-                pipelinePayload.put("error", t.getMessage());
+                pipelinePayload.put("error", failureReason);
                 markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.FAILED,
-                        t.getMessage(), backtestStart, pipelinePayload);
-                taskDao.markFailed(task == null ? null : task.id, t.getMessage());
+                        failureReason, backtestStart, pipelinePayload);
+                taskDao.markFailed(task == null ? null : task.id, failureReason);
             } catch (Exception inner) {
                 log.error("StrategyBacktestPullJob secondary failure while marking throwable state, task:{}",
                         task == null ? null : task.id, inner);
@@ -359,7 +362,7 @@ public class StrategyBacktestPullJob {
                     task == null ? null : task.id,
                     task == null ? null : task.generationTaskId,
                     task == null ? null : task.candidateId,
-                    threadName, t.getMessage(), memorySummary());
+                    threadName, failureReason, memorySummary());
         } finally {
             inFlightTaskIds.remove(task == null ? null : task.id);
             long elapsedMs = Math.max(0L, (System.nanoTime() - startNs) / 1_000_000L);
@@ -577,5 +580,66 @@ public class StrategyBacktestPullJob {
             return first;
         }
         return second;
+    }
+
+    private void normalizeResponseFromTask(StrategyBacktestTaskRow task,
+                                           BacktestModels.BacktestResponse response) {
+        if (task == null || response == null) {
+            return;
+        }
+        int fitWindowDays = task.fitWindowDays == null ? 120 : task.fitWindowDays.intValue();
+        int validateWindowDays = task.validateWindowDays == null ? 30 : task.validateWindowDays.intValue();
+        int forwardWindowDays = task.forwardWindowDays == null ? 14 : task.forwardWindowDays.intValue();
+        response.fitWindowDays = fitWindowDays;
+        response.validateWindowDays = validateWindowDays;
+        response.forwardWindowDays = forwardWindowDays;
+        if (response.results != null) {
+            for (BacktestModels.BacktestResult result : response.results) {
+                if (result == null) {
+                    continue;
+                }
+                result.fitWindowDays = fitWindowDays;
+                result.validateWindowDays = validateWindowDays;
+                result.forwardWindowDays = forwardWindowDays;
+            }
+        }
+        if (response.trials != null) {
+            for (BacktestModels.OptimizationTrial trial : response.trials) {
+                if (trial == null) {
+                    continue;
+                }
+                trial.fitWindowDays = fitWindowDays;
+                trial.validateWindowDays = validateWindowDays;
+                trial.forwardWindowDays = forwardWindowDays;
+            }
+        }
+    }
+
+    private String summarizeThrowable(Throwable throwable) {
+        if (throwable == null) {
+            return "";
+        }
+        Throwable root = throwable;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        StringBuilder builder = new StringBuilder();
+        if (root.getClass() != null) {
+            builder.append(root.getClass().getSimpleName());
+        }
+        String message = root.getMessage();
+        if (isBlank(message) && root != throwable) {
+            message = throwable.getMessage();
+        }
+        if (!isBlank(message)) {
+            if (builder.length() > 0) {
+                builder.append(": ");
+            }
+            builder.append(message.trim());
+        }
+        if (builder.length() == 0) {
+            builder.append(throwable.getClass().getSimpleName());
+        }
+        return builder.toString();
     }
 }

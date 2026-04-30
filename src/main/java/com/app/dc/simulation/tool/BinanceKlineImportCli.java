@@ -2,6 +2,8 @@ package com.app.dc.simulation.tool;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
+import com.alibaba.fastjson2.annotation.JSONField;
+import com.app.common.db.ClickHouseDBUtils;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -16,6 +18,7 @@ import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -35,6 +38,8 @@ public class BinanceKlineImportCli {
     private static final String DEFAULT_MODE = "gap-fill";
     private static final String DEFAULT_BASE_URL = "https://fapi.binance.com";
     private static final DateTimeFormatter FMT_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter FMT_TIME_MILLIS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+    private static final int INSERT_BATCH_SIZE = 10000;
 
     public static void main(String[] args) throws Exception {
         CliOptions options = CliOptions.parse(args);
@@ -78,6 +83,7 @@ public class BinanceKlineImportCli {
                 if (rows == null || rows.isEmpty()) {
                     break;
                 }
+                Map<String, List<ImportKline>> groupedPending = new LinkedHashMap<String, List<ImportKline>>();
                 long nextCursor = cursor;
                 for (int i = 0; i < rows.size(); i++) {
                     JSONArray item = rows.getJSONArray(i);
@@ -88,15 +94,21 @@ public class BinanceKlineImportCli {
                         skipped++;
                         continue;
                     }
-                    if (!options.dryRun) {
-                        insertKline(connection, options, symbol, item);
-                    }
-                    existing.add(Long.valueOf(openTime));
-                    inserted++;
+                    ImportKline kline = toKline(options, symbol, item);
+                    appendPending(groupedPending, partitionKey(openTime), kline);
                     if (closeTime >= endMs) {
                         nextCursor = endMs + 1L;
                     }
                 }
+                if (!options.dryRun && !groupedPending.isEmpty()) {
+                    insertKlines(groupedPending);
+                }
+                for (List<ImportKline> group : groupedPending.values()) {
+                    for (ImportKline row : group) {
+                        existing.add(Long.valueOf(parseEpochMillis(row.startTime)));
+                    }
+                }
+                inserted += countRows(groupedPending);
                 if (nextCursor <= cursor) {
                     break;
                 }
@@ -131,39 +143,83 @@ public class BinanceKlineImportCli {
         return existing;
     }
 
-    private static void insertKline(Connection connection, CliOptions options, String symbol, JSONArray item) throws Exception {
-        String sql = "insert into dc.kline "
-                + "(startTime,endTime,securityID,text,fmtTime,open,high,low,close,openTime,highTime,lowTime,closeTime,"
-                + "inf1,type,venue,createTime,fillFlag,numTrades,turnover,volume) "
-                + "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+    private static void insertKlines(Map<String, List<ImportKline>> groupedRows) throws Exception {
+        for (List<ImportKline> partitionRows : groupedRows.values()) {
+            if (partitionRows == null || partitionRows.isEmpty()) {
+                continue;
+            }
+            List<ImportKline> batch = new ArrayList<ImportKline>(Math.min(partitionRows.size(), INSERT_BATCH_SIZE));
+            for (ImportKline row : partitionRows) {
+                batch.add(row);
+                if (batch.size() >= INSERT_BATCH_SIZE) {
+                    ClickHouseDBUtils.insertList(batch, "kline");
+                    batch = new ArrayList<ImportKline>(Math.min(partitionRows.size(), INSERT_BATCH_SIZE));
+                }
+            }
+            if (!batch.isEmpty()) {
+                ClickHouseDBUtils.insertList(batch, "kline");
+            }
+        }
+    }
+
+    private static ImportKline toKline(CliOptions options, String symbol, JSONArray item) {
         long openTime = item.getLongValue(0);
         long closeTime = item.getLongValue(6);
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
-            Timestamp openTs = new Timestamp(openTime);
-            Timestamp closeTs = new Timestamp(closeTime);
-            ps.setTimestamp(1, openTs);
-            ps.setTimestamp(2, closeTs);
-            ps.setString(3, symbol);
-            ps.setString(4, options.interval);
-            ps.setString(5, FMT_TIME.format(Instant.ofEpochMilli(openTime).atZone(ZoneOffset.UTC).toLocalDateTime()));
-            ps.setBigDecimal(6, new BigDecimal(item.getString(1)));
-            ps.setBigDecimal(7, new BigDecimal(item.getString(2)));
-            ps.setBigDecimal(8, new BigDecimal(item.getString(3)));
-            ps.setBigDecimal(9, new BigDecimal(item.getString(4)));
-            ps.setTimestamp(10, openTs);
-            ps.setTimestamp(11, closeTs);
-            ps.setTimestamp(12, closeTs);
-            ps.setTimestamp(13, closeTs);
-            ps.setString(14, "true");
-            ps.setString(15, "kline");
-            ps.setString(16, options.venue);
-            ps.setTimestamp(17, Timestamp.from(Instant.now()));
-            ps.setInt(18, 0);
-            ps.setInt(19, item.getIntValue(8));
-            ps.setBigDecimal(20, new BigDecimal(item.getString(7)));
-            ps.setBigDecimal(21, new BigDecimal(item.getString(5)));
-            ps.executeUpdate();
+        LocalDateTime openDateTime = Instant.ofEpochMilli(openTime).atZone(ZoneOffset.UTC).toLocalDateTime();
+        LocalDateTime closeDateTime = Instant.ofEpochMilli(closeTime).atZone(ZoneOffset.UTC).toLocalDateTime();
+        String startTime = FMT_TIME_MILLIS.format(openDateTime);
+        String endTime = FMT_TIME_MILLIS.format(closeDateTime);
+        ImportKline row = new ImportKline();
+        row.startTime = startTime;
+        row.endTime = endTime;
+        row.securityID = symbol;
+        row.text = options.interval;
+        row.fmtTime = FMT_TIME.format(openDateTime);
+        row.open = new BigDecimal(item.getString(1));
+        row.high = new BigDecimal(item.getString(2));
+        row.low = new BigDecimal(item.getString(3));
+        row.close = new BigDecimal(item.getString(4));
+        row.openTime = startTime;
+        row.highTime = endTime;
+        row.lowTime = endTime;
+        row.closeTime = endTime;
+        row.inf1 = "true";
+        row.inf2 = "";
+        row.inf3 = "";
+        row.inf4 = "";
+        row.type = "kline";
+        row.venue = options.venue;
+        row.createTime = FMT_TIME_MILLIS.format(LocalDateTime.now(ZoneOffset.UTC));
+        row.fillFlag = 0;
+        row.numTrades = item.getIntValue(8);
+        row.turnover = new BigDecimal(item.getString(7));
+        row.volume = new BigDecimal(item.getString(5));
+        return row;
+    }
+
+    private static void appendPending(Map<String, List<ImportKline>> groupedPending, String key, ImportKline kline) {
+        List<ImportKline> group = groupedPending.get(key);
+        if (group == null) {
+            group = new ArrayList<ImportKline>();
+            groupedPending.put(key, group);
         }
+        group.add(kline);
+    }
+
+    private static int countRows(Map<String, List<ImportKline>> groupedPending) {
+        int total = 0;
+        for (List<ImportKline> rows : groupedPending.values()) {
+            total += rows == null ? 0 : rows.size();
+        }
+        return total;
+    }
+
+    private static String partitionKey(long openTime) {
+        return FMT_TIME.format(Instant.ofEpochMilli(openTime).atZone(ZoneOffset.UTC).toLocalDateTime()).substring(0, 7);
+    }
+
+    private static long parseEpochMillis(String value) {
+        return LocalDateTime.parse(value, FMT_TIME_MILLIS).toInstant(ZoneOffset.UTC).toEpochMilli();
     }
 
     private static long intervalMillis(String interval) {
@@ -348,4 +404,79 @@ public class BinanceKlineImportCli {
             return cfg;
         }
     }
+
+    private static class ImportKline {
+        @JSONField(name = "startTime", serialize = true)
+        public String startTime;
+
+        @JSONField(name = "endTime", serialize = true)
+        public String endTime;
+
+        @JSONField(name = "securityID", serialize = true)
+        public String securityID;
+
+        @JSONField(name = "text", serialize = true)
+        public String text;
+
+        @JSONField(name = "fmtTime", serialize = true)
+        public String fmtTime;
+
+        @JSONField(name = "open", serialize = true)
+        public BigDecimal open;
+
+        @JSONField(name = "high", serialize = true)
+        public BigDecimal high;
+
+        @JSONField(name = "low", serialize = true)
+        public BigDecimal low;
+
+        @JSONField(name = "close", serialize = true)
+        public BigDecimal close;
+
+        @JSONField(name = "openTime", serialize = true)
+        public String openTime;
+
+        @JSONField(name = "highTime", serialize = true)
+        public String highTime;
+
+        @JSONField(name = "lowTime", serialize = true)
+        public String lowTime;
+
+        @JSONField(name = "closeTime", serialize = true)
+        public String closeTime;
+
+        @JSONField(name = "inf1", serialize = true)
+        public String inf1;
+
+        @JSONField(name = "inf2", serialize = true)
+        public String inf2;
+
+        @JSONField(name = "inf3", serialize = true)
+        public String inf3;
+
+        @JSONField(name = "inf4", serialize = true)
+        public String inf4;
+
+        @JSONField(name = "type", serialize = true)
+        public String type;
+
+        @JSONField(name = "venue", serialize = true)
+        public String venue;
+
+        @JSONField(name = "createTime", serialize = true)
+        public String createTime;
+
+        @JSONField(name = "fillFlag", serialize = true)
+        public int fillFlag;
+
+        @JSONField(name = "numTrades", serialize = true)
+        public int numTrades;
+
+        @JSONField(name = "turnover", serialize = true)
+        public BigDecimal turnover;
+
+        @JSONField(name = "volume", serialize = true)
+        public BigDecimal volume;
+    }
+
 }

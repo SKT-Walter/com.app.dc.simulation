@@ -405,7 +405,7 @@ public class BinanceKlineImportCli {
         }
     }
 
-    private static class ImportKline {
+    public static class ImportKline {
         @JSONField(name = "startTime", serialize = true)
         public String startTime;
 

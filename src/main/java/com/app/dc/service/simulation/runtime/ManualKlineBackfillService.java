@@ -126,6 +126,8 @@ public class ManualKlineBackfillService {
                 step.put("symbols", req.symbols);
                 step.put("startedAt", nowText());
                 state.steps.add(step);
+                log.info("ManualKlineBackfillService step start, jobId:{}, interval:{}, symbols:{}, yearsBack:{}, venue:{}, mode:{}",
+                        state.jobId, interval, req.symbols, req.yearsBack, req.venue, req.mode);
                 List<String> args = new ArrayList<String>();
                 args.add("--symbols");
                 args.add(join(req.symbols));
@@ -155,6 +157,8 @@ public class ManualKlineBackfillService {
                 BinanceKlineImportCli.main(args.toArray(new String[args.size()]));
                 step.put("status", "SUCCESS");
                 step.put("finishedAt", nowText());
+                log.info("ManualKlineBackfillService step success, jobId:{}, interval:{}, symbols:{}",
+                        state.jobId, interval, req.symbols);
             }
             state.status = "SUCCESS";
             state.message = "backfill finished";
@@ -165,6 +169,8 @@ public class ManualKlineBackfillService {
                 state.steps.get(state.steps.size() - 1).put("status", "FAILED");
                 state.steps.get(state.steps.size() - 1).put("error", e.getMessage());
                 state.steps.get(state.steps.size() - 1).put("finishedAt", nowText());
+                log.error("ManualKlineBackfillService step failed, jobId:{}, interval:{}, symbols:{}, reason:{}",
+                        state.jobId, state.steps.get(state.steps.size() - 1).get("interval"), req.symbols, e.getMessage());
             }
             log.error("ManualKlineBackfillService failed, jobId:{}", state.jobId, e);
         } finally {

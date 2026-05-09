@@ -25,6 +25,9 @@ public class StrategyBacktestExecutorConfig {
     @Value("${strategy.backtest.kline-autofill.parallelism:2}")
     private int klineAutofillParallelism;
 
+    @Value("${strategy.backtest.kline-autofill.queueCapacity:100}")
+    private int klineAutofillQueueCapacity;
+
     @Value("${strategy.backtest.kline-autofill.threadNamePrefix:strategy-kline-autofill-}")
     private String klineAutofillThreadNamePrefix;
 
@@ -61,14 +64,15 @@ public class StrategyBacktestExecutorConfig {
     @Bean(name = "strategyBacktestKlineAutofillExecutor")
     public ThreadPoolTaskExecutor strategyBacktestKlineAutofillExecutor() {
         int poolSize = Math.max(1, klineAutofillParallelism);
+        int queueCapacity = Math.max(poolSize, klineAutofillQueueCapacity);
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(poolSize);
         executor.setMaxPoolSize(poolSize);
-        executor.setQueueCapacity(poolSize);
+        executor.setQueueCapacity(queueCapacity);
         executor.setThreadNamePrefix(klineAutofillThreadNamePrefix);
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(60);
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
         return executor;
     }

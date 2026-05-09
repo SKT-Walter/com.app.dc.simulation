@@ -64,6 +64,12 @@ public class BinanceKlineImportCli {
         Set<Long> existing = DEFAULT_MODE.equalsIgnoreCase(options.mode)
                 ? loadExistingStartTimes(connection, symbol, options.interval, options.venue, startMs, endMs)
                 : new HashSet<Long>();
+        if (DEFAULT_MODE.equalsIgnoreCase(options.mode)
+                && isRangeAlreadyComplete(existing, startMs, endMs, stepMs)) {
+            System.out.println(symbol + " skipped, existing range complete, interval=" + options.interval
+                    + ", mode=" + options.mode + ", dryRun=" + options.dryRun);
+            return;
+        }
         int inserted = 0;
         int skipped = 0;
         long cursor = startMs;
@@ -141,6 +147,21 @@ public class BinanceKlineImportCli {
             }
         }
         return existing;
+    }
+
+    private static boolean isRangeAlreadyComplete(Set<Long> existing, long startMs, long endMs, long stepMs) {
+        if (existing == null || existing.isEmpty()) {
+            return false;
+        }
+        for (long ts = startMs; ts <= endMs; ts += stepMs) {
+            if (!existing.contains(Long.valueOf(ts))) {
+                return false;
+            }
+            if (Long.MAX_VALUE - stepMs < ts) {
+                break;
+            }
+        }
+        return true;
     }
 
     private static void insertKlines(Map<String, List<ImportKline>> groupedRows) throws Exception {

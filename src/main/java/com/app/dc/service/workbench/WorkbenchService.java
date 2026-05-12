@@ -1,0 +1,664 @@
+package com.app.dc.service.workbench;
+
+import com.app.common.db.ClickHouseDBUtils;
+import com.app.common.utils.IdUtil;
+import com.app.dc.po.backtest.BacktestParam;
+import com.app.dc.service.simulation.runtime.StrategyAutoPublishDao;
+import com.app.dc.service.simulation.runtime.StrategyBacktestSummary;
+import com.app.dc.service.simulation.runtime.StrategyBacktestTaskDao;
+import com.app.dc.service.simulation.runtime.StrategyBacktestTaskRow;
+import com.app.dc.service.simulation.runtime.StrategyBacktestTaskPayloadEnvelope;
+import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
+import com.app.dc.service.simulation.runtime.StrategyLiveRegistryPublishRow;
+import com.app.dc.service.simulation.runtime.StrategyReleaseEventRecord;
+import com.gateway.connector.utils.JsonUtils;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+@Service
+@Slf4j
+public class WorkbenchService {
+
+    private static final DateTimeFormatter CLICKHOUSE_TIME =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    @Autowired
+    private StrategyBacktestTaskDao strategyBacktestTaskDao;
+
+    @Autowired
+    private StrategyAutoPublishDao strategyAutoPublishDao;
+
+    @Autowired(required = false)
+    private ClickHouseDBUtils clickHouseDBUtils;
+
+    @Value("${strategy.backtest.task.table:dc.strategy_backtest_task}")
+    private String strategyBacktestTaskTable;
+
+    @Value("${strategy.release.event.table:dc.strategy_release_event}")
+    private String strategyReleaseEventTable;
+
+    @Value("${binanceBacktestResultTable:backtest_result}")
+    private String backtestResultTable;
+
+    public Map<String, Object> queryBacktestList(Map<String, Object> request) {
+        String date = text(request, "date", LocalDate.now().toString());
+        String status = text(request, "status", "");
+        String strategyName = text(request, "strategyName", "");
+        String strategyVersion = text(request, "strategyVersion", "");
+        String symbol = text(request, "symbol", "");
+        int limit = boundedInt(request, "limit", 50, 1, 200);
+
+        List<StrategyBacktestTaskRow> rows = loadBacktestTasksByDate(date, strategyName, strategyVersion, status, limit);
+        List<Map<String, Object>> items = new ArrayList<Map<String, Object>>();
+        for (StrategyBacktestTaskRow row : rows) {
+            Map<String, Object> item = toTaskView(row);
+            if (!matchesSymbol(item, symbol)) {
+                continue;
+            }
+            StrategyBacktestSummary summary = loadLatestSummary(row.strategyName, row.strategyVersion);
+            Map<String, Object> report = loadLatestReportMeta(row.id, row.strategyName, row.strategyVersion);
+            item.put("summary", summaryView(summary));
+            item.put("report", report);
+            items.add(item);
+        }
+        Map<String, Object> data = new LinkedHashMap<String, Object>();
+        data.put("date", date);
+        data.put("status", status);
+        data.put("strategyName", strategyName);
+        data.put("strategyVersion", strategyVersion);
+        data.put("symbol", symbol);
+        data.put("items", items);
+        data.put("total", items.size());
+        return data;
+    }
+
+    public Map<String, Object> queryBacktestDetail(Map<String, Object> request) {
+        String taskId = text(request, "backtestTaskId", text(request, "taskId", ""));
+        String strategyName = text(request, "strategyName", "");
+        String strategyVersion = text(request, "strategyVersion", "");
+        List<StrategyBacktestTaskRow> rows = strategyBacktestTaskDao.loadLatest(taskId, "", "", strategyName, strategyVersion, "", 1);
+        StrategyBacktestTaskRow row = rows == null || rows.isEmpty() ? null : rows.get(0);
+
+        Map<String, Object> data = new LinkedHashMap<String, Object>();
+        data.put("backtestTaskId", taskId);
+        data.put("exists", row != null);
+        if (row == null) {
+            data.put("task", null);
+            data.put("candidate", null);
+            data.put("summary", null);
+            data.put("report", null);
+            return data;
+        }
+
+        StrategyCandidateRow candidate = loadCandidate(row.strategyName, row.strategyVersion);
+        StrategyBacktestSummary summary = loadLatestSummary(row.strategyName, row.strategyVersion);
+        Map<String, Object> report = loadLatestReportMeta(row.id, row.strategyName, row.strategyVersion);
+        Map<String, Object> publish = buildPublishState(row.strategyName, row.strategyVersion);
+
+        data.put("task", toTaskView(row));
+        data.put("candidate", candidateView(candidate));
+        data.put("summary", summaryView(summary));
+        data.put("report", report);
+        data.put("publish", publish);
+        return data;
+    }
+
+    public Map<String, Object> queryBacktestReport(Map<String, Object> request) {
+        String taskId = text(request, "backtestTaskId", text(request, "taskId", ""));
+        String strategyName = text(request, "strategyName", "");
+        String strategyVersion = text(request, "strategyVersion", "");
+        Map<String, Object> report = loadLatestReportMeta(taskId, strategyName, strategyVersion);
+        Map<String, Object> data = new LinkedHashMap<String, Object>();
+        data.put("backtestTaskId", taskId);
+        data.put("strategyName", strategyName);
+        data.put("strategyVersion", strategyVersion);
+        data.putAll(report);
+        return data;
+    }
+
+    public Map<String, Object> queryPublishRecordList(Map<String, Object> request) {
+        String date = text(request, "date", LocalDate.now().toString());
+        int limit = boundedInt(request, "limit", 50, 1, 200);
+        List<Map<String, Object>> items = loadPublishRecords(date, limit);
+        Map<String, Object> data = new LinkedHashMap<String, Object>();
+        data.put("date", date);
+        data.put("items", items);
+        data.put("total", items.size());
+        return data;
+    }
+
+    public Map<String, Object> createBacktest(Map<String, Object> request) {
+        String strategyName = requiredText(request, "strategyName");
+        String strategyVersion = requiredText(request, "strategyVersion");
+        StrategyCandidateRow candidate = loadCandidate(strategyName, strategyVersion);
+        if (candidate == null) {
+            throw new IllegalArgumentException("candidate not found: " + strategyName + "@" + strategyVersion);
+        }
+
+        BacktestParam param = new BacktestParam();
+        param.strategyName = candidate.strategyName;
+        param.strategyVersion = candidate.strategyVersion;
+        param.baselineVersion = blankTo(candidate.parentVersion, text(request, "baselineVersion", ""));
+        param.runtimeType = blankTo(candidate.runtimeType, "CLASSPATH");
+        param.scene = candidate.scene;
+        param.strategyPayload = candidate.payload;
+        param.symbol = text(request, "symbol", "");
+        param.symbols = StringUtils.isNotBlank(param.symbol) ? param.symbol : text(request, "symbols", "");
+        param.text = requiredText(request, "text");
+        param.beginDate = requiredText(request, "beginDate");
+        param.endDate = requiredText(request, "endDate");
+        param.ignoreSentimentGuard = true;
+        param.allowMissingStageAnalysis = true;
+
+        StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
+        envelope.backtestParam = param;
+        String payloadJson = JsonUtils.Serializer(envelope);
+
+        String taskId = "bt_" + IdUtil.getId();
+        String now = CLICKHOUSE_TIME.format(LocalDateTime.now());
+        insertBacktestTask(
+                taskId,
+                blankTo(candidate.id, ""),
+                "",
+                candidate.strategyName,
+                candidate.strategyVersion,
+                blankTo(param.baselineVersion, ""),
+                blankTo(candidate.runtimeType, "CLASSPATH"),
+                "FULL",
+                boundedInt(request, "fitWindowDays", 120, 1, 3650),
+                boundedInt(request, "validateWindowDays", 30, 1, 3650),
+                boundedInt(request, "forwardWindowDays", 14, 1, 3650),
+                boundedInt(request, "priority", 5, 1, 1000),
+                "PENDING",
+                now,
+                payloadJson
+        );
+
+        Map<String, Object> data = new LinkedHashMap<String, Object>();
+        data.put("backtestTaskId", taskId);
+        data.put("strategyName", candidate.strategyName);
+        data.put("strategyVersion", candidate.strategyVersion);
+        data.put("symbol", param.symbol);
+        data.put("symbols", param.symbols);
+        data.put("text", param.text);
+        data.put("beginDate", param.beginDate);
+        data.put("endDate", param.endDate);
+        data.put("status", "PENDING");
+        data.put("created", Boolean.TRUE);
+        return data;
+    }
+
+    protected List<StrategyBacktestTaskRow> loadBacktestTasksByDate(String date,
+                                                                    String strategyName,
+                                                                    String strategyVersion,
+                                                                    String status,
+                                                                    int limit) {
+        if (!ready()) {
+            return Collections.emptyList();
+        }
+        StringBuilder sql = new StringBuilder();
+        sql.append("select ")
+                .append("id, candidateId, generationTaskId, strategyName, strategyVersion, baselineVersion, runtimeType, taskType,")
+                .append("fitWindowDays, validateWindowDays, forwardWindowDays, priority, status,")
+                .append("suspendReason, ifNull(toString(nextRetryTimeRaw), '') as nextRetryTime,")
+                .append("attemptCount, createTime, updateTime, payload, failureReason ")
+                .append("from (").append(latestTaskSql()).append(") latest ")
+                .append("where toDate(parseDateTimeBestEffortOrNull(latest.createTime)) = toDate('").append(escape(date)).append("')");
+        if (StringUtils.isNotBlank(strategyName)) {
+            sql.append(" and lower(latest.strategyName)=lower('").append(escape(strategyName.trim())).append("')");
+        }
+        if (StringUtils.isNotBlank(strategyVersion)) {
+            sql.append(" and lower(latest.strategyVersion)=lower('").append(escape(strategyVersion.trim())).append("')");
+        }
+        if (StringUtils.isNotBlank(status)) {
+            sql.append(" and latest.status='").append(escape(status.trim())).append("'");
+        }
+        sql.append(" order by parseDateTimeBestEffortOrNull(latest.updateTime) desc limit ")
+                .append(Math.max(1, Math.min(limit, 200)));
+        try {
+            List<StrategyBacktestTaskRow> rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{},
+                    StrategyBacktestTaskRow.class);
+            return rows == null ? Collections.<StrategyBacktestTaskRow>emptyList() : rows;
+        } catch (Exception e) {
+            log.error("loadBacktestTasksByDate error, date:{}, strategy:{}@{}, status:{}",
+                    date, strategyName, strategyVersion, status, e);
+            return Collections.emptyList();
+        }
+    }
+
+    protected StrategyCandidateRow loadCandidate(String strategyName, String strategyVersion) {
+        return strategyBacktestTaskDao.loadCandidate(strategyName, strategyVersion);
+    }
+
+    protected StrategyBacktestSummary loadLatestSummary(String strategyName, String strategyVersion) {
+        return strategyAutoPublishDao.loadLatestSummary(strategyName, strategyVersion);
+    }
+
+    protected Map<String, Object> loadLatestReportMeta(String taskId, String strategyName, String strategyVersion) {
+        Map<String, Object> report = new LinkedHashMap<String, Object>();
+        report.put("reportPath", "");
+        report.put("reportJsonPath", "");
+        report.put("reportMarkdownPath", "");
+        report.put("runTime", "");
+        report.put("resultCount", 0);
+        report.put("exists", Boolean.FALSE);
+        if (!ready()) {
+            return report;
+        }
+        StringBuilder sql = new StringBuilder();
+        sql.append("select ")
+                .append("sid as sid,")
+                .append("argMax(strategy_name, run_time) as strategyName,")
+                .append("argMax(strategy_version, run_time) as strategyVersion,")
+                .append("argMax(report_path, run_time) as reportPath,")
+                .append("toString(max(run_time)) as runTime,")
+                .append("count() as resultCount,")
+                .append("sum(total_pnl) as totalPnl,")
+                .append("sum(validate_pnl) as validatePnl,")
+                .append("sum(forward_pnl) as forwardPnl ")
+                .append("from ").append(safe(backtestResultTable, "backtest_result")).append(" where 1=1");
+        if (StringUtils.isNotBlank(taskId)) {
+            sql.append(" and sid='").append(escape(taskId.trim())).append("'");
+        }
+        if (StringUtils.isNotBlank(strategyName)) {
+            sql.append(" and lower(strategy_name)=lower('").append(escape(strategyName.trim())).append("')");
+        }
+        if (StringUtils.isNotBlank(strategyVersion)) {
+            sql.append(" and lower(strategy_version)=lower('").append(escape(strategyVersion.trim())).append("')");
+        }
+        sql.append(" group by sid order by max(run_time) desc limit 1");
+        try {
+            List<ReportMetaRow> rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{}, ReportMetaRow.class);
+            if (rows == null || rows.isEmpty()) {
+                return report;
+            }
+            ReportMetaRow row = rows.get(0);
+            String path = blankTo(row.reportPath, "");
+            report.put("reportPath", path);
+            report.put("reportJsonPath", swapExt(path, ".json"));
+            report.put("reportMarkdownPath", swapExt(path, ".md"));
+            report.put("runTime", blankTo(row.runTime, ""));
+            report.put("resultCount", row.resultCount == null ? 0 : row.resultCount.intValue());
+            report.put("totalPnl", row.totalPnl == null ? 0D : row.totalPnl.doubleValue());
+            report.put("validatePnl", row.validatePnl == null ? 0D : row.validatePnl.doubleValue());
+            report.put("forwardPnl", row.forwardPnl == null ? 0D : row.forwardPnl.doubleValue());
+            report.put("exists", StringUtils.isNotBlank(path));
+            return report;
+        } catch (Exception e) {
+            log.error("loadLatestReportMeta error, task:{}, strategy:{}@{}", taskId, strategyName, strategyVersion, e);
+            return report;
+        }
+    }
+
+    protected List<Map<String, Object>> loadPublishRecords(String date, int limit) {
+        if (!ready()) {
+            return Collections.emptyList();
+        }
+        String sql = "select "
+                + "id as id,"
+                + "toString(event_time) as eventTime,"
+                + "strategy_name as strategyName,"
+                + "from_version as fromVersion,"
+                + "to_version as toVersion,"
+                + "runtime_type as runtimeType,"
+                + "event_type as eventType,"
+                + "reason as reason,"
+                + "source as source,"
+                + "payload as payload "
+                + "from " + safe(strategyReleaseEventTable, "dc.strategy_release_event")
+                + " where toDate(event_time)=toDate('" + escape(date) + "')"
+                + " order by event_time desc limit " + Math.max(1, Math.min(limit, 200));
+        try {
+            List<StrategyReleaseEventRecord> rows = ClickHouseDBUtils.queryList(sql, new Object[]{},
+                    StrategyReleaseEventRecord.class);
+            if (rows == null || rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<Map<String, Object>> items = new ArrayList<Map<String, Object>>();
+            for (StrategyReleaseEventRecord row : rows) {
+                Map<String, Object> item = new LinkedHashMap<String, Object>();
+                item.put("id", row.id);
+                item.put("eventTime", row.eventTime);
+                item.put("strategyName", row.strategyName);
+                item.put("fromVersion", blankTo(row.fromVersion, ""));
+                item.put("toVersion", row.toVersion);
+                item.put("runtimeType", row.runtimeType);
+                item.put("eventType", row.eventType);
+                item.put("reason", row.reason);
+                item.put("source", row.source);
+                item.put("payload", blankTo(row.payload, ""));
+                StrategyBacktestSummary summary = loadLatestSummary(row.strategyName, row.toVersion);
+                item.put("summary", summaryView(summary));
+                StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadExactActive(row.strategyName, row.toVersion);
+                item.put("active", active != null);
+                item.put("effectiveTime", active == null ? "" : blankTo(active.effectiveTime, ""));
+                items.add(item);
+            }
+            return items;
+        } catch (Exception e) {
+            log.error("loadPublishRecords error, date:{}", date, e);
+            return Collections.emptyList();
+        }
+    }
+
+    protected void insertBacktestTask(String id,
+                                      String candidateId,
+                                      String generationTaskId,
+                                      String strategyName,
+                                      String strategyVersion,
+                                      String baselineVersion,
+                                      String runtimeType,
+                                      String taskType,
+                                      int fitWindowDays,
+                                      int validateWindowDays,
+                                      int forwardWindowDays,
+                                      int priority,
+                                      String status,
+                                      String now,
+                                      String payloadJson) {
+        if (!ready()) {
+            throw new IllegalStateException("clickhouse not ready for insertBacktestTask");
+        }
+        String sql = "INSERT INTO " + safe(strategyBacktestTaskTable, "dc.strategy_backtest_task")
+                + " (id, candidate_id, generation_task_id, strategy_name, strategy_version, baseline_version, runtime_type, task_type, "
+                + "fit_window_days, validate_window_days, forward_window_days, priority, status, create_time, update_time, payload, failure_reason) "
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,toDateTime(?),toDateTime(?),?,?)";
+        try {
+            ClickHouseDBUtils.update(sql, new Object[]{
+                    blankTo(id, ""),
+                    blankTo(candidateId, ""),
+                    blankTo(generationTaskId, ""),
+                    blankTo(strategyName, ""),
+                    blankTo(strategyVersion, ""),
+                    blankTo(baselineVersion, ""),
+                    blankTo(runtimeType, ""),
+                    blankTo(taskType, "FULL"),
+                    fitWindowDays,
+                    validateWindowDays,
+                    forwardWindowDays,
+                    priority,
+                    blankTo(status, "PENDING"),
+                    now,
+                    now,
+                    blankTo(payloadJson, "{}"),
+                    ""
+            });
+        } catch (Exception e) {
+            log.error("insertBacktestTask error, strategy:{}@{}", strategyName, strategyVersion, e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    private Map<String, Object> toTaskView(StrategyBacktestTaskRow row) {
+        Map<String, Object> view = new LinkedHashMap<String, Object>();
+        if (row == null) {
+            return view;
+        }
+        view.put("backtestTaskId", row.id);
+        view.put("taskId", row.id);
+        view.put("candidateId", blankTo(row.candidateId, ""));
+        view.put("generationTaskId", blankTo(row.generationTaskId, ""));
+        view.put("strategyName", blankTo(row.strategyName, ""));
+        view.put("strategyVersion", blankTo(row.strategyVersion, ""));
+        view.put("baselineVersion", blankTo(row.baselineVersion, ""));
+        view.put("runtimeType", blankTo(row.runtimeType, ""));
+        view.put("taskType", blankTo(row.taskType, ""));
+        view.put("status", blankTo(row.status, ""));
+        view.put("priority", row.priority == null ? 0 : row.priority.intValue());
+        view.put("fitWindowDays", row.fitWindowDays == null ? 0 : row.fitWindowDays.intValue());
+        view.put("validateWindowDays", row.validateWindowDays == null ? 0 : row.validateWindowDays.intValue());
+        view.put("forwardWindowDays", row.forwardWindowDays == null ? 0 : row.forwardWindowDays.intValue());
+        view.put("attemptCount", row.attemptCount == null ? 0 : row.attemptCount.intValue());
+        view.put("suspendReason", blankTo(row.suspendReason, ""));
+        view.put("failureReason", blankTo(row.failureReason, ""));
+        view.put("createTime", blankTo(row.createTime, ""));
+        view.put("updateTime", blankTo(row.updateTime, ""));
+        view.put("payloadSummary", parsePayloadSummary(row.payload));
+        view.put("rawPayload", blankTo(row.payload, ""));
+        return view;
+    }
+
+    private Map<String, Object> parsePayloadSummary(String payload) {
+        if (StringUtils.isBlank(payload)) {
+            return new LinkedHashMap<String, Object>();
+        }
+        try {
+            StrategyBacktestTaskPayloadEnvelope envelope =
+                    JsonUtils.Deserialize(payload, StrategyBacktestTaskPayloadEnvelope.class);
+            if (envelope != null && envelope.backtestParam != null) {
+                Map<String, Object> summary = new LinkedHashMap<String, Object>();
+                summary.put("symbol", blankTo(envelope.backtestParam.symbol, ""));
+                summary.put("symbols", blankTo(envelope.backtestParam.symbols, ""));
+                summary.put("text", blankTo(envelope.backtestParam.text, ""));
+                summary.put("beginDate", blankTo(envelope.backtestParam.beginDate, ""));
+                summary.put("endDate", blankTo(envelope.backtestParam.endDate, ""));
+                return summary;
+            }
+        } catch (Exception ignore) {
+        }
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = JsonUtils.Deserialize(payload, Map.class);
+            return map == null ? new LinkedHashMap<String, Object>() : map;
+        } catch (Exception ignore) {
+            return new LinkedHashMap<String, Object>();
+        }
+    }
+
+    private Map<String, Object> candidateView(StrategyCandidateRow row) {
+        if (row == null) {
+            return null;
+        }
+        Map<String, Object> view = new LinkedHashMap<String, Object>();
+        view.put("id", blankTo(row.id, ""));
+        view.put("strategyName", blankTo(row.strategyName, ""));
+        view.put("strategyVersion", blankTo(row.strategyVersion, ""));
+        view.put("parentVersion", blankTo(row.parentVersion, ""));
+        view.put("category", blankTo(row.category, ""));
+        view.put("scene", blankTo(row.scene, ""));
+        view.put("generationType", blankTo(row.generationType, ""));
+        view.put("runtimeType", blankTo(row.runtimeType, ""));
+        view.put("artifactUri", blankTo(row.artifactUri, ""));
+        view.put("entryClass", blankTo(row.entryClass, ""));
+        view.put("description", blankTo(row.description, ""));
+        view.put("parametersJson", blankTo(row.parametersJson, ""));
+        view.put("payload", blankTo(row.payload, ""));
+        view.put("pipelineRunId", blankTo(row.pipelineRunId(), ""));
+        return view;
+    }
+
+    private Map<String, Object> summaryView(StrategyBacktestSummary summary) {
+        if (summary == null) {
+            return null;
+        }
+        Map<String, Object> view = new LinkedHashMap<String, Object>();
+        view.put("sid", blankTo(summary.sid, ""));
+        view.put("strategyName", blankTo(summary.strategyName, ""));
+        view.put("strategyVersion", blankTo(summary.strategyVersion, ""));
+        view.put("runtimeType", blankTo(summary.runtimeType, ""));
+        view.put("scene", blankTo(summary.scene, ""));
+        view.put("runTime", blankTo(summary.runTime, ""));
+        view.put("windowMode", blankTo(summary.windowMode, ""));
+        view.put("sliceCount", summary.sliceCount == null ? 0 : summary.sliceCount.intValue());
+        view.put("optimizationMode", blankTo(summary.optimizationMode, ""));
+        view.put("trialCount", summary.trialCount == null ? 0 : summary.trialCount.intValue());
+        view.put("bestRank", summary.bestRank == null ? 0 : summary.bestRank.intValue());
+        view.put("bestParamSetJson", blankTo(summary.bestParamSetJson, "{}"));
+        view.put("fitPnl", summary.fitPnl == null ? 0D : summary.fitPnl.doubleValue());
+        view.put("validatePnl", summary.validatePnl == null ? 0D : summary.validatePnl.doubleValue());
+        view.put("forwardPnl", summary.forwardPnl == null ? 0D : summary.forwardPnl.doubleValue());
+        view.put("totalPnl", summary.totalPnl == null ? 0D : summary.totalPnl.doubleValue());
+        view.put("forwardScore", summary.forwardScore == null ? 0D : summary.forwardScore.doubleValue());
+        view.put("minForwardContribution", summary.minForwardContribution == null ? 0D : summary.minForwardContribution.doubleValue());
+        view.put("overfitPass", summary.overfitPass == null ? 0 : summary.overfitPass.intValue());
+        view.put("overfitReason", blankTo(summary.overfitReason, ""));
+        view.put("resultCount", summary.resultCount == null ? 0 : summary.resultCount.intValue());
+        return view;
+    }
+
+    private Map<String, Object> buildPublishState(String strategyName, String strategyVersion) {
+        Map<String, Object> publish = new LinkedHashMap<String, Object>();
+        StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadExactActive(strategyName, strategyVersion);
+        StrategyReleaseEventRecord event = strategyAutoPublishDao.loadLatestReleaseEvent(strategyName, strategyVersion);
+        publish.put("active", active != null);
+        publish.put("effectiveTime", active == null ? "" : blankTo(active.effectiveTime, ""));
+        publish.put("currentLiveVersion", active == null ? "" : blankTo(active.strategyVersion, ""));
+        publish.put("currentLiveStatus", active == null ? "" : blankTo(active.status, ""));
+        publish.put("releaseEventType", event == null ? "" : blankTo(event.eventType, ""));
+        publish.put("releaseEventTime", event == null ? "" : blankTo(event.eventTime, ""));
+        publish.put("releaseEventReason", event == null ? "" : blankTo(event.reason, ""));
+        publish.put("releaseEventSource", event == null ? "" : blankTo(event.source, ""));
+        return publish;
+    }
+
+    private boolean matchesSymbol(Map<String, Object> item, String symbol) {
+        if (StringUtils.isBlank(symbol)) {
+            return true;
+        }
+        Object payloadSummary = item.get("payloadSummary");
+        if (!(payloadSummary instanceof Map)) {
+            return false;
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> summary = (Map<String, Object>) payloadSummary;
+        String single = blankTo(summary.get("symbol") == null ? "" : String.valueOf(summary.get("symbol")), "");
+        String many = blankTo(summary.get("symbols") == null ? "" : String.valueOf(summary.get("symbols")), "");
+        return symbol.equalsIgnoreCase(single)
+                || containsCsv(many, symbol);
+    }
+
+    private boolean containsCsv(String csv, String target) {
+        if (StringUtils.isBlank(csv) || StringUtils.isBlank(target)) {
+            return false;
+        }
+        String[] parts = csv.split(",");
+        for (String part : parts) {
+            if (target.equalsIgnoreCase(part == null ? "" : part.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String latestTaskSql() {
+        String baseSql = "select *, "
+                + "tuple(update_time, multiIf(status='SUCCESS', 4, status='FAILED', 4, status='RUNNING', 3, status='SUSPENDED', 2, 1)) as versionKey "
+                + "from " + safe(strategyBacktestTaskTable, "dc.strategy_backtest_task");
+        return "select "
+                + "id as id,"
+                + "argMax(candidate_id, versionKey) as candidateId,"
+                + "argMax(generation_task_id, versionKey) as generationTaskId,"
+                + "argMax(strategy_name, versionKey) as strategyName,"
+                + "argMax(strategy_version, versionKey) as strategyVersion,"
+                + "argMax(baseline_version, versionKey) as baselineVersion,"
+                + "argMax(runtime_type, versionKey) as runtimeType,"
+                + "argMax(task_type, versionKey) as taskType,"
+                + "argMax(fit_window_days, versionKey) as fitWindowDays,"
+                + "argMax(validate_window_days, versionKey) as validateWindowDays,"
+                + "argMax(forward_window_days, versionKey) as forwardWindowDays,"
+                + "argMax(priority, versionKey) as priority,"
+                + "argMax(status, versionKey) as status,"
+                + "argMax(suspend_reason, versionKey) as suspendReason,"
+                + "argMax(next_retry_time, versionKey) as nextRetryTimeRaw,"
+                + "argMax(attempt_count, versionKey) as attemptCount,"
+                + "toString(argMax(create_time, versionKey)) as createTime,"
+                + "toString(argMax(update_time, versionKey)) as updateTime,"
+                + "argMax(payload, versionKey) as payload,"
+                + "argMax(failure_reason, versionKey) as failureReason "
+                + "from (" + baseSql + ") group by id";
+    }
+
+    private boolean ready() {
+        return clickHouseDBUtils != null && StringUtils.isNotBlank(clickHouseDBUtils.getDbSourceName());
+    }
+
+    private String requiredText(Map<String, Object> request, String key) {
+        String value = text(request, key, "");
+        if (StringUtils.isBlank(value)) {
+            throw new IllegalArgumentException(key + " is required");
+        }
+        return value;
+    }
+
+    private String text(Map<String, Object> request, String key, String defaultValue) {
+        Object value = request == null ? null : request.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        String text = value.toString().trim();
+        return StringUtils.isBlank(text) ? defaultValue : text;
+    }
+
+    private int boundedInt(Map<String, Object> request, String key, int defaultValue, int min, int max) {
+        Object value = request == null ? null : request.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            int parsed = Integer.parseInt(value.toString().trim());
+            if (parsed < min) {
+                return min;
+            }
+            if (parsed > max) {
+                return max;
+            }
+            return parsed;
+        } catch (Exception e) {
+            return defaultValue;
+        }
+    }
+
+    private String safe(String value, String defaultValue) {
+        if (StringUtils.isBlank(value)) {
+            return defaultValue;
+        }
+        String trim = value.trim();
+        if (!trim.matches("[A-Za-z0-9_.]+")) {
+            return defaultValue;
+        }
+        return trim;
+    }
+
+    private String blankTo(String value, String defaultValue) {
+        return StringUtils.isBlank(value) ? defaultValue : value;
+    }
+
+    private String escape(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("'", "''");
+    }
+
+    private String swapExt(String path, String ext) {
+        if (StringUtils.isBlank(path)) {
+            return "";
+        }
+        int idx = path.lastIndexOf('.');
+        if (idx < 0) {
+            return path + ext;
+        }
+        return path.substring(0, idx) + ext;
+    }
+
+    public static class ReportMetaRow {
+        public String sid;
+        public String strategyName;
+        public String strategyVersion;
+        public String reportPath;
+        public String runTime;
+        public Integer resultCount;
+        public Double totalPnl;
+        public Double validatePnl;
+        public Double forwardPnl;
+    }
+}

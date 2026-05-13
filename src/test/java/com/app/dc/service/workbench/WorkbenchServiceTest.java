@@ -6,6 +6,9 @@ import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -82,6 +85,21 @@ public class WorkbenchServiceTest {
         Assert.assertEquals(1, items.size());
         Assert.assertEquals("docx_c6", items.get(0).get("strategyName"));
         Assert.assertEquals(Boolean.TRUE, items.get(0).get("active"));
+    }
+
+    @Test
+    public void queryBacktestReportShouldExposeHtmlContent() throws Exception {
+        FakeWorkbenchService service = new FakeWorkbenchService();
+        Path report = Files.createTempFile("bt-report", ".html");
+        Files.write(report, "<html><body>backtest-report</body></html>".getBytes(StandardCharsets.UTF_8));
+
+        Map<String, Object> reportMeta = new LinkedHashMap<String, Object>();
+        reportMeta.put("reportPath", report.toString());
+        service.reports.put("bt-2", reportMeta);
+
+        Map<String, Object> data = service.queryBacktestReport(Collections.singletonMap("backtestTaskId", "bt-2"));
+        Assert.assertEquals(Boolean.TRUE, data.get("htmlExists"));
+        Assert.assertTrue(String.valueOf(data.get("htmlContent")).contains("backtest-report"));
     }
 
     @Test

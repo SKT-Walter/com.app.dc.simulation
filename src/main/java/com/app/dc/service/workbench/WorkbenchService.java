@@ -18,6 +18,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -125,6 +129,9 @@ public class WorkbenchService {
         data.put("strategyName", strategyName);
         data.put("strategyVersion", strategyVersion);
         data.putAll(report);
+        String htmlPath = blankTo(report.get("reportPath") == null ? "" : String.valueOf(report.get("reportPath")), "");
+        data.put("htmlExists", fileExists(htmlPath));
+        data.put("htmlContent", readUtf8File(htmlPath));
         return data;
     }
 
@@ -648,6 +655,26 @@ public class WorkbenchService {
             return path + ext;
         }
         return path.substring(0, idx) + ext;
+    }
+
+    private boolean fileExists(String path) {
+        return StringUtils.isNotBlank(path) && Files.exists(Paths.get(path));
+    }
+
+    private String readUtf8File(String path) {
+        if (StringUtils.isBlank(path)) {
+            return "";
+        }
+        try {
+            Path file = Paths.get(path);
+            if (!Files.exists(file)) {
+                return "";
+            }
+            return new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            log.warn("readUtf8File error, path:{}", path, e);
+            return "";
+        }
     }
 
     public static class ReportMetaRow {

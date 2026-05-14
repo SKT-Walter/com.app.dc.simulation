@@ -151,10 +151,14 @@ public class WorkbenchServiceTest {
         Map<String, Object> data = service.queryBacktestList(Collections.singletonMap("date", "2026-05-14"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> items = (List<Map<String, Object>>) data.get("items");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> summary = (Map<String, Object>) data.get("summary");
         Assert.assertEquals(1, items.size());
         Assert.assertEquals("等待重试", items.get(0).get("status"));
         Assert.assertTrue(String.valueOf(items.get(0).get("statusDetail")).contains("已跳过重复补数"));
         Assert.assertEquals("SUSPENDED", items.get(0).get("statusCode"));
+        Assert.assertEquals(0, ((Number) summary.get("running")).intValue());
+        Assert.assertEquals(1, ((Number) summary.get("suspended")).intValue());
     }
 
     private static class FakeWorkbenchService extends WorkbenchService {
@@ -166,8 +170,13 @@ public class WorkbenchServiceTest {
         final List<String> insertedTasks = new ArrayList<String>();
 
         @Override
-        protected List<StrategyBacktestTaskRow> loadBacktestTasksByDate(String date, String strategyName, String strategyVersion, String status, int limit) {
+        protected List<StrategyBacktestTaskRow> loadBacktestTasksByRange(String dateFrom, String dateTo, String strategyName, String strategyVersion, String status, int limit, int offset) {
             return rows;
+        }
+
+        @Override
+        protected int countBacktestTasksByRange(String dateFrom, String dateTo, String strategyName, String strategyVersion, String status) {
+            return rows.size();
         }
 
         @Override
@@ -187,8 +196,13 @@ public class WorkbenchServiceTest {
         }
 
         @Override
-        protected List<Map<String, Object>> loadPublishRecords(String date, int limit) {
+        protected List<Map<String, Object>> loadPublishRecords(String dateFrom, String dateTo, int limit, int offset) {
             return publishRecords;
+        }
+
+        @Override
+        protected int countPublishRecords(String dateFrom, String dateTo) {
+            return publishRecords.size();
         }
 
         @Override

@@ -57,14 +57,32 @@ public class WorkbenchService {
     private String backtestResultTable;
 
     public Map<String, Object> queryBacktestList(Map<String, Object> request) {
-        String date = text(request, "date", LocalDate.now().toString());
+        String today = LocalDate.now().toString();
+        String rawDate = text(request, "date", today);
+        String rawDateFrom = text(request, "dateFrom", "");
+        String rawDateTo = text(request, "dateTo", "");
+        boolean history = StringUtils.isNotBlank(rawDateFrom) || StringUtils.isNotBlank(rawDateTo);
+        String date = text(request, "date", today);
+        String dateFrom = history
+                ? text(request, "dateFrom", LocalDate.now().minusDays(30).toString())
+                : rawDate;
+        String dateTo = history
+                ? text(request, "dateTo", LocalDate.now().minusDays(1).toString())
+                : rawDate;
+        if (LocalDate.parse(dateFrom).isAfter(LocalDate.parse(dateTo))) {
+            String swap = dateFrom;
+            dateFrom = dateTo;
+            dateTo = swap;
+        }
         String status = text(request, "status", "");
         String strategyName = text(request, "strategyName", "");
         String strategyVersion = text(request, "strategyVersion", "");
         String symbol = text(request, "symbol", "");
-        int limit = boundedInt(request, "limit", 50, 1, 200);
+        int page = boundedInt(request, "page", 1, 1, 100000);
+        int pageSize = boundedInt(request, request != null && request.containsKey("pageSize") ? "pageSize" : "limit", history ? 20 : 50, 1, 200);
+        int offset = Math.max(0, (page - 1) * pageSize);
 
-        List<StrategyBacktestTaskRow> rows = loadBacktestTasksByDate(date, strategyName, strategyVersion, status, limit);
+        List<StrategyBacktestTaskRow> rows = loadBacktestTasksByRange(dateFrom, dateTo, strategyName, strategyVersion, status, pageSize, offset);
         List<Map<String, Object>> items = new ArrayList<Map<String, Object>>();
         for (StrategyBacktestTaskRow row : rows) {
             Map<String, Object> item = toTaskView(row);
@@ -83,8 +101,14 @@ public class WorkbenchService {
         data.put("strategyName", strategyName);
         data.put("strategyVersion", strategyVersion);
         data.put("symbol", symbol);
+        data.put("dateFrom", dateFrom);
+        data.put("dateTo", dateTo);
+        data.put("page", page);
+        data.put("pageSize", pageSize);
+        data.put("history", history);
         data.put("items", items);
-        data.put("total", items.size());
+        data.put("total", countBacktestTasksByRange(dateFrom, dateTo, strategyName, strategyVersion, status));
+        data.put("summary", buildTaskSummary(items));
         return data;
     }
 
@@ -136,13 +160,36 @@ public class WorkbenchService {
     }
 
     public Map<String, Object> queryPublishRecordList(Map<String, Object> request) {
-        String date = text(request, "date", LocalDate.now().toString());
-        int limit = boundedInt(request, "limit", 50, 1, 200);
-        List<Map<String, Object>> items = loadPublishRecords(date, limit);
+        String today = LocalDate.now().toString();
+        String rawDate = text(request, "date", today);
+        String rawDateFrom = text(request, "dateFrom", "");
+        String rawDateTo = text(request, "dateTo", "");
+        boolean history = StringUtils.isNotBlank(rawDateFrom) || StringUtils.isNotBlank(rawDateTo);
+        String date = text(request, "date", today);
+        String dateFrom = history
+                ? text(request, "dateFrom", LocalDate.now().minusDays(30).toString())
+                : rawDate;
+        String dateTo = history
+                ? text(request, "dateTo", LocalDate.now().minusDays(1).toString())
+                : rawDate;
+        if (LocalDate.parse(dateFrom).isAfter(LocalDate.parse(dateTo))) {
+            String swap = dateFrom;
+            dateFrom = dateTo;
+            dateTo = swap;
+        }
+        int page = boundedInt(request, "page", 1, 1, 100000);
+        int pageSize = boundedInt(request, request != null && request.containsKey("pageSize") ? "pageSize" : "limit", history ? 20 : 50, 1, 200);
+        int offset = Math.max(0, (page - 1) * pageSize);
+        List<Map<String, Object>> items = loadPublishRecords(dateFrom, dateTo, pageSize, offset);
         Map<String, Object> data = new LinkedHashMap<String, Object>();
         data.put("date", date);
+        data.put("dateFrom", dateFrom);
+        data.put("dateTo", dateTo);
+        data.put("page", page);
+        data.put("pageSize", pageSize);
+        data.put("history", history);
         data.put("items", items);
-        data.put("total", items.size());
+        data.put("total", countPublishRecords(dateFrom, dateTo));
         return data;
     }
 
@@ -207,11 +254,13 @@ public class WorkbenchService {
         return data;
     }
 
-    protected List<StrategyBacktestTaskRow> loadBacktestTasksByDate(String date,
-                                                                    String strategyName,
-                                                                    String strategyVersion,
-                                                                    String status,
-                                                                    int limit) {
+    protected List<StrategyBacktestTaskRow> loadBacktestTasksByRange(String dateFrom,
+                                                                     String dateTo,
+                                                                     String strategyName,
+                                                                     String strategyVersion,
+                                                                     String status,
+                                                                     int limit,
+                                                                     int offset) {
         if (!ready()) {
             return Collections.emptyList();
         }
@@ -222,7 +271,8 @@ public class WorkbenchService {
                 .append("suspendReason, ifNull(toString(nextRetryTimeRaw), '') as nextRetryTime,")
                 .append("attemptCount, createTime, updateTime, payload, failureReason ")
                 .append("from (").append(latestTaskSql()).append(") latest ")
-                .append("where toDate(parseDateTimeBestEffortOrNull(latest.createTime)) = toDate('").append(escape(date)).append("')");
+                .append("where toDate(parseDateTimeBestEffortOrNull(latest.createTime)) >= toDate('").append(escape(dateFrom)).append("')")
+                .append(" and toDate(parseDateTimeBestEffortOrNull(latest.createTime)) <= toDate('").append(escape(dateTo)).append("')");
         if (StringUtils.isNotBlank(strategyName)) {
             sql.append(" and lower(latest.strategyName)=lower('").append(escape(strategyName.trim())).append("')");
         }
@@ -233,15 +283,57 @@ public class WorkbenchService {
             sql.append(" and latest.status='").append(escape(status.trim())).append("'");
         }
         sql.append(" order by parseDateTimeBestEffortOrNull(latest.updateTime) desc limit ")
-                .append(Math.max(1, Math.min(limit, 200)));
+                .append(Math.max(1, Math.min(limit, 200)))
+                .append(" offset ")
+                .append(Math.max(0, offset));
         try {
             List<StrategyBacktestTaskRow> rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{},
                     StrategyBacktestTaskRow.class);
             return rows == null ? Collections.<StrategyBacktestTaskRow>emptyList() : rows;
         } catch (Exception e) {
-            log.error("loadBacktestTasksByDate error, date:{}, strategy:{}@{}, status:{}",
-                    date, strategyName, strategyVersion, status, e);
+            log.error("loadBacktestTasksByRange error, from:{}, to:{}, strategy:{}@{}, status:{}, offset:{}",
+                    dateFrom, dateTo, strategyName, strategyVersion, status, offset, e);
             return Collections.emptyList();
+        }
+    }
+
+    protected int countBacktestTasksByRange(String dateFrom,
+                                            String dateTo,
+                                            String strategyName,
+                                            String strategyVersion,
+                                            String status) {
+        if (!ready()) {
+            return 0;
+        }
+        StringBuilder sql = new StringBuilder();
+        sql.append("select count() as total from (")
+                .append("select id from (").append(latestTaskSql()).append(") latest ")
+                .append("where toDate(parseDateTimeBestEffortOrNull(latest.createTime)) >= toDate('").append(escape(dateFrom)).append("')")
+                .append(" and toDate(parseDateTimeBestEffortOrNull(latest.createTime)) <= toDate('").append(escape(dateTo)).append("')");
+        if (StringUtils.isNotBlank(strategyName)) {
+            sql.append(" and lower(latest.strategyName)=lower('").append(escape(strategyName.trim())).append("')");
+        }
+        if (StringUtils.isNotBlank(strategyVersion)) {
+            sql.append(" and lower(latest.strategyVersion)=lower('").append(escape(strategyVersion.trim())).append("')");
+        }
+        if (StringUtils.isNotBlank(status)) {
+            sql.append(" and latest.status='").append(escape(status.trim())).append("'");
+        }
+        sql.append(")");
+        try {
+            @SuppressWarnings("rawtypes")
+            List rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{}, Map.class);
+            if (rows == null || rows.isEmpty()) {
+                return 0;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> first = (Map<String, Object>) rows.get(0);
+            Object value = first.get("total");
+            return value == null ? 0 : Integer.parseInt(String.valueOf(value));
+        } catch (Exception e) {
+            log.error("countBacktestTasksByRange error, from:{}, to:{}, strategy:{}@{}, status:{}",
+                    dateFrom, dateTo, strategyName, strategyVersion, status, e);
+            return 0;
         }
     }
 
@@ -309,7 +401,7 @@ public class WorkbenchService {
         }
     }
 
-    protected List<Map<String, Object>> loadPublishRecords(String date, int limit) {
+    protected List<Map<String, Object>> loadPublishRecords(String dateFrom, String dateTo, int limit, int offset) {
         if (!ready()) {
             return Collections.emptyList();
         }
@@ -325,8 +417,10 @@ public class WorkbenchService {
                 + "source as source,"
                 + "payload as payload "
                 + "from " + safe(strategyReleaseEventTable, "dc.strategy_release_event")
-                + " where toDate(event_time)=toDate('" + escape(date) + "')"
-                + " order by event_time desc limit " + Math.max(1, Math.min(limit, 200));
+                + " where toDate(event_time) >= toDate('" + escape(dateFrom) + "')"
+                + " and toDate(event_time) <= toDate('" + escape(dateTo) + "')"
+                + " order by event_time desc limit " + Math.max(1, Math.min(limit, 200))
+                + " offset " + Math.max(0, offset);
         try {
             List<StrategyReleaseEventRecord> rows = ClickHouseDBUtils.queryList(sql, new Object[]{},
                     StrategyReleaseEventRecord.class);
@@ -352,11 +446,35 @@ public class WorkbenchService {
                 item.put("active", active != null);
                 item.put("effectiveTime", active == null ? "" : blankTo(active.effectiveTime, ""));
                 items.add(item);
-            }
-            return items;
+                }
+                return items;
         } catch (Exception e) {
-            log.error("loadPublishRecords error, date:{}", date, e);
+            log.error("loadPublishRecords error, from:{}, to:{}, offset:{}", dateFrom, dateTo, offset, e);
             return Collections.emptyList();
+        }
+    }
+
+    protected int countPublishRecords(String dateFrom, String dateTo) {
+        if (!ready()) {
+            return 0;
+        }
+        String sql = "select count() as total "
+                + "from " + safe(strategyReleaseEventTable, "dc.strategy_release_event")
+                + " where toDate(event_time) >= toDate('" + escape(dateFrom) + "')"
+                + " and toDate(event_time) <= toDate('" + escape(dateTo) + "')";
+        try {
+            @SuppressWarnings("rawtypes")
+            List rows = ClickHouseDBUtils.queryList(sql, new Object[]{}, Map.class);
+            if (rows == null || rows.isEmpty()) {
+                return 0;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> first = (Map<String, Object>) rows.get(0);
+            Object value = first.get("total");
+            return value == null ? 0 : Integer.parseInt(String.valueOf(value));
+        } catch (Exception e) {
+            log.error("countPublishRecords error, from:{}, to:{}", dateFrom, dateTo, e);
+            return 0;
         }
     }
 
@@ -511,6 +629,45 @@ public class WorkbenchService {
         return blankTo(statusCode, "");
     }
 
+    private Map<String, Object> buildTaskSummary(List<Map<String, Object>> items) {
+        Map<String, Object> summary = new LinkedHashMap<String, Object>();
+        int total = 0;
+        int success = 0;
+        int running = 0;
+        int suspended = 0;
+        int failed = 0;
+        for (Map<String, Object> item : items) {
+            total++;
+            String code = blankTo(item.get("statusCode") == null ? "" : String.valueOf(item.get("statusCode")), "").toUpperCase();
+            String displayStatus = blankTo(item.get("status") == null ? "" : String.valueOf(item.get("status")), "");
+            if (code.contains("SUCCESS")) {
+                success++;
+            }
+            if (isSuspendedDisplayStatus(displayStatus) || code.contains("SUSPEND")) {
+                suspended++;
+            } else if (code.contains("RUN")) {
+                running++;
+            }
+            if (code.contains("FAIL")) {
+                failed++;
+            }
+        }
+        summary.put("total", total);
+        summary.put("success", success);
+        summary.put("running", running);
+        summary.put("suspended", suspended);
+        summary.put("failed", failed);
+        return summary;
+    }
+
+    private boolean isSuspendedDisplayStatus(String displayStatus) {
+        String text = blankTo(displayStatus, "");
+        return "等待重试".equals(text)
+                || "已挂起".equals(text)
+                || "绛夊緟閲嶈瘯".equals(text)
+                || "宸叉寕璧�".equals(text)
+                || "宸叉寕璧?".equals(text);
+    }
     private String displayStatusDetail(String statusCode,
                                        String suspendReason,
                                        String failureReason,
@@ -518,13 +675,13 @@ public class WorkbenchService {
                                        StrategyBacktestTaskPayloadEnvelope envelope) {
         String code = blankTo(statusCode, "").trim().toUpperCase();
         if ("FAILED".equals(code)) {
-            return blankTo(failureReason, "回测执行失败");
+            return blankTo(failureReason, "回测任务执行失败");
         }
         if ("SUCCESS".equals(code)) {
-            return "回测报告已生成";
+            return "回测任务已经完成，可直接查看报告";
         }
         if ("PENDING".equals(code)) {
-            return "任务正在排队等待执行";
+            return "任务已经提交，正在等待调度执行";
         }
         if (isInsufficientKline(suspendReason, envelope)) {
             int missingBars = recoveryPlanInt(envelope, "missingBars");
@@ -532,9 +689,9 @@ public class WorkbenchService {
                 return "样本窗口不足，当前数据已完整，已跳过重复补数";
             }
             if (StringUtils.isNotBlank(nextRetryTime)) {
-                return "样本窗口不足，正在等待补数后自动重试";
+                return "样本窗口不足，系统会在补数后自动重试";
             }
-            return "样本窗口不足，等待补数";
+            return "样本窗口不足，等待补充更多历史数据";
         }
         if ("RUNNING".equals(code)) {
             return "回测任务正在执行";

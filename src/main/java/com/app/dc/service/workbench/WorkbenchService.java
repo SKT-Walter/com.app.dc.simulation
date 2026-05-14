@@ -322,7 +322,7 @@ public class WorkbenchService {
         sql.append(")");
         try {
             @SuppressWarnings("rawtypes")
-            List rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{}, Map.class);
+            List rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{}, LinkedHashMap.class);
             if (rows == null || rows.isEmpty()) {
                 return 0;
             }
@@ -464,7 +464,7 @@ public class WorkbenchService {
                 + " and toDate(event_time) <= toDate('" + escape(dateTo) + "')";
         try {
             @SuppressWarnings("rawtypes")
-            List rows = ClickHouseDBUtils.queryList(sql, new Object[]{}, Map.class);
+            List rows = ClickHouseDBUtils.queryList(sql, new Object[]{}, LinkedHashMap.class);
             if (rows == null || rows.isEmpty()) {
                 return 0;
             }

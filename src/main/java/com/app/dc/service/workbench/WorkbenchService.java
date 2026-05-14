@@ -413,6 +413,9 @@ public class WorkbenchService {
         if (row == null) {
             return view;
         }
+        StrategyBacktestTaskPayloadEnvelope envelope = parsePayloadEnvelope(row.payload);
+        Map<String, Object> payloadSummary = parsePayloadSummary(envelope, row.payload);
+        String statusCode = blankTo(row.status, "");
         view.put("backtestTaskId", row.id);
         view.put("taskId", row.id);
         view.put("candidateId", blankTo(row.candidateId, ""));
@@ -422,7 +425,9 @@ public class WorkbenchService {
         view.put("baselineVersion", blankTo(row.baselineVersion, ""));
         view.put("runtimeType", blankTo(row.runtimeType, ""));
         view.put("taskType", blankTo(row.taskType, ""));
-        view.put("status", blankTo(row.status, ""));
+        view.put("statusCode", statusCode);
+        view.put("status", displayStatus(statusCode, row.suspendReason, row.nextRetryTime, envelope));
+        view.put("statusDetail", displayStatusDetail(statusCode, row.suspendReason, row.failureReason, row.nextRetryTime, envelope));
         view.put("priority", row.priority == null ? 0 : row.priority.intValue());
         view.put("fitWindowDays", row.fitWindowDays == null ? 0 : row.fitWindowDays.intValue());
         view.put("validateWindowDays", row.validateWindowDays == null ? 0 : row.validateWindowDays.intValue());
@@ -430,30 +435,43 @@ public class WorkbenchService {
         view.put("attemptCount", row.attemptCount == null ? 0 : row.attemptCount.intValue());
         view.put("suspendReason", blankTo(row.suspendReason, ""));
         view.put("failureReason", blankTo(row.failureReason, ""));
+        view.put("nextRetryTime", blankTo(row.nextRetryTime, ""));
         view.put("createTime", blankTo(row.createTime, ""));
         view.put("updateTime", blankTo(row.updateTime, ""));
-        view.put("payloadSummary", parsePayloadSummary(row.payload));
+        view.put("payloadSummary", payloadSummary);
         view.put("rawPayload", blankTo(row.payload, ""));
         return view;
     }
 
-    private Map<String, Object> parsePayloadSummary(String payload) {
+    private StrategyBacktestTaskPayloadEnvelope parsePayloadEnvelope(String payload) {
         if (StringUtils.isBlank(payload)) {
-            return new LinkedHashMap<String, Object>();
+            return null;
         }
         try {
-            StrategyBacktestTaskPayloadEnvelope envelope =
-                    JsonUtils.Deserialize(payload, StrategyBacktestTaskPayloadEnvelope.class);
-            if (envelope != null && envelope.backtestParam != null) {
-                Map<String, Object> summary = new LinkedHashMap<String, Object>();
-                summary.put("symbol", blankTo(envelope.backtestParam.symbol, ""));
-                summary.put("symbols", blankTo(envelope.backtestParam.symbols, ""));
-                summary.put("text", blankTo(envelope.backtestParam.text, ""));
-                summary.put("beginDate", blankTo(envelope.backtestParam.beginDate, ""));
-                summary.put("endDate", blankTo(envelope.backtestParam.endDate, ""));
-                return summary;
-            }
+            return JsonUtils.Deserialize(payload, StrategyBacktestTaskPayloadEnvelope.class);
         } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private Map<String, Object> parsePayloadSummary(StrategyBacktestTaskPayloadEnvelope envelope, String payload) {
+        if (envelope != null && envelope.backtestParam != null) {
+            Map<String, Object> summary = new LinkedHashMap<String, Object>();
+            summary.put("symbol", blankTo(envelope.backtestParam.symbol, ""));
+            summary.put("symbols", blankTo(envelope.backtestParam.symbols, ""));
+            summary.put("text", blankTo(envelope.backtestParam.text, ""));
+            summary.put("beginDate", blankTo(envelope.backtestParam.beginDate, ""));
+            summary.put("endDate", blankTo(envelope.backtestParam.endDate, ""));
+            if (envelope.suspendDetail != null && !envelope.suspendDetail.isEmpty()) {
+                summary.put("suspendDetail", envelope.suspendDetail);
+            }
+            if (envelope.recoveryPlan != null && !envelope.recoveryPlan.isEmpty()) {
+                summary.put("recoveryPlan", envelope.recoveryPlan);
+            }
+            return summary;
+        }
+        if (StringUtils.isBlank(payload)) {
+            return new LinkedHashMap<String, Object>();
         }
         try {
             @SuppressWarnings("unchecked")
@@ -462,6 +480,106 @@ public class WorkbenchService {
         } catch (Exception ignore) {
             return new LinkedHashMap<String, Object>();
         }
+    }
+
+    private String displayStatus(String statusCode,
+                                 String suspendReason,
+                                 String nextRetryTime,
+                                 StrategyBacktestTaskPayloadEnvelope envelope) {
+        String code = blankTo(statusCode, "").trim().toUpperCase();
+        if ("SUCCESS".equals(code)) {
+            return "已完成";
+        }
+        if ("FAILED".equals(code)) {
+            return "失败";
+        }
+        if ("PENDING".equals(code)) {
+            return "排队中";
+        }
+        if ("RUNNING".equals(code)) {
+            if (isWaitingRetry(suspendReason, nextRetryTime, envelope)) {
+                return "等待重试";
+            }
+            return "运行中";
+        }
+        if ("SUSPENDED".equals(code)) {
+            if (isWaitingRetry(suspendReason, nextRetryTime, envelope)) {
+                return "等待重试";
+            }
+            return "已挂起";
+        }
+        return blankTo(statusCode, "");
+    }
+
+    private String displayStatusDetail(String statusCode,
+                                       String suspendReason,
+                                       String failureReason,
+                                       String nextRetryTime,
+                                       StrategyBacktestTaskPayloadEnvelope envelope) {
+        String code = blankTo(statusCode, "").trim().toUpperCase();
+        if ("FAILED".equals(code)) {
+            return blankTo(failureReason, "回测执行失败");
+        }
+        if ("SUCCESS".equals(code)) {
+            return "回测报告已生成";
+        }
+        if ("PENDING".equals(code)) {
+            return "任务正在排队等待执行";
+        }
+        if (isInsufficientKline(suspendReason, envelope)) {
+            int missingBars = recoveryPlanInt(envelope, "missingBars");
+            if (missingBars <= 0) {
+                return "样本窗口不足，当前数据已完整，已跳过重复补数";
+            }
+            if (StringUtils.isNotBlank(nextRetryTime)) {
+                return "样本窗口不足，正在等待补数后自动重试";
+            }
+            return "样本窗口不足，等待补数";
+        }
+        if ("RUNNING".equals(code)) {
+            return "回测任务正在执行";
+        }
+        if ("SUSPENDED".equals(code)) {
+            return StringUtils.isNotBlank(suspendReason) ? suspendReason : "任务已挂起";
+        }
+        return "";
+    }
+
+    private boolean isWaitingRetry(String suspendReason,
+                                   String nextRetryTime,
+                                   StrategyBacktestTaskPayloadEnvelope envelope) {
+        return isInsufficientKline(suspendReason, envelope) && StringUtils.isNotBlank(nextRetryTime);
+    }
+
+    private boolean isInsufficientKline(String suspendReason, StrategyBacktestTaskPayloadEnvelope envelope) {
+        if ("INSUFFICIENT_KLINE".equalsIgnoreCase(blankTo(suspendReason, ""))) {
+            return true;
+        }
+        String reason = recoveryPlanText(envelope, "reason");
+        return "INSUFFICIENT_KLINE".equalsIgnoreCase(reason);
+    }
+
+    private int recoveryPlanInt(StrategyBacktestTaskPayloadEnvelope envelope, String key) {
+        if (envelope == null || envelope.recoveryPlan == null || !envelope.recoveryPlan.containsKey(key)) {
+            return 0;
+        }
+        Object value = envelope.recoveryPlan.get(key);
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            return value == null ? 0 : Integer.parseInt(String.valueOf(value).trim());
+        } catch (Exception ignore) {
+            return 0;
+        }
+    }
+
+    private String recoveryPlanText(StrategyBacktestTaskPayloadEnvelope envelope, String key) {
+        if (envelope == null || envelope.recoveryPlan == null || !envelope.recoveryPlan.containsKey(key)) {
+            return "";
+        }
+        Object value = envelope.recoveryPlan.get(key);
+        return value == null ? "" : String.valueOf(value).trim();
     }
 
     private Map<String, Object> candidateView(StrategyCandidateRow row) {

@@ -131,6 +131,32 @@ public class WorkbenchServiceTest {
         Assert.assertTrue(service.insertedTasks.get(0).contains("\"strategyName\":\"docx_t6\""));
     }
 
+    @Test
+    public void queryBacktestListShouldShowRetryingForSuspendedInsufficientKline() {
+        FakeWorkbenchService service = new FakeWorkbenchService();
+
+        StrategyBacktestTaskRow row = new StrategyBacktestTaskRow();
+        row.id = "bt-retry";
+        row.strategyName = "ema_pullback_v1";
+        row.strategyVersion = "v1";
+        row.status = "SUSPENDED";
+        row.suspendReason = "INSUFFICIENT_KLINE";
+        row.nextRetryTime = "2026-05-14 00:03:00";
+        row.createTime = "2026-05-14 00:00:00";
+        row.updateTime = "2026-05-14 00:01:00";
+        row.payload = "{\"backtestParam\":{\"symbol\":\"TRXUSDT\",\"text\":\"15m\"},"
+                + "\"recoveryPlan\":{\"reason\":\"INSUFFICIENT_KLINE\",\"missingBars\":0}}";
+        service.rows.add(row);
+
+        Map<String, Object> data = service.queryBacktestList(Collections.singletonMap("date", "2026-05-14"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) data.get("items");
+        Assert.assertEquals(1, items.size());
+        Assert.assertEquals("等待重试", items.get(0).get("status"));
+        Assert.assertTrue(String.valueOf(items.get(0).get("statusDetail")).contains("已跳过重复补数"));
+        Assert.assertEquals("SUSPENDED", items.get(0).get("statusCode"));
+    }
+
     private static class FakeWorkbenchService extends WorkbenchService {
         final List<StrategyBacktestTaskRow> rows = new ArrayList<StrategyBacktestTaskRow>();
         final Map<String, StrategyBacktestSummary> summaries = new LinkedHashMap<String, StrategyBacktestSummary>();

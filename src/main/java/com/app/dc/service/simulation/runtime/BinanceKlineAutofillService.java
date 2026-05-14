@@ -61,6 +61,9 @@ public class BinanceKlineAutofillService {
     @Value("${strategy.backtest.kline-autofill.minStartIntervalMs:3000}")
     private long minStartIntervalMs;
 
+    @Value("${strategy.backtest.kline-autofill.cooldownMs:1800000}")
+    private long cooldownMs;
+
     @Value("${dbpool.cfg:./config/DBPoolConfig.ini}")
     private String dbpoolCfg;
 
@@ -68,6 +71,7 @@ public class BinanceKlineAutofillService {
     private String dbSourceName;
 
     private final Set<String> inFlightBackfillKeys = ConcurrentHashMap.newKeySet();
+    private final Map<String, Long> recentAttemptMsByKey = new ConcurrentHashMap<String, Long>();
 
     public AutofillTriggerResult triggerIfNeeded(StrategyBacktestTaskRow task, BacktestTaskSuspendedException error) {
         AutofillTriggerResult result = new AutofillTriggerResult();
@@ -96,6 +100,27 @@ public class BinanceKlineAutofillService {
         result.requiredBars = request.requiredBars;
         result.actualBars = request.actualBars;
         result.missingBars = request.missingBars;
+        if (request.skipAutofillBecauseNoMissingBars()) {
+            log.info("BinanceKlineAutofillService skip autofill without missing bars, task:{}, key:{}, requiredBars:{}, actualBars:{}, missingBars:{}",
+                    task == null ? null : task.id, request.key(), request.requiredBars, request.actualBars, request.missingBars);
+            result.triggered = false;
+            result.message = "autofill skipped: no missing bars";
+            return result;
+        }
+        long now = System.currentTimeMillis();
+        long cooldown = Math.max(0L, cooldownMs);
+        if (cooldown > 0L) {
+            Long lastAttemptAt = recentAttemptMsByKey.get(request.key());
+            if (lastAttemptAt != null && now - lastAttemptAt.longValue() < cooldown) {
+                long remainMs = cooldown - (now - lastAttemptAt.longValue());
+                log.info("BinanceKlineAutofillService cooldown skip, task:{}, key:{}, remainMs:{}",
+                        task == null ? null : task.id, request.key(), remainMs);
+                result.triggered = false;
+                result.duplicate = true;
+                result.message = "autofill cooldown active: " + remainMs + "ms";
+                return result;
+            }
+        }
         if (!inFlightBackfillKeys.add(request.key())) {
             log.info("BinanceKlineAutofillService skip duplicate running autofill, task:{}, key:{}",
                     task == null ? null : task.id, request.key());
@@ -105,6 +130,7 @@ public class BinanceKlineAutofillService {
             return result;
         }
         try {
+            recentAttemptMsByKey.put(request.key(), Long.valueOf(now));
             strategyBacktestKlineAutofillExecutor.execute(new Runnable() {
                 @Override
                 public void run() {
@@ -352,6 +378,10 @@ public class BinanceKlineAutofillService {
 
         private String key() {
             return venue + "|" + symbol + "|" + text;
+        }
+
+        private boolean skipAutofillBecauseNoMissingBars() {
+            return requiredBars > 0 && actualBars >= requiredBars && missingBars <= 0;
         }
     }
 

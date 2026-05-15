@@ -41,8 +41,18 @@ public class WalkForwardBacktestRunner {
         List<TTbookOhlc> rows = ohlcList == null ? new ArrayList<TTbookOhlc>() : ohlcList;
         LocalDate beginDate = LocalDate.parse(param.beginDate);
         LocalDate endDate = LocalDate.parse(param.endDate);
-        List<WindowSlice> slices = buildSlices(beginDate, endDate, fitWindowDays, validateWindowDays, forwardWindowDays);
-        log.info("WalkForwardBacktestRunner start, strategy:{}@{}, symbol:{}, text:{}, bars:{}, range:{}~{}, window:{}/{}/{}, minSliceCount:{}, builtSlices:{}",
+        LocalDate availableBeginDate = rows.isEmpty() ? null : LocalDate.parse(tradeDate(rows.get(0)));
+        LocalDate availableEndDate = rows.isEmpty() ? null : LocalDate.parse(tradeDate(rows.get(rows.size() - 1)));
+        LocalDate effectiveBeginDate = beginDate;
+        LocalDate effectiveEndDate = endDate;
+        if (availableBeginDate != null && availableBeginDate.isAfter(effectiveBeginDate)) {
+            effectiveBeginDate = availableBeginDate;
+        }
+        if (availableEndDate != null && availableEndDate.isBefore(effectiveEndDate)) {
+            effectiveEndDate = availableEndDate;
+        }
+        List<WindowSlice> slices = buildSlices(effectiveBeginDate, effectiveEndDate, fitWindowDays, validateWindowDays, forwardWindowDays);
+        log.info("WalkForwardBacktestRunner start, strategy:{}@{}, symbol:{}, text:{}, bars:{}, requestedRange:{}~{}, effectiveRange:{}~{}, window:{}/{}/{}, minSliceCount:{}, builtSlices:{}",
                 candidate.strategyName,
                 candidate.strategyVersion,
                 param.symbol,
@@ -50,6 +60,8 @@ public class WalkForwardBacktestRunner {
                 rows.size(),
                 beginDate,
                 endDate,
+                effectiveBeginDate,
+                effectiveEndDate,
                 fitWindowDays,
                 validateWindowDays,
                 forwardWindowDays,
@@ -334,6 +346,8 @@ public class WalkForwardBacktestRunner {
         detail.put("validateWindowDays", validateWindowDays);
         detail.put("forwardWindowDays", forwardWindowDays);
         detail.put("actualBars", rows == null ? 0 : rows.size());
+        detail.put("availableBeginDate", rows == null || rows.isEmpty() ? "" : tradeDate(rows.get(0)));
+        detail.put("availableEndDate", rows == null || rows.isEmpty() ? "" : tradeDate(rows.get(rows.size() - 1)));
         detail.put("resumeHint", "run BinanceKlineImportCli then wait for retry");
         detail.put("message", message);
         return new BacktestTaskSuspendedException(INSUFFICIENT_WINDOW_SLICES, detail);

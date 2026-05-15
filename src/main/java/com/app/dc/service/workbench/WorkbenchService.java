@@ -89,8 +89,10 @@ public class WorkbenchService {
             if (!matchesSymbol(item, symbol)) {
                 continue;
             }
+            StrategyCandidateRow candidate = loadCandidate(row.strategyName, row.strategyVersion);
             StrategyBacktestSummary summary = loadLatestSummary(row.strategyName, row.strategyVersion);
             Map<String, Object> report = loadLatestReportMeta(row.id, row.strategyName, row.strategyVersion);
+            item.put("strategyDescription", candidate == null ? "" : blankTo(candidate.description, ""));
             item.put("summary", summaryView(summary));
             item.put("report", report);
             items.add(item);
@@ -443,6 +445,8 @@ public class WorkbenchService {
                 item.put("reason", row.reason);
                 item.put("source", row.source);
                 item.put("payload", blankTo(row.payload, ""));
+                StrategyCandidateRow candidate = loadCandidate(row.strategyName, row.toVersion);
+                item.put("strategyDescription", candidate == null ? "" : blankTo(candidate.description, ""));
                 StrategyBacktestSummary summary = loadLatestSummary(row.strategyName, row.toVersion);
                 item.put("summary", summaryView(summary));
                 StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadExactActive(row.strategyName, row.toVersion);

@@ -167,6 +167,11 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
     }
 
     @Override
+    public void refreshRecoveryProgress(String id, String payload, String nextRetryTime) {
+        updateStatus(id, "SUSPENDED", payload, INSUFFICIENT_KLINE, nextRetryTime, "", false);
+    }
+
+    @Override
     public StrategyCandidateRow loadCandidate(String strategyName, String strategyVersion) {
         if (!ready()) {
             return null;
@@ -230,6 +235,8 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
             log.error("updateStatus error, id:{}, status:{}", id, status, e);
         }
     }
+
+    private static final String INSUFFICIENT_KLINE = "INSUFFICIENT_KLINE";
 
     private String latestTaskSql() {
         String baseSql = "select *, "

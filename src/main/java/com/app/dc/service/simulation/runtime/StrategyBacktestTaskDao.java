@@ -25,5 +25,7 @@ public interface StrategyBacktestTaskDao {
 
     void markRetryReadyNow(String id, String reason);
 
+    void refreshRecoveryProgress(String id, String payload, String nextRetryTime);
+
     StrategyCandidateRow loadCandidate(String strategyName, String strategyVersion);
 }

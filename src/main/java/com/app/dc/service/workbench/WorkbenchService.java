@@ -594,10 +594,89 @@ public class WorkbenchService {
         try {
             @SuppressWarnings("unchecked")
             Map<String, Object> map = JsonUtils.Deserialize(payload, Map.class);
-            return map == null ? new LinkedHashMap<String, Object>() : map;
+            return buildPayloadSummaryFromRawMap(map);
         } catch (Exception ignore) {
             return new LinkedHashMap<String, Object>();
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> buildPayloadSummaryFromRawMap(Map<String, Object> map) {
+        if (map == null || map.isEmpty()) {
+            return new LinkedHashMap<String, Object>();
+        }
+        Map<String, Object> nestedPayload = mapValue(map.get("payload"));
+        Map<String, Object> nestedBacktestParam = mapValue(map.get("backtestParam"));
+        Map<String, Object> nestedRequestPayload = mapValue(map.get("requestPayload"));
+        Map<String, Object> nestedPayloadBacktestParam = mapValue(nestedPayload.get("backtestParam"));
+        Map<String, Object> summary = new LinkedHashMap<String, Object>();
+        summary.put("symbol", firstNonBlank(
+                map.get("symbol"),
+                nestedBacktestParam.get("symbol"),
+                nestedPayload.get("symbol"),
+                nestedPayloadBacktestParam.get("symbol"),
+                nestedRequestPayload.get("symbol")));
+        summary.put("symbols", firstNonBlank(
+                map.get("symbols"),
+                nestedBacktestParam.get("symbols"),
+                nestedPayload.get("symbols"),
+                nestedPayloadBacktestParam.get("symbols"),
+                nestedRequestPayload.get("symbols")));
+        summary.put("text", firstNonBlank(
+                map.get("text"),
+                nestedBacktestParam.get("text"),
+                nestedPayload.get("text"),
+                nestedPayloadBacktestParam.get("text"),
+                nestedRequestPayload.get("text")));
+        summary.put("beginDate", firstNonBlank(
+                map.get("beginDate"),
+                nestedBacktestParam.get("beginDate"),
+                nestedPayload.get("beginDate"),
+                nestedPayloadBacktestParam.get("beginDate"),
+                nestedRequestPayload.get("beginDate")));
+        summary.put("endDate", firstNonBlank(
+                map.get("endDate"),
+                nestedBacktestParam.get("endDate"),
+                nestedPayload.get("endDate"),
+                nestedPayloadBacktestParam.get("endDate"),
+                nestedRequestPayload.get("endDate")));
+        if (summary.get("symbol") == null) {
+            summary.put("symbol", "");
+        }
+        if (summary.get("symbols") == null) {
+            summary.put("symbols", "");
+        }
+        if (summary.get("text") == null) {
+            summary.put("text", "");
+        }
+        if (summary.get("beginDate") == null) {
+            summary.put("beginDate", "");
+        }
+        if (summary.get("endDate") == null) {
+            summary.put("endDate", "");
+        }
+        return summary;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mapValue(Object value) {
+        if (value instanceof Map) {
+            return (Map<String, Object>) value;
+        }
+        return Collections.emptyMap();
+    }
+
+    private String firstNonBlank(Object... values) {
+        if (values == null) {
+            return "";
+        }
+        for (Object value : values) {
+            String text = blankTo(value == null ? null : String.valueOf(value), "");
+            if (StringUtils.isNotBlank(text)) {
+                return text;
+            }
+        }
+        return "";
     }
 
     private String displayStatus(String statusCode,
@@ -684,14 +763,39 @@ public class WorkbenchService {
             return "任务已经提交，正在等待调度执行";
         }
         if (isInsufficientKline(suspendReason, envelope)) {
+            String stage = recoveryPlanText(envelope, "autofillStage");
+            int requiredBars = recoveryPlanInt(envelope, "requiredBars");
+            int actualBars = recoveryPlanInt(envelope, "actualBars");
             int missingBars = recoveryPlanInt(envelope, "missingBars");
             if (missingBars <= 0) {
                 return "样本窗口不足，当前数据已完整，已跳过重复补数";
             }
-            if (StringUtils.isNotBlank(nextRetryTime)) {
-                return "样本窗口不足，系统会在补数后自动重试";
+            String progress = buildAutofillProgress(requiredBars, actualBars, missingBars);
+            if ("WAITING_THROTTLE".equalsIgnoreCase(stage)) {
+                return "样本窗口不足，补数排队中；" + progress + "；等待限频窗口释放后自动继续";
             }
-            return "样本窗口不足，等待补充更多历史数据";
+            if ("IMPORTING".equalsIgnoreCase(stage)) {
+                return "样本窗口不足，正在补数；" + progress + "；系统正在向交易所拉取缺失 K 线";
+            }
+            if ("VALIDATING".equalsIgnoreCase(stage)) {
+                return "样本窗口不足，补数已完成，正在校验；" + progress;
+            }
+            if ("PARTIAL".equalsIgnoreCase(stage)) {
+                return "样本窗口不足，补数未完成；" + progress + "；系统会继续等待后续自动重试";
+            }
+            if ("IMPORT_FAILED".equalsIgnoreCase(stage)) {
+                String autofillError = recoveryPlanText(envelope, "autofillError");
+                return StringUtils.isBlank(autofillError)
+                        ? "样本窗口不足，补数执行失败，等待系统下次自动重试"
+                        : "样本窗口不足，补数执行失败：" + autofillError;
+            }
+            if ("READY_FOR_RETRY".equalsIgnoreCase(stage)) {
+                return "样本窗口不足，补数已完成，任务即将自动重试";
+            }
+            if (StringUtils.isNotBlank(nextRetryTime)) {
+                return "样本窗口不足，系统会在补数后自动重试；" + progress;
+            }
+            return "样本窗口不足，等待补充更多历史数据；" + progress;
         }
         if ("RUNNING".equals(code)) {
             return "回测任务正在执行";
@@ -737,6 +841,13 @@ public class WorkbenchService {
         }
         Object value = envelope.recoveryPlan.get(key);
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private String buildAutofillProgress(int requiredBars, int actualBars, int missingBars) {
+        if (requiredBars <= 0) {
+            return "已补 " + Math.max(0, actualBars) + " 根";
+        }
+        return "已补 " + Math.max(0, actualBars) + " / 目标 " + requiredBars + " 根，还差 " + Math.max(0, missingBars) + " 根";
     }
 
     private Map<String, Object> candidateView(StrategyCandidateRow row) {

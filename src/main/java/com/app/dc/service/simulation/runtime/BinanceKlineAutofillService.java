@@ -1,8 +1,10 @@
 package com.app.dc.service.simulation.runtime;
 
 import com.app.common.db.ClickHouseDBUtils;
+import com.app.dc.po.backtest.BacktestParam;
 import com.app.dc.simulation.tool.BinanceKlineImportCli;
 import com.app.dc.service.simulation.BacktestQueryService;
+import com.gateway.connector.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -164,9 +166,14 @@ public class BinanceKlineAutofillService {
     private void runAutofill(StrategyBacktestTaskRow task, AutofillRequest request) {
         String threadName = Thread.currentThread().getName();
         long startNs = System.nanoTime();
+        String nextRetryTime = null;
         try {
             long throttleWaitMs = reserveThrottleDelay();
+            nextRetryTime = computeNextRetryTime();
             if (throttleWaitMs > 0) {
+                updateRecoveryProgress(task, request, nextRetryTime, "WAITING_THROTTLE",
+                        request.actualBars, request.missingBars,
+                        "补数排队中，等待限频窗口释放", "");
                 log.info("BinanceKlineAutofillService throttle wait, task:{}, key:{}, thread:{}, waitMs:{}, minStartIntervalMs:{}",
                         task == null ? null : task.id,
                         request.key(),
@@ -175,6 +182,9 @@ public class BinanceKlineAutofillService {
                         minStartIntervalMs);
                 Thread.sleep(throttleWaitMs);
             }
+            updateRecoveryProgress(task, request, nextRetryTime, "IMPORTING",
+                    request.actualBars, request.missingBars,
+                    "补数任务已启动，正在向币安拉取缺失 K 线", "");
             log.info("BinanceKlineAutofillService start, task:{}, key:{}, thread:{}, earliestDate:{}, requiredBeginDate:{}, requiredEndDate:{}",
                     task == null ? null : task.id,
                     request.key(),
@@ -195,8 +205,18 @@ public class BinanceKlineAutofillService {
                     "--db-source", dbSourceName
             });
             int actualBars = queryBars(request.symbol, request.text, request.requiredBeginDate, request.requiredEndDate);
+            int missingBars = Math.max(0, request.requiredBars - actualBars);
+            updateRecoveryProgress(task, request, nextRetryTime, "VALIDATING",
+                    actualBars, missingBars,
+                    actualBars >= request.requiredBars
+                            ? "补数已完成，正在校验是否满足重新回测条件"
+                            : "补数已完成，当前仍缺少部分 K 线，等待下一轮补数",
+                    "");
             if (actualBars >= request.requiredBars) {
                 if (task != null && !StringUtils.isBlank(task.id)) {
+                    updateRecoveryProgress(task, request, nextRetryTime, "READY_FOR_RETRY",
+                            actualBars, 0,
+                            "补数完成，任务已满足重试条件，系统即将重新执行回测", "");
                     strategyBacktestTaskDao.markRetryReadyNow(task.id, INSUFFICIENT_KLINE);
                 }
                 log.info("BinanceKlineAutofillService success, task:{}, key:{}, thread:{}, startDate:{}, endDate:{}, requiredBars:{}, actualBars:{}, missingBars:{}",
@@ -207,13 +227,16 @@ public class BinanceKlineAutofillService {
                         request.endDate,
                         request.requiredBars,
                         actualBars,
-                        Math.max(0, request.requiredBars - actualBars));
+                        missingBars);
                 log.info("BinanceKlineAutofillService retry ready now, task:{}, key:{}, thread:{}, reason:{}, nextRetryTime:now()",
                         task == null ? null : task.id,
                         request.key(),
                         threadName,
                         INSUFFICIENT_KLINE);
             } else {
+                updateRecoveryProgress(task, request, nextRetryTime, "PARTIAL",
+                        actualBars, missingBars,
+                        "补数未完成，当前仍缺少 " + missingBars + " 根 K 线，系统会继续等待后续重试", "");
                 log.warn("BinanceKlineAutofillService validation not enough, task:{}, key:{}, thread:{}, requiredBeginDate:{}, requiredEndDate:{}, requiredBars:{}, actualBars:{}, missingBars:{}",
                         task == null ? null : task.id,
                         request.key(),
@@ -222,9 +245,12 @@ public class BinanceKlineAutofillService {
                         request.requiredEndDate,
                         request.requiredBars,
                         actualBars,
-                        Math.max(0, request.requiredBars - actualBars));
+                        missingBars);
             }
         } catch (Exception e) {
+            updateRecoveryProgress(task, request, nextRetryTime, "IMPORT_FAILED",
+                    request.actualBars, request.missingBars,
+                    "补数执行失败，等待系统下次自动重试", e.getMessage());
             log.warn("BinanceKlineAutofillService failed, task:{}, key:{}, thread:{}",
                     task == null ? null : task.id,
                     request.key(),
@@ -240,6 +266,81 @@ public class BinanceKlineAutofillService {
                     elapsedMs,
                     inFlightBackfillKeys.size());
         }
+    }
+
+    private void updateRecoveryProgress(StrategyBacktestTaskRow task,
+                                        AutofillRequest request,
+                                        String nextRetryTime,
+                                        String stage,
+                                        int actualBars,
+                                        int missingBars,
+                                        String message,
+                                        String error) {
+        if (task == null || StringUtils.isBlank(task.id)) {
+            return;
+        }
+        try {
+            String payload = buildRecoveryPayload(task, request, nextRetryTime, stage, actualBars, missingBars, message, error);
+            strategyBacktestTaskDao.refreshRecoveryProgress(task.id, payload, nextRetryTime);
+        } catch (Exception e) {
+            log.warn("BinanceKlineAutofillService updateRecoveryProgress failed, task:{}, key:{}, stage:{}",
+                    task.id, request == null ? "" : request.key(), stage, e);
+        }
+    }
+
+    private String buildRecoveryPayload(StrategyBacktestTaskRow task,
+                                        AutofillRequest request,
+                                        String nextRetryTime,
+                                        String stage,
+                                        int actualBars,
+                                        int missingBars,
+                                        String message,
+                                        String error) {
+        StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
+        if (task != null && StringUtils.isNotBlank(task.payload)) {
+            try {
+                BacktestParam param = JsonUtils.Deserialize(task.payload, BacktestParam.class);
+                if (param != null && (!StringUtils.isBlank(param.strategyName) || !StringUtils.isBlank(param.symbol) || !StringUtils.isBlank(param.text))) {
+                    envelope.backtestParam = param;
+                }
+            } catch (Exception ignore) {
+            }
+            if (envelope.backtestParam == null) {
+                try {
+                    StrategyBacktestTaskPayloadEnvelope existing = JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
+                    if (existing != null) {
+                        envelope.backtestParam = existing.backtestParam;
+                        envelope.suspendDetail = existing.suspendDetail;
+                        envelope.recoveryPlan = existing.recoveryPlan;
+                    }
+                } catch (Exception ignore) {
+                }
+            }
+        }
+        if (envelope.recoveryPlan == null) {
+            envelope.recoveryPlan = new ConcurrentHashMap<String, Object>();
+        }
+        Map<String, Object> recoveryPlan = envelope.recoveryPlan;
+        recoveryPlan.put("reason", INSUFFICIENT_KLINE);
+        recoveryPlan.put("nextRetryTime", StringUtils.defaultString(nextRetryTime));
+        recoveryPlan.put("autofillTriggered", true);
+        recoveryPlan.put("autofillDuplicate", false);
+        recoveryPlan.put("autofillKey", request == null ? "" : request.key());
+        recoveryPlan.put("requiredBeginDate", request == null || request.requiredBeginDate == null ? "" : request.requiredBeginDate.toString());
+        recoveryPlan.put("requiredEndDate", request == null || request.requiredEndDate == null ? "" : request.requiredEndDate.toString());
+        recoveryPlan.put("requiredBars", request == null ? 0 : request.requiredBars);
+        recoveryPlan.put("actualBars", Math.max(0, actualBars));
+        recoveryPlan.put("missingBars", Math.max(0, missingBars));
+        recoveryPlan.put("autofillMessage", StringUtils.defaultString(message));
+        recoveryPlan.put("autofillError", StringUtils.defaultString(error));
+        recoveryPlan.put("autofillStage", StringUtils.defaultString(stage));
+        recoveryPlan.put("recoverable", true);
+        return JsonUtils.Serializer(envelope);
+    }
+
+    private String computeNextRetryTime() {
+        return java.time.LocalDateTime.now().plusMinutes(30)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
     }
 
     private long reserveThrottleDelay() {

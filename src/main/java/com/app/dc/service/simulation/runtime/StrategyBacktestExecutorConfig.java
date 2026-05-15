@@ -22,7 +22,7 @@ public class StrategyBacktestExecutorConfig {
     @Value("${strategy.backtest.symbolThreadNamePrefix:strategy-backtest-symbol-}")
     private String symbolThreadNamePrefix;
 
-    @Value("${strategy.backtest.kline-autofill.parallelism:2}")
+    @Value("${strategy.backtest.kline-autofill.parallelism:1}")
     private int klineAutofillParallelism;
 
     @Value("${strategy.backtest.kline-autofill.queueCapacity:100}")

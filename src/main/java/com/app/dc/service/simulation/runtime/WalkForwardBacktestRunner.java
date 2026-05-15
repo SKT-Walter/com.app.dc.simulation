@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -43,6 +45,8 @@ public class WalkForwardBacktestRunner {
         LocalDate endDate = LocalDate.parse(param.endDate);
         LocalDate availableBeginDate = rows.isEmpty() ? null : LocalDate.parse(tradeDate(rows.get(0)));
         LocalDate availableEndDate = rows.isEmpty() ? null : LocalDate.parse(tradeDate(rows.get(rows.size() - 1)));
+        LocalDateTime availableBeginDateTime = rows.isEmpty() ? null : rowStartTime(rows.get(0));
+        LocalDateTime availableEndDateTime = rows.isEmpty() ? null : rowStartTime(rows.get(rows.size() - 1));
         LocalDate effectiveBeginDate = beginDate;
         LocalDate effectiveEndDate = endDate;
         if (availableBeginDate != null && availableBeginDate.isAfter(effectiveBeginDate)) {
@@ -83,12 +87,16 @@ public class WalkForwardBacktestRunner {
         BigDecimal forwardScoreSum = BigDecimal.ZERO;
 
         int barsPerDay = resolveBarsPerDay(param.text);
+        Duration barDuration = supportService.resolveDuration(param.text);
         int sliceNo = 0;
         for (WindowSlice slice : slices) {
             sliceNo++;
             List<TTbookOhlc> fitRows = filterRows(rows, slice.fitBegin, slice.fitEnd);
             List<TTbookOhlc> validateRows = filterRows(rows, slice.validateBegin, slice.validateEnd);
             List<TTbookOhlc> forwardRows = filterRows(rows, slice.forwardBegin, slice.forwardEnd);
+            int fitRequiredBars = expectedBars(slice.fitBegin, slice.fitEnd, barDuration, availableBeginDateTime, availableEndDateTime);
+            int validateRequiredBars = expectedBars(slice.validateBegin, slice.validateEnd, barDuration, availableBeginDateTime, availableEndDateTime);
+            int forwardRequiredBars = expectedBars(slice.forwardBegin, slice.forwardEnd, barDuration, availableBeginDateTime, availableEndDateTime);
             log.info("WalkForwardBacktestRunner slice start, strategy:{}@{}, symbol:{}, sliceNo:{}, fit:{}~{} bars:{}, validate:{}~{} bars:{}, forward:{}~{} bars:{}",
                     candidate.strategyName,
                     candidate.strategyVersion,
@@ -105,11 +113,11 @@ public class WalkForwardBacktestRunner {
                     forwardRows.size());
 
             ensureEnoughBars(candidate, param, rows, slice.fitBegin, slice.fitEnd, fitRows.size(),
-                    fitWindowDays * barsPerDay, "fit");
+                    fitRequiredBars <= 0 ? fitWindowDays * barsPerDay : fitRequiredBars, "fit");
             ensureEnoughBars(candidate, param, rows, slice.validateBegin, slice.validateEnd, validateRows.size(),
-                    validateWindowDays * barsPerDay, "validate");
+                    validateRequiredBars <= 0 ? validateWindowDays * barsPerDay : validateRequiredBars, "validate");
             ensureEnoughBars(candidate, param, rows, slice.forwardBegin, slice.forwardEnd, forwardRows.size(),
-                    forwardWindowDays * barsPerDay, "forward");
+                    forwardRequiredBars <= 0 ? forwardWindowDays * barsPerDay : forwardRequiredBars, "forward");
 
             BacktestModels.BacktestResult fitResult = versionedBacktestRunner.run(candidate,
                     copyParam(param, slice.fitBegin, slice.fitEnd), fitRows);
@@ -460,6 +468,41 @@ public class WalkForwardBacktestRunner {
         return 1;
     }
 
+    private int expectedBars(LocalDate begin,
+                             LocalDate end,
+                             Duration barDuration,
+                             LocalDateTime availableBeginDateTime,
+                             LocalDateTime availableEndDateTime) {
+        if (begin == null || end == null || barDuration == null || barDuration.isZero() || barDuration.isNegative()) {
+            return 0;
+        }
+        LocalDateTime segmentStart = begin.atStartOfDay();
+        LocalDateTime segmentEnd = end.plusDays(1L).atStartOfDay().minus(barDuration);
+        if (availableBeginDateTime != null
+                && !availableBeginDateTime.isBefore(segmentStart)
+                && !availableBeginDateTime.isAfter(segmentEnd)) {
+            segmentStart = availableBeginDateTime;
+        }
+        if (availableEndDateTime != null
+                && !availableEndDateTime.isBefore(segmentStart)
+                && !availableEndDateTime.isAfter(segmentEnd)) {
+            segmentEnd = availableEndDateTime;
+        }
+        if (segmentEnd.isBefore(segmentStart)) {
+            return 0;
+        }
+        long barMillis = barDuration.toMillis();
+        long diffMillis = java.time.Duration.between(segmentStart, segmentEnd).toMillis();
+        long count = (diffMillis / barMillis) + 1L;
+        if (count <= 0L) {
+            return 0;
+        }
+        if (count > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) count;
+    }
+
     private String tradeDate(TTbookOhlc row) {
         if (row == null) {
             return LocalDate.now().toString();
@@ -474,6 +517,32 @@ public class WalkForwardBacktestRunner {
             return row.starttime.substring(0, 10);
         }
         return LocalDate.now().toString();
+    }
+
+    private LocalDateTime rowStartTime(TTbookOhlc row) {
+        if (row == null) {
+            return null;
+        }
+        String value = null;
+        if (row.starttime != null && row.starttime.length() >= 16) {
+            value = row.starttime;
+        } else if (row.opentime != null && row.opentime.length() >= 16) {
+            value = row.opentime;
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            if (value.length() >= 23) {
+                return LocalDateTime.parse(value.substring(0, 23), java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"));
+            }
+            if (value.length() >= 19) {
+                return LocalDateTime.parse(value.substring(0, 19), java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            }
+            return LocalDateTime.parse(value);
+        } catch (Exception ignore) {
+            return null;
+        }
     }
 
     private BigDecimal calcTotalPnl(BacktestModels.BacktestResult result) {

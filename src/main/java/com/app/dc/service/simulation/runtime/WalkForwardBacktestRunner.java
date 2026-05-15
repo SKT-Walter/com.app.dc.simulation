@@ -21,6 +21,8 @@ import java.util.Map;
 public class WalkForwardBacktestRunner {
 
     private static final String WINDOW_MODE = "WALK_FORWARD";
+    public static final String INSUFFICIENT_KLINE = "INSUFFICIENT_KLINE";
+    public static final String INSUFFICIENT_WINDOW_SLICES = "INSUFFICIENT_WINDOW_SLICES";
 
     @Autowired
     private VersionedBacktestRunner versionedBacktestRunner;
@@ -294,7 +296,7 @@ public class WalkForwardBacktestRunner {
             return;
         }
         Map<String, Object> detail = new LinkedHashMap<String, Object>();
-        detail.put("reason", "INSUFFICIENT_KLINE");
+        detail.put("reason", INSUFFICIENT_KLINE);
         detail.put("segment", segment);
         detail.put("strategyName", candidate.strategyName);
         detail.put("strategyVersion", candidate.strategyVersion);
@@ -308,7 +310,7 @@ public class WalkForwardBacktestRunner {
         detail.put("availableBeginDate", rows.isEmpty() ? "" : tradeDate(rows.get(0)));
         detail.put("availableEndDate", rows.isEmpty() ? "" : tradeDate(rows.get(rows.size() - 1)));
         detail.put("resumeHint", "run BinanceKlineImportCli then wait for retry");
-        throw new BacktestTaskSuspendedException("INSUFFICIENT_KLINE", detail);
+        throw new BacktestTaskSuspendedException(INSUFFICIENT_KLINE, detail);
     }
 
     private BacktestTaskSuspendedException insufficient(StrategyCandidateRow candidate,
@@ -321,7 +323,7 @@ public class WalkForwardBacktestRunner {
                                                         LocalDate endDate,
                                                         String message) {
         Map<String, Object> detail = new LinkedHashMap<String, Object>();
-        detail.put("reason", "INSUFFICIENT_KLINE");
+        detail.put("reason", INSUFFICIENT_WINDOW_SLICES);
         detail.put("strategyName", candidate.strategyName);
         detail.put("strategyVersion", candidate.strategyVersion);
         detail.put("symbol", param.symbol);
@@ -334,7 +336,7 @@ public class WalkForwardBacktestRunner {
         detail.put("actualBars", rows == null ? 0 : rows.size());
         detail.put("resumeHint", "run BinanceKlineImportCli then wait for retry");
         detail.put("message", message);
-        return new BacktestTaskSuspendedException("INSUFFICIENT_KLINE", detail);
+        return new BacktestTaskSuspendedException(INSUFFICIENT_WINDOW_SLICES, detail);
     }
 
     private long fitWindowDays(BacktestParam param, WindowSlice slice) {

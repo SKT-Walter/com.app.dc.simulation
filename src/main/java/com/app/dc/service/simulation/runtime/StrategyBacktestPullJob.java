@@ -277,6 +277,26 @@ public class StrategyBacktestPullJob {
                     candidate.strategyName, candidate.strategyVersion, threadName,
                     publishDecision.published, publishDecision.reason);
         } catch (BacktestTaskSuspendedException e) {
+            if (isNonRetryableSuspend(e)) {
+                String failureReason = summarizeSuspendFailure(e);
+                log.warn("StrategyBacktestPullJob non-retryable suspend -> FAILED, task:{}, generationTaskId:{}, candidateId:{}, reason:{}, detail:{}, heap:{}",
+                        task == null ? null : task.id,
+                        task == null ? null : task.generationTaskId,
+                        task == null ? null : task.candidateId,
+                        e.getReason(), JsonUtils.Serializer(e.getDetail()), memorySummary());
+                Map<String, Object> pipelinePayload = resolvePipelinePayload(task, null);
+                pipelinePayload.put("suspendDetail", e.getDetail());
+                pipelinePayload.put("error", failureReason);
+                markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.FAILED,
+                        failureReason, backtestStart, pipelinePayload);
+                taskDao.markFailed(task == null ? null : task.id, failureReason);
+                log.info("StrategyBacktestPullJob task status -> FAILED, task:{}, generationTaskId:{}, candidateId:{}, thread:{}, error:{}, heap:{}",
+                        task == null ? null : task.id,
+                        task == null ? null : task.generationTaskId,
+                        task == null ? null : task.candidateId,
+                        threadName, failureReason, memorySummary());
+                return;
+            }
             log.warn("StrategyBacktestPullJob suspend task:{}, generationTaskId:{}, candidateId:{}, reason:{}, detail:{}, heap:{}",
                     task == null ? null : task.id,
                     task == null ? null : task.generationTaskId,
@@ -377,6 +397,52 @@ public class StrategyBacktestPullJob {
                     inFlightTaskIds.size(),
                     memorySummary());
         }
+    }
+
+    private boolean isNonRetryableSuspend(BacktestTaskSuspendedException e) {
+        if (e == null) {
+            return false;
+        }
+        if (WalkForwardBacktestRunner.INSUFFICIENT_WINDOW_SLICES.equalsIgnoreCase(e.getReason())) {
+            return true;
+        }
+        Map<String, Object> detail = e.getDetail();
+        if (detail == null || detail.isEmpty()) {
+            return false;
+        }
+        Object reason = detail.get("reason");
+        if (WalkForwardBacktestRunner.INSUFFICIENT_WINDOW_SLICES.equalsIgnoreCase(String.valueOf(reason))) {
+            return true;
+        }
+        String message = String.valueOf(detail.get("message"));
+        return message != null && message.toLowerCase().contains("window slices less than");
+    }
+
+    private String summarizeSuspendFailure(BacktestTaskSuspendedException e) {
+        if (e == null) {
+            return "回测任务不可恢复";
+        }
+        Map<String, Object> detail = e.getDetail();
+        if (detail != null && !detail.isEmpty()) {
+            String message = detail.get("message") == null ? "" : String.valueOf(detail.get("message")).trim();
+            String symbol = detail.get("symbol") == null ? "" : String.valueOf(detail.get("symbol")).trim();
+            String text = detail.get("text") == null ? "" : String.valueOf(detail.get("text")).trim();
+            String begin = detail.get("requiredBeginDate") == null ? "" : String.valueOf(detail.get("requiredBeginDate")).trim();
+            String end = detail.get("requiredEndDate") == null ? "" : String.valueOf(detail.get("requiredEndDate")).trim();
+            if (WalkForwardBacktestRunner.INSUFFICIENT_WINDOW_SLICES.equalsIgnoreCase(e.getReason())
+                    || WalkForwardBacktestRunner.INSUFFICIENT_WINDOW_SLICES.equalsIgnoreCase(String.valueOf(detail.get("reason")))) {
+                return String.format("时间范围不足，无法构造最小回测窗口（%s %s %s~%s，%s）",
+                        symbol,
+                        text,
+                        begin,
+                        end,
+                        isBlank(message) ? "window slices insufficient" : message);
+            }
+            if (!isBlank(message)) {
+                return message;
+            }
+        }
+        return isBlank(e.getReason()) ? "回测任务不可恢复" : e.getReason();
     }
 
     private BacktestParam buildParam(StrategyBacktestTaskRow task, StrategyCandidateRow candidate) {

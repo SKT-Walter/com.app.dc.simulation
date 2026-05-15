@@ -269,7 +269,7 @@ public class WorkbenchService {
                 .append("id, candidateId, generationTaskId, strategyName, strategyVersion, baselineVersion, runtimeType, taskType,")
                 .append("fitWindowDays, validateWindowDays, forwardWindowDays, priority, status,")
                 .append("suspendReason, ifNull(toString(nextRetryTimeRaw), '') as nextRetryTime,")
-                .append("attemptCount, createTime, updateTime, payload, failureReason ")
+                .append("attemptCount, createTime, updateTime, payload, initialPayload, failureReason ")
                 .append("from (").append(latestTaskSql()).append(") latest ")
                 .append("where toDate(parseDateTimeBestEffortOrNull(latest.createTime)) >= toDate('").append(escape(dateFrom)).append("')")
                 .append(" and toDate(parseDateTimeBestEffortOrNull(latest.createTime)) <= toDate('").append(escape(dateTo)).append("')");
@@ -533,6 +533,9 @@ public class WorkbenchService {
         }
         StrategyBacktestTaskPayloadEnvelope envelope = parsePayloadEnvelope(row.payload);
         Map<String, Object> payloadSummary = parsePayloadSummary(envelope, row.payload);
+        if (summaryMissingSymbolOrText(payloadSummary)) {
+            payloadSummary = mergePayloadSummary(payloadSummary, parsePayloadSummary(parsePayloadEnvelope(row.initialPayload), row.initialPayload));
+        }
         String statusCode = blankTo(row.status, "");
         view.put("backtestTaskId", row.id);
         view.put("taskId", row.id);
@@ -556,6 +559,7 @@ public class WorkbenchService {
         view.put("nextRetryTime", blankTo(row.nextRetryTime, ""));
         view.put("createTime", blankTo(row.createTime, ""));
         view.put("updateTime", blankTo(row.updateTime, ""));
+        view.put("elapsedMs", resolveElapsedMs(row.payload, row.initialPayload));
         view.put("payloadSummary", payloadSummary);
         view.put("rawPayload", blankTo(row.payload, ""));
         return view;
@@ -598,6 +602,35 @@ public class WorkbenchService {
         } catch (Exception ignore) {
             return new LinkedHashMap<String, Object>();
         }
+    }
+
+    private boolean summaryMissingSymbolOrText(Map<String, Object> summary) {
+        if (summary == null || summary.isEmpty()) {
+            return true;
+        }
+        return StringUtils.isBlank(blankTo(summary.get("symbol") == null ? null : String.valueOf(summary.get("symbol")), ""))
+                && StringUtils.isBlank(blankTo(summary.get("symbols") == null ? null : String.valueOf(summary.get("symbols")), ""))
+                && StringUtils.isBlank(blankTo(summary.get("text") == null ? null : String.valueOf(summary.get("text")), ""));
+    }
+
+    private Map<String, Object> mergePayloadSummary(Map<String, Object> preferred, Map<String, Object> fallback) {
+        Map<String, Object> merged = new LinkedHashMap<String, Object>();
+        Map<String, Object> first = preferred == null ? Collections.<String, Object>emptyMap() : preferred;
+        Map<String, Object> second = fallback == null ? Collections.<String, Object>emptyMap() : fallback;
+        merged.put("symbol", firstNonBlank(first.get("symbol"), second.get("symbol")));
+        merged.put("symbols", firstNonBlank(first.get("symbols"), second.get("symbols")));
+        merged.put("text", firstNonBlank(first.get("text"), second.get("text")));
+        merged.put("beginDate", firstNonBlank(first.get("beginDate"), second.get("beginDate")));
+        merged.put("endDate", firstNonBlank(first.get("endDate"), second.get("endDate")));
+        Object suspendDetail = first.get("suspendDetail") != null ? first.get("suspendDetail") : second.get("suspendDetail");
+        Object recoveryPlan = first.get("recoveryPlan") != null ? first.get("recoveryPlan") : second.get("recoveryPlan");
+        if (suspendDetail != null) {
+            merged.put("suspendDetail", suspendDetail);
+        }
+        if (recoveryPlan != null) {
+            merged.put("recoveryPlan", recoveryPlan);
+        }
+        return merged;
     }
 
     @SuppressWarnings("unchecked")
@@ -658,6 +691,32 @@ public class WorkbenchService {
         return summary;
     }
 
+    private Long resolveElapsedMs(String payload, String initialPayload) {
+        Long current = resolveElapsedMsFromPayload(payload);
+        if (current != null) {
+            return current;
+        }
+        return resolveElapsedMsFromPayload(initialPayload);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Long resolveElapsedMsFromPayload(String payload) {
+        if (StringUtils.isBlank(payload)) {
+            return null;
+        }
+        try {
+            Map<String, Object> map = JsonUtils.Deserialize(payload, Map.class);
+            Long direct = longValue(map.get("elapsedMs"));
+            if (direct != null) {
+                return direct;
+            }
+            Map<String, Object> taskResult = mapValue(map.get("taskResult"));
+            return longValue(taskResult.get("elapsedMs"));
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> mapValue(Object value) {
         if (value instanceof Map) {
@@ -677,6 +736,27 @@ public class WorkbenchService {
             }
         }
         return "";
+    }
+
+    private Long longValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        try {
+            String text = String.valueOf(value).trim();
+            if (StringUtils.isBlank(text)) {
+                return null;
+            }
+            if (text.contains(".")) {
+                return Double.valueOf(text).longValue();
+            }
+            return Long.valueOf(text);
+        } catch (Exception ignore) {
+            return null;
+        }
     }
 
     private String displayStatus(String statusCode,
@@ -969,6 +1049,7 @@ public class WorkbenchService {
                 + "toString(argMax(create_time, versionKey)) as createTime,"
                 + "toString(argMax(update_time, versionKey)) as updateTime,"
                 + "argMax(payload, versionKey) as payload,"
+                + "argMin(payload, update_time) as initialPayload,"
                 + "argMax(failure_reason, versionKey) as failureReason "
                 + "from (" + baseSql + ") group by id";
     }

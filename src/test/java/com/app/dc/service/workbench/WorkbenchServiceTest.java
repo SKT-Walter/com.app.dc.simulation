@@ -161,6 +161,66 @@ public class WorkbenchServiceTest {
         Assert.assertEquals(1, ((Number) summary.get("suspended")).intValue());
     }
 
+    @Test
+    public void queryBacktestListShouldFallbackToInitialPayloadForTerminalTask() {
+        FakeWorkbenchService service = new FakeWorkbenchService();
+
+        StrategyBacktestTaskRow row = new StrategyBacktestTaskRow();
+        row.id = "bt-success";
+        row.strategyName = "震荡_网格";
+        row.strategyVersion = "v1";
+        row.status = "SUCCESS";
+        row.createTime = "2026-05-15 08:00:00";
+        row.updateTime = "2026-05-15 08:30:00";
+        row.payload = "{\"taskResult\":{\"resultCount\":4},\"reportPath\":\"/tmp/bt-success.html\"}";
+        row.initialPayload = "{\"backtestParam\":{\"symbol\":\"币安人生USDT\",\"symbols\":\"币安人生USDT\",\"text\":\"15m\",\"beginDate\":\"2024-05-15\",\"endDate\":\"2026-05-15\"}}";
+        service.rows.add(row);
+
+        Map<String, Object> report = new LinkedHashMap<String, Object>();
+        report.put("reportPath", "/tmp/bt-success.html");
+        report.put("runTime", "2026-05-15 08:30:00");
+        report.put("resultCount", 4);
+        report.put("exists", Boolean.TRUE);
+        service.reports.put("bt-success", report);
+
+        Map<String, Object> data = service.queryBacktestList(Collections.singletonMap("date", "2026-05-15"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) data.get("items");
+        Assert.assertEquals(1, items.size());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payloadSummary = (Map<String, Object>) items.get(0).get("payloadSummary");
+        Assert.assertEquals("币安人生USDT", payloadSummary.get("symbol"));
+        Assert.assertEquals("15m", payloadSummary.get("text"));
+    }
+
+    @Test
+    public void queryBacktestListShouldExposeElapsedMsFromTaskResult() {
+        FakeWorkbenchService service = new FakeWorkbenchService();
+
+        StrategyBacktestTaskRow row = new StrategyBacktestTaskRow();
+        row.id = "bt-elapsed";
+        row.strategyName = "trend_grid";
+        row.strategyVersion = "v1";
+        row.status = "SUCCESS";
+        row.createTime = "2026-05-16 10:00:00";
+        row.updateTime = "2026-05-16 10:32:00";
+        row.payload = "{\"backtestParam\":{\"symbol\":\"SOLUSDT\",\"text\":\"15m\"},\"taskResult\":{\"elapsedMs\":5400000,\"resultCount\":8}}";
+        service.rows.add(row);
+
+        Map<String, Object> report = new LinkedHashMap<String, Object>();
+        report.put("reportPath", "/tmp/bt-elapsed.html");
+        report.put("runTime", "2026-05-16 10:32:00");
+        report.put("resultCount", 8);
+        report.put("exists", Boolean.TRUE);
+        service.reports.put("bt-elapsed", report);
+
+        Map<String, Object> data = service.queryBacktestList(Collections.singletonMap("date", "2026-05-16"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) data.get("items");
+        Assert.assertEquals(1, items.size());
+        Assert.assertEquals(5400000L, ((Number) items.get(0).get("elapsedMs")).longValue());
+    }
+
     private static class FakeWorkbenchService extends WorkbenchService {
         final List<StrategyBacktestTaskRow> rows = new ArrayList<StrategyBacktestTaskRow>();
         final Map<String, StrategyBacktestSummary> summaries = new LinkedHashMap<String, StrategyBacktestSummary>();

@@ -257,7 +257,7 @@ public class StrategyBacktestPullJob {
             taskResult.put("currentForwardScore", publishDecision.currentForwardScore);
             taskResult.put("baselineTotalPnl", publishDecision.baselineTotalPnl);
             taskResult.put("baselineForwardScore", publishDecision.baselineForwardScore);
-            taskDao.markSuccess(task.id, JsonUtils.Serializer(taskResult));
+            taskDao.markSuccess(task.id, buildSuccessPayload(task, taskResult));
             log.info("StrategyBacktestPullJob task state persistence finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}",
                     task.id, task.generationTaskId, firstNotBlank(task.candidateId, candidate.id),
                     candidate.strategyName, candidate.strategyVersion, threadName);
@@ -537,6 +537,34 @@ public class StrategyBacktestPullJob {
         envelope.suspendDetail = error.getDetail();
         envelope.recoveryPlan = buildRecoveryPlan(error, nextRetryTime, autofillResult, autofillError);
         return JsonUtils.Serializer(envelope);
+    }
+
+    @SuppressWarnings("unchecked")
+    private String buildSuccessPayload(StrategyBacktestTaskRow task, Map<String, Object> taskResult) {
+        Map<String, Object> merged = new LinkedHashMap<String, Object>();
+        if (task != null && !isBlank(task.payload)) {
+            try {
+                Map<String, Object> existing = JsonUtils.Deserialize(task.payload, Map.class);
+                if (existing != null && !existing.isEmpty()) {
+                    merged.putAll(existing);
+                }
+            } catch (Exception e) {
+                log.warn("buildSuccessPayload parse payload fallback, task:{}", task.id, e);
+            }
+        }
+        merged.put("taskResult", taskResult == null ? new LinkedHashMap<String, Object>() : taskResult);
+        if (taskResult != null) {
+            if (!merged.containsKey("reportPath") && taskResult.get("reportPath") != null) {
+                merged.put("reportPath", taskResult.get("reportPath"));
+            }
+            if (!merged.containsKey("compareReportPath") && taskResult.get("compareReportPath") != null) {
+                merged.put("compareReportPath", taskResult.get("compareReportPath"));
+            }
+            if (!merged.containsKey("resultCount") && taskResult.get("resultCount") != null) {
+                merged.put("resultCount", taskResult.get("resultCount"));
+            }
+        }
+        return JsonUtils.Serializer(merged);
     }
 
     private Map<String, Object> buildRecoveryPlan(BacktestTaskSuspendedException error,

@@ -68,7 +68,7 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 + "id, candidateId, generationTaskId, strategyName, strategyVersion, baselineVersion, runtimeType, taskType,"
                 + "fitWindowDays, validateWindowDays, forwardWindowDays, priority, status,"
                 + "suspendReason, ifNull(toString(nextRetryTimeRaw), '') as nextRetryTime,"
-                + "attemptCount, createTime, updateTime, payload, failureReason "
+                + "attemptCount, createTime, updateTime, payload, initialPayload, failureReason "
                 + "from (" + innerSql + ") latest"
                 + " where latest.status='PENDING'"
                 + " or (latest.status='SUSPENDED' and (latest.nextRetryTimeRaw is null or latest.nextRetryTimeRaw <= now()))";
@@ -104,7 +104,7 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 .append("id, candidateId, generationTaskId, strategyName, strategyVersion, baselineVersion, runtimeType, taskType,")
                 .append("fitWindowDays, validateWindowDays, forwardWindowDays, priority, status,")
                 .append("suspendReason, ifNull(toString(nextRetryTimeRaw), '') as nextRetryTime,")
-                .append("attemptCount, createTime, updateTime, payload, failureReason ")
+                .append("attemptCount, createTime, updateTime, payload, initialPayload, failureReason ")
                 .append("from (").append(innerSql).append(") latest where 1=1");
         if (StringUtils.isNotBlank(taskId)) {
             sql.append(" and latest.id='").append(escape(taskId.trim())).append("'");
@@ -149,7 +149,7 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
 
     @Override
     public void markFailed(String id, String errorMsg) {
-        updateStatus(id, "FAILED", errorMsg, "", null, errorMsg, false);
+        updateStatus(id, "FAILED", null, "", null, errorMsg, false);
     }
 
     @Override
@@ -262,6 +262,7 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 + "toString(argMax(create_time, versionKey)) as createTime,"
                 + "toString(argMax(update_time, versionKey)) as updateTime,"
                 + "argMax(payload, versionKey) as payload,"
+                + "argMin(payload, update_time) as initialPayload,"
                 + "argMax(failure_reason, versionKey) as failureReason "
                 + "from (" + baseSql + ")"
                 + " group by id";

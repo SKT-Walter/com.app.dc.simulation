@@ -20,5 +20,6 @@ public class StrategyBacktestTaskRow {
     public String createTime;
     public String updateTime;
     public String payload;
+    public String initialPayload;
     public String failureReason;
 }

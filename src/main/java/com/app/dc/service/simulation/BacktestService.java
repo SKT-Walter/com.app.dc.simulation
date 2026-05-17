@@ -42,6 +42,10 @@ import java.util.concurrent.Future;
 @Slf4j
 public class BacktestService {
 
+    public interface ProgressListener {
+        void onProgress(Map<String, Object> progress);
+    }
+
     @Autowired
     private BacktestQueryService queryService;
 
@@ -65,13 +69,21 @@ public class BacktestService {
     private int maxTrialsPerTask;
 
     public BacktestResponse run(BacktestParam param) throws Exception {
-        return run(param, 120, 30, 14);
+        return run(param, 120, 30, 14, null);
     }
 
     public BacktestResponse run(BacktestParam param,
                                 int fitWindowDays,
                                 int validateWindowDays,
                                 int forwardWindowDays) throws Exception {
+        return run(param, fitWindowDays, validateWindowDays, forwardWindowDays, null);
+    }
+
+    public BacktestResponse run(BacktestParam param,
+                                int fitWindowDays,
+                                int validateWindowDays,
+                                int forwardWindowDays,
+                                ProgressListener progressListener) throws Exception {
         BacktestParam req = param == null ? new BacktestParam() : param;
         if (req.strategyName == null || req.strategyName.trim().isEmpty()) {
             throw new IllegalArgumentException("strategyName is required");
@@ -121,19 +133,35 @@ public class BacktestService {
                 : backtestOptimizationService.buildDefaultOnly(plan);
         int coarseCandidateCount = coarseParamSets == null ? 0 : coarseParamSets.size();
         coarseParamSets = limitTrialSets(coarseParamSets, trialBudget, "COARSE", candidate);
+        int plannedCoarseTrials = coarseParamSets == null ? 0 : coarseParamSets.size();
+        emitProgress(progressListener, buildProgressPayload(
+                candidate, req, plan, "COARSE",
+                coarseCandidateCount, 0,
+                plannedCoarseTrials, 0,
+                0, 0,
+                trialBudget));
         executions.addAll(executeTrials("COARSE", trialNo, candidate, req, symbols, coarseParamSets,
-                windowConfig, plan, ohlcCache));
+                windowConfig, plan, ohlcCache, progressListener, coarseCandidateCount, 0, trialBudget, 0, 0));
         trialNo += coarseParamSets.size();
 
         List<OptimizationTrial> rankedTrials = collectTrials(executions);
         backtestOptimizationService.rankTrials(plan, rankedTrials);
         int fineCandidateCount = 0;
+        int plannedFineTrials = 0;
         if (plan.optimizationSupported) {
             List<Map<String, Object>> fineParamSets = backtestOptimizationService.buildFineParamSets(plan, rankedTrials);
             fineCandidateCount = fineParamSets == null ? 0 : fineParamSets.size();
             fineParamSets = limitTrialSets(fineParamSets, Math.max(0, trialBudget - executions.size()), "FINE", candidate);
+            plannedFineTrials = fineParamSets == null ? 0 : fineParamSets.size();
+            emitProgress(progressListener, buildProgressPayload(
+                    candidate, req, plan, "FINE",
+                    coarseCandidateCount, fineCandidateCount,
+                    plannedCoarseTrials, plannedFineTrials,
+                    executions.size(), 0,
+                    trialBudget));
             executions.addAll(executeTrials("FINE", trialNo, candidate, req, symbols, fineParamSets,
-                    windowConfig, plan, ohlcCache));
+                    windowConfig, plan, ohlcCache, progressListener, coarseCandidateCount, fineCandidateCount, trialBudget,
+                    executions.size(), plannedCoarseTrials));
             rankedTrials = collectTrials(executions);
             backtestOptimizationService.rankTrials(plan, rankedTrials);
         }
@@ -221,7 +249,13 @@ public class BacktestService {
                                                List<Map<String, Object>> paramSets,
                                                WindowConfig windowConfig,
                                                BacktestOptimizationService.OptimizationPlan plan,
-                                               Map<String, List<TTbookOhlc>> ohlcCache) throws Exception {
+                                               Map<String, List<TTbookOhlc>> ohlcCache,
+                                               ProgressListener progressListener,
+                                               int coarseCandidateCount,
+                                               int fineCandidateCount,
+                                               int trialBudget,
+                                               int completedBeforePhase,
+                                               int plannedCoarseTrials) throws Exception {
         if (paramSets == null || paramSets.isEmpty()) {
             return Collections.emptyList();
         }
@@ -244,6 +278,18 @@ public class BacktestService {
                     ? new LinkedHashMap<String, Object>()
                     : new LinkedHashMap<String, Object>(paramSet);
             executions.add(execution);
+            emitProgress(progressListener, buildProgressPayload(
+                    candidate,
+                    baseParam,
+                    plan,
+                    phase,
+                    coarseCandidateCount,
+                    fineCandidateCount,
+                    plannedCoarseTrials,
+                    "FINE".equalsIgnoreCase(phase) ? paramSets.size() : 0,
+                    completedBeforePhase + executions.size(),
+                    trialNo,
+                    trialBudget));
             log.info("BacktestService trial end, strategy:{}@{}, phase:{}, trialNo:{}, totalPnl:{}, validatePnl:{}, forwardPnl:{}, overfitPass:{}, sliceCount:{}, elapsedMs:{}",
                     candidate.strategyName,
                     candidate.strategyVersion,
@@ -260,6 +306,47 @@ public class BacktestService {
         log.info("BacktestService phase end, strategy:{}@{}, phase:{}, executedTrials:{}, heap:{}",
                 candidate.strategyName, candidate.strategyVersion, phase, executions.size(), heapSummary());
         return executions;
+    }
+
+    private void emitProgress(ProgressListener progressListener, Map<String, Object> progress) {
+        if (progressListener == null || progress == null || progress.isEmpty()) {
+            return;
+        }
+        try {
+            progressListener.onProgress(progress);
+        } catch (Exception e) {
+            log.warn("BacktestService progress callback error", e);
+        }
+    }
+
+    private Map<String, Object> buildProgressPayload(StrategyCandidateRow candidate,
+                                                     BacktestParam req,
+                                                     BacktestOptimizationService.OptimizationPlan plan,
+                                                     String phase,
+                                                     int coarseCandidateCount,
+                                                     int fineCandidateCount,
+                                                     int coarseTrialCount,
+                                                     int fineTrialCount,
+                                                     int completedTrialCount,
+                                                     int currentTrialNo,
+                                                     int trialBudget) {
+        Map<String, Object> progress = new LinkedHashMap<String, Object>();
+        progress.put("phase", phase);
+        progress.put("strategyName", candidate == null ? "" : candidate.strategyName);
+        progress.put("strategyVersion", candidate == null ? "" : candidate.strategyVersion);
+        progress.put("symbol", req == null ? "" : req.symbol);
+        progress.put("symbols", req == null ? "" : req.symbols);
+        progress.put("text", req == null ? "" : req.text);
+        progress.put("optimizationMode", plan == null ? "" : plan.optimizationMode);
+        progress.put("coarseCandidateCount", coarseCandidateCount);
+        progress.put("fineCandidateCount", fineCandidateCount);
+        progress.put("coarseTrialCount", coarseTrialCount);
+        progress.put("fineTrialCount", fineTrialCount);
+        progress.put("plannedTrialCount", coarseTrialCount + fineTrialCount);
+        progress.put("completedTrialCount", completedTrialCount);
+        progress.put("currentTrialNo", currentTrialNo);
+        progress.put("trialBudget", trialBudget);
+        return progress;
     }
 
     private List<OptimizationTrial> collectTrials(List<TrialExecution> executions) {

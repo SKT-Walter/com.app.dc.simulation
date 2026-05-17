@@ -271,7 +271,7 @@ public class WorkbenchService {
                 .append("id, candidateId, generationTaskId, strategyName, strategyVersion, baselineVersion, runtimeType, taskType,")
                 .append("fitWindowDays, validateWindowDays, forwardWindowDays, priority, status,")
                 .append("suspendReason, ifNull(toString(nextRetryTimeRaw), '') as nextRetryTime,")
-                .append("attemptCount, createTime, updateTime, payload, initialPayload, failureReason ")
+                .append("attemptCount, createTime, updateTime, payload, failureReason ")
                 .append("from (").append(latestTaskSql()).append(") latest ")
                 .append("where toDate(parseDateTimeBestEffortOrNull(latest.createTime)) >= toDate('").append(escape(dateFrom)).append("')")
                 .append(" and toDate(parseDateTimeBestEffortOrNull(latest.createTime)) <= toDate('").append(escape(dateTo)).append("')");
@@ -540,9 +540,6 @@ public class WorkbenchService {
         }
         StrategyBacktestTaskPayloadEnvelope envelope = parsePayloadEnvelope(row.payload);
         Map<String, Object> payloadSummary = parsePayloadSummary(envelope, row.payload);
-        if (summaryMissingSymbolOrText(payloadSummary)) {
-            payloadSummary = mergePayloadSummary(payloadSummary, parsePayloadSummary(parsePayloadEnvelope(row.initialPayload), row.initialPayload));
-        }
         String statusCode = blankTo(row.status, "");
         view.put("backtestTaskId", row.id);
         view.put("taskId", row.id);
@@ -566,7 +563,7 @@ public class WorkbenchService {
         view.put("nextRetryTime", blankTo(row.nextRetryTime, ""));
         view.put("createTime", blankTo(row.createTime, ""));
         view.put("updateTime", blankTo(row.updateTime, ""));
-        view.put("elapsedMs", resolveElapsedMs(row.payload, row.initialPayload));
+        view.put("elapsedMs", resolveElapsedMs(row.payload));
         view.put("payloadSummary", payloadSummary);
         view.put("rawPayload", blankTo(row.payload, ""));
         return view;
@@ -597,6 +594,9 @@ public class WorkbenchService {
             if (envelope.recoveryPlan != null && !envelope.recoveryPlan.isEmpty()) {
                 summary.put("recoveryPlan", envelope.recoveryPlan);
             }
+            if (envelope.runningProgress != null && !envelope.runningProgress.isEmpty()) {
+                summary.put("runningProgress", envelope.runningProgress);
+            }
             return summary;
         }
         if (StringUtils.isBlank(payload)) {
@@ -609,35 +609,6 @@ public class WorkbenchService {
         } catch (Exception ignore) {
             return new LinkedHashMap<String, Object>();
         }
-    }
-
-    private boolean summaryMissingSymbolOrText(Map<String, Object> summary) {
-        if (summary == null || summary.isEmpty()) {
-            return true;
-        }
-        return StringUtils.isBlank(blankTo(summary.get("symbol") == null ? null : String.valueOf(summary.get("symbol")), ""))
-                && StringUtils.isBlank(blankTo(summary.get("symbols") == null ? null : String.valueOf(summary.get("symbols")), ""))
-                && StringUtils.isBlank(blankTo(summary.get("text") == null ? null : String.valueOf(summary.get("text")), ""));
-    }
-
-    private Map<String, Object> mergePayloadSummary(Map<String, Object> preferred, Map<String, Object> fallback) {
-        Map<String, Object> merged = new LinkedHashMap<String, Object>();
-        Map<String, Object> first = preferred == null ? Collections.<String, Object>emptyMap() : preferred;
-        Map<String, Object> second = fallback == null ? Collections.<String, Object>emptyMap() : fallback;
-        merged.put("symbol", firstNonBlank(first.get("symbol"), second.get("symbol")));
-        merged.put("symbols", firstNonBlank(first.get("symbols"), second.get("symbols")));
-        merged.put("text", firstNonBlank(first.get("text"), second.get("text")));
-        merged.put("beginDate", firstNonBlank(first.get("beginDate"), second.get("beginDate")));
-        merged.put("endDate", firstNonBlank(first.get("endDate"), second.get("endDate")));
-        Object suspendDetail = first.get("suspendDetail") != null ? first.get("suspendDetail") : second.get("suspendDetail");
-        Object recoveryPlan = first.get("recoveryPlan") != null ? first.get("recoveryPlan") : second.get("recoveryPlan");
-        if (suspendDetail != null) {
-            merged.put("suspendDetail", suspendDetail);
-        }
-        if (recoveryPlan != null) {
-            merged.put("recoveryPlan", recoveryPlan);
-        }
-        return merged;
     }
 
     @SuppressWarnings("unchecked")
@@ -698,12 +669,8 @@ public class WorkbenchService {
         return summary;
     }
 
-    private Long resolveElapsedMs(String payload, String initialPayload) {
-        Long current = resolveElapsedMsFromPayload(payload);
-        if (current != null) {
-            return current;
-        }
-        return resolveElapsedMsFromPayload(initialPayload);
+    private Long resolveElapsedMs(String payload) {
+        return resolveElapsedMsFromPayload(payload);
     }
 
     @SuppressWarnings("unchecked")
@@ -885,7 +852,8 @@ public class WorkbenchService {
             return "样本窗口不足，等待补充更多历史数据；" + progress;
         }
         if ("RUNNING".equals(code)) {
-            return "回测任务正在执行";
+            String runningDetail = buildRunningProgressDetail(envelope);
+            return StringUtils.isBlank(runningDetail) ? "\u56de\u6d4b\u4efb\u52a1\u6b63\u5728\u6267\u884c" : runningDetail;
         }
         if ("SUSPENDED".equals(code)) {
             return StringUtils.isNotBlank(suspendReason) ? suspendReason : "任务已挂起";
@@ -928,6 +896,40 @@ public class WorkbenchService {
         }
         Object value = envelope.recoveryPlan.get(key);
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private String buildRunningProgressDetail(StrategyBacktestTaskPayloadEnvelope envelope) {
+        if (envelope == null || envelope.runningProgress == null || envelope.runningProgress.isEmpty()) {
+            return "";
+        }
+        Map<String, Object> progress = envelope.runningProgress;
+        String phase = blankTo(String.valueOf(progress.get("phase")), "");
+        int coarseCandidateCount = intValue(progress.get("coarseCandidateCount"), 0);
+        int fineCandidateCount = intValue(progress.get("fineCandidateCount"), 0);
+        int plannedTrialCount = intValue(progress.get("plannedTrialCount"), 0);
+        int completedTrialCount = intValue(progress.get("completedTrialCount"), 0);
+        int currentTrialNo = intValue(progress.get("currentTrialNo"), 0);
+        int trialBudget = intValue(progress.get("trialBudget"), 0);
+        StringBuilder sb = new StringBuilder("\u56de\u6d4b\u6b63\u5728\u6267\u884c");
+        if (StringUtils.isNotBlank(phase)) {
+            sb.append("\uff0c\u9636\u6bb5\uff1a").append("FINE".equalsIgnoreCase(phase) ? "\u7ec6\u7b5b" : "\u7c97\u7b5b");
+        }
+        if (coarseCandidateCount > 0 || fineCandidateCount > 0) {
+            sb.append("\uff0c\u53c2\u6570\u7ec4\u5408\uff1a").append(coarseCandidateCount);
+            if (fineCandidateCount > 0) {
+                sb.append(" + ").append(fineCandidateCount);
+            }
+        }
+        if (plannedTrialCount > 0) {
+            sb.append("\uff0c\u8fdb\u5ea6\uff1a").append(Math.max(0, completedTrialCount)).append(" / ").append(plannedTrialCount);
+        }
+        if (currentTrialNo > 0) {
+            sb.append("\uff0c\u5f53\u524d\u8bd5\u7b97\u5e8f\u53f7\uff1a").append(currentTrialNo);
+        }
+        if (trialBudget > 0) {
+            sb.append("\uff0c\u8bd5\u7b97\u9884\u7b97\uff1a").append(trialBudget);
+        }
+        return sb.toString();
     }
 
     private String buildAutofillProgress(int requiredBars, int actualBars, int missingBars) {
@@ -1056,7 +1058,6 @@ public class WorkbenchService {
                 + "toString(argMax(create_time, versionKey)) as createTime,"
                 + "toString(argMax(update_time, versionKey)) as updateTime,"
                 + "argMax(payload, versionKey) as payload,"
-                + "argMin(payload, update_time) as initialPayload,"
                 + "argMax(failure_reason, versionKey) as failureReason "
                 + "from (" + baseSql + ") group by id";
     }

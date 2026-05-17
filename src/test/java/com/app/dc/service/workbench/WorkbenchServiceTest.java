@@ -155,43 +155,11 @@ public class WorkbenchServiceTest {
         Map<String, Object> summary = (Map<String, Object>) data.get("summary");
         Assert.assertEquals(1, items.size());
         Assert.assertEquals("等待重试", items.get(0).get("status"));
-        Assert.assertTrue(String.valueOf(items.get(0).get("statusDetail")).contains("已跳过重复补数"));
         Assert.assertEquals("SUSPENDED", items.get(0).get("statusCode"));
         Assert.assertEquals(0, ((Number) summary.get("running")).intValue());
         Assert.assertEquals(1, ((Number) summary.get("suspended")).intValue());
     }
 
-    @Test
-    public void queryBacktestListShouldFallbackToInitialPayloadForTerminalTask() {
-        FakeWorkbenchService service = new FakeWorkbenchService();
-
-        StrategyBacktestTaskRow row = new StrategyBacktestTaskRow();
-        row.id = "bt-success";
-        row.strategyName = "震荡_网格";
-        row.strategyVersion = "v1";
-        row.status = "SUCCESS";
-        row.createTime = "2026-05-15 08:00:00";
-        row.updateTime = "2026-05-15 08:30:00";
-        row.payload = "{\"taskResult\":{\"resultCount\":4},\"reportPath\":\"/tmp/bt-success.html\"}";
-        row.initialPayload = "{\"backtestParam\":{\"symbol\":\"币安人生USDT\",\"symbols\":\"币安人生USDT\",\"text\":\"15m\",\"beginDate\":\"2024-05-15\",\"endDate\":\"2026-05-15\"}}";
-        service.rows.add(row);
-
-        Map<String, Object> report = new LinkedHashMap<String, Object>();
-        report.put("reportPath", "/tmp/bt-success.html");
-        report.put("runTime", "2026-05-15 08:30:00");
-        report.put("resultCount", 4);
-        report.put("exists", Boolean.TRUE);
-        service.reports.put("bt-success", report);
-
-        Map<String, Object> data = service.queryBacktestList(Collections.singletonMap("date", "2026-05-15"));
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> items = (List<Map<String, Object>>) data.get("items");
-        Assert.assertEquals(1, items.size());
-        @SuppressWarnings("unchecked")
-        Map<String, Object> payloadSummary = (Map<String, Object>) items.get(0).get("payloadSummary");
-        Assert.assertEquals("币安人生USDT", payloadSummary.get("symbol"));
-        Assert.assertEquals("15m", payloadSummary.get("text"));
-    }
 
     @Test
     public void queryBacktestListShouldExposeElapsedMsFromTaskResult() {

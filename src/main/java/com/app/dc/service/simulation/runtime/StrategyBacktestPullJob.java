@@ -160,7 +160,18 @@ public class StrategyBacktestPullJob {
             BacktestModels.BacktestResponse response = backtestService.run(param,
                     task.fitWindowDays == null ? 120 : task.fitWindowDays.intValue(),
                     task.validateWindowDays == null ? 30 : task.validateWindowDays.intValue(),
-                    task.forwardWindowDays == null ? 14 : task.forwardWindowDays.intValue());
+                    task.forwardWindowDays == null ? 14 : task.forwardWindowDays.intValue(),
+                    new BacktestService.ProgressListener() {
+                        @Override
+                        public void onProgress(Map<String, Object> progress) {
+                            try {
+                                taskDao.refreshRunningProgress(task.id, buildRunningPayload(task, progress));
+                            } catch (Exception e) {
+                                log.warn("StrategyBacktestPullJob refreshRunningProgress ignored, task:{}",
+                                        task == null ? null : task.id, e);
+                            }
+                        }
+                    });
             normalizeResponseFromTask(task, response);
             log.info("StrategyBacktestPullJob backtest run finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, resultCount:{}, trialCount:{}, optimizationMode:{}, bestRank:{}",
                     task.id,
@@ -565,6 +576,35 @@ public class StrategyBacktestPullJob {
             }
         }
         return JsonUtils.Serializer(merged);
+    }
+
+    private String buildRunningPayload(StrategyBacktestTaskRow task, Map<String, Object> runningProgress) {
+        StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
+        if (task != null && task.payload != null && !task.payload.trim().isEmpty()) {
+            try {
+                StrategyBacktestTaskPayloadEnvelope existing =
+                        JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
+                if (existing != null) {
+                    envelope.backtestParam = existing.backtestParam;
+                    envelope.suspendDetail = existing.suspendDetail;
+                    envelope.recoveryPlan = existing.recoveryPlan;
+                }
+            } catch (Exception ignore) {
+            }
+            if (envelope.backtestParam == null) {
+                try {
+                    BacktestParam param = JsonUtils.Deserialize(task.payload, BacktestParam.class);
+                    if (param != null && (!isBlank(param.strategyName) || !isBlank(param.symbol) || !isBlank(param.text))) {
+                        envelope.backtestParam = param;
+                    }
+                } catch (Exception ignore) {
+                }
+            }
+        }
+        envelope.runningProgress = runningProgress == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(runningProgress);
+        return JsonUtils.Serializer(envelope);
     }
 
     private Map<String, Object> buildRecoveryPlan(BacktestTaskSuspendedException error,

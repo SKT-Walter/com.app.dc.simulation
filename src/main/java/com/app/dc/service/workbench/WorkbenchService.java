@@ -733,6 +733,27 @@ public class WorkbenchService {
         }
     }
 
+    private int intValue(Object value, int fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            String text = String.valueOf(value).trim();
+            if (StringUtils.isBlank(text)) {
+                return fallback;
+            }
+            if (text.contains(".")) {
+                return Double.valueOf(text).intValue();
+            }
+            return Integer.parseInt(text);
+        } catch (Exception ignore) {
+            return fallback;
+        }
+    }
+
     private String displayStatus(String statusCode,
                                  String suspendReason,
                                  String nextRetryTime,

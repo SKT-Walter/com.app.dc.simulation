@@ -108,6 +108,7 @@ public class WorkbenchService {
         data.put("page", page);
         data.put("pageSize", pageSize);
         data.put("history", history);
+        data.put("serverTime", CLICKHOUSE_TIME.format(LocalDateTime.now()));
         data.put("items", items);
         data.put("total", countBacktestTasksByRange(dateFrom, dateTo, strategyName, strategyVersion, status));
         data.put("summary", buildTaskSummary(items));

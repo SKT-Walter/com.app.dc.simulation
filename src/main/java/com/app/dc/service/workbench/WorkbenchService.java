@@ -308,24 +308,21 @@ public class WorkbenchService {
         if (!ready()) {
             return 0;
         }
-        String baseSql = "select *, "
-                + "tuple(update_time, multiIf(status='SUCCESS', 4, status='FAILED', 4, status='RUNNING', 3, status='SUSPENDED', 2, 1)) as versionKey "
-                + "from " + safe(strategyBacktestTaskTable, "dc.strategy_backtest_task");
         StringBuilder sql = new StringBuilder();
         sql.append("select count() as total from (")
-                .append("select id from (").append(baseSql).append(") latest ")
-                .append("group by id having toDate(argMax(create_time, versionKey)) >= toDate('").append(escape(dateFrom)).append("')")
-                .append(" and toDate(argMax(create_time, versionKey)) <= toDate('").append(escape(dateTo)).append("')");
+                .append("select id from (").append(latestTaskSql()).append(") latest ")
+                .append("where toDate(parseDateTimeBestEffortOrNull(latest.createTime)) >= toDate('").append(escape(dateFrom)).append("')")
+                .append(" and toDate(parseDateTimeBestEffortOrNull(latest.createTime)) <= toDate('").append(escape(dateTo)).append("')");
         if (StringUtils.isNotBlank(strategyName)) {
-            sql.append(" and lower(argMax(strategy_name, versionKey))=lower('").append(escape(strategyName.trim())).append("')");
+            sql.append(" and lower(latest.strategyName)=lower('").append(escape(strategyName.trim())).append("')");
         }
         if (StringUtils.isNotBlank(strategyVersion)) {
-            sql.append(" and lower(argMax(strategy_version, versionKey))=lower('").append(escape(strategyVersion.trim())).append("')");
+            sql.append(" and lower(latest.strategyVersion)=lower('").append(escape(strategyVersion.trim())).append("')");
         }
         if (StringUtils.isNotBlank(status)) {
-            sql.append(" and argMax(status, versionKey)='").append(escape(status.trim())).append("'");
+            sql.append(" and latest.status='").append(escape(status.trim())).append("'");
         }
-        sql.append(")");
+        sql.append(") counted");
         try {
             @SuppressWarnings("rawtypes")
             List rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{}, LinkedHashMap.class);

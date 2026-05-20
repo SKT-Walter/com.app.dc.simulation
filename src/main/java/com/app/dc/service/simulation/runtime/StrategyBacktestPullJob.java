@@ -7,6 +7,7 @@ import com.app.dc.service.dao.BacktestResultClickHouseDao;
 import com.app.dc.service.simulation.BacktestModels;
 import com.app.dc.service.simulation.BacktestReportService;
 import com.app.dc.service.simulation.BacktestService;
+import com.app.dc.service.simulation.KlineSupportedTextProvider;
 import com.gateway.connector.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,6 +57,9 @@ public class StrategyBacktestPullJob {
 
     @Autowired
     private BacktestService backtestService;
+
+    @Autowired(required = false)
+    private KlineSupportedTextProvider klineSupportedTextProvider;
 
     @Autowired
     private BacktestReportService backtestReportService;
@@ -645,8 +649,8 @@ public class StrategyBacktestPullJob {
     }
 
     private String defaultText(String scene) {
-        if ("trend".equalsIgnoreCase(scene)) {
-            return "1h";
+        if (klineSupportedTextProvider != null) {
+            return klineSupportedTextProvider.getDefaultText();
         }
         return "15m";
     }

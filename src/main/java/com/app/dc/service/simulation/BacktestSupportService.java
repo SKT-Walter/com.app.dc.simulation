@@ -144,12 +144,8 @@ public class BacktestSupportService {
                 return Duration.ofMinutes(30);
             case "1H":
                 return Duration.ofHours(1);
-            case "4H":
-                return Duration.ofHours(4);
             case "1D":
                 return Duration.ofDays(1);
-            case "1W":
-                return Duration.ofDays(7);
             default:
                 throw new IllegalArgumentException("unsupported text: " + text);
         }

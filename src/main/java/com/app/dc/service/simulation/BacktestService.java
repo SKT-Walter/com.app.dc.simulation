@@ -52,6 +52,9 @@ public class BacktestService {
     @Autowired
     private BacktestSupportService supportService;
 
+    @Autowired(required = false)
+    private KlineSupportedTextProvider klineSupportedTextProvider;
+
     @Autowired
     private StrategyBacktestTaskDao strategyBacktestTaskDao;
 
@@ -661,7 +664,7 @@ public class BacktestService {
             req.symbols = req.symbol;
         }
         if (req.text == null || req.text.trim().isEmpty()) {
-            req.text = "15m";
+            req.text = defaultSupportedText();
         }
         req.text = supportService.normalizeText(req.text);
         if (req.initialCapital == null || req.initialCapital.compareTo(BigDecimal.ZERO) <= 0) {
@@ -693,6 +696,13 @@ public class BacktestService {
             req.runtimeType = "JAR";
         }
         return req;
+    }
+
+    private String defaultSupportedText() {
+        if (klineSupportedTextProvider == null) {
+            return "15m";
+        }
+        return klineSupportedTextProvider.getDefaultText();
     }
 
     public BacktestResult initResult(String strategyName, BacktestParam param) {

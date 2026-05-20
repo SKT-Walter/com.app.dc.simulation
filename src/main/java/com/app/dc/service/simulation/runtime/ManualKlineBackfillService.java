@@ -1,6 +1,7 @@
 package com.app.dc.service.simulation.runtime;
 
 import com.app.dc.simulation.tool.BinanceKlineImportCli;
+import com.app.dc.service.simulation.KlineSupportedTextProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -53,12 +54,19 @@ public class ManualKlineBackfillService {
     @Value("${clickhouse.default:ClickHouse1}")
     private String defaultDbSourceName;
 
+    @Autowired(required = false)
+    private KlineSupportedTextProvider klineSupportedTextProvider;
+
     private final Map<String, JobState> jobs = new ConcurrentHashMap<String, JobState>();
     private final ConcurrentLinkedDeque<String> recentJobIds = new ConcurrentLinkedDeque<String>();
 
     public Map<String, Object> trigger(Map<String, Object> request) {
         BackfillRequest req = BackfillRequest.from(request);
-        req.applyDefaults(defaultVenue, defaultMode, defaultLimitPerCall, defaultSleepMs, defaultDbpoolCfg, defaultDbSourceName);
+        List<String> defaultIntervals = klineSupportedTextProvider == null
+                ? Arrays.asList("1m", "5m", "15m", "30m", "1h", "1d")
+                : klineSupportedTextProvider.getSupportedTexts();
+        req.applyDefaults(defaultVenue, defaultMode, defaultLimitPerCall, defaultSleepMs,
+                defaultDbpoolCfg, defaultDbSourceName, defaultIntervals);
         req.validate();
         String jobId = buildJobId();
         JobState state = JobState.create(jobId, req);
@@ -241,12 +249,14 @@ public class ManualKlineBackfillService {
         }
 
         void applyDefaults(String venueDefault, String modeDefault, int limitDefault, long sleepDefault,
-                           String dbpoolDefault, String dbSourceDefault) {
+                           String dbpoolDefault, String dbSourceDefault, List<String> defaultIntervals) {
             if (symbols == null) {
                 symbols = new ArrayList<String>();
             }
             if (intervals == null || intervals.isEmpty()) {
-                intervals = new ArrayList<String>(Arrays.asList("15m", "1h", "1d"));
+                intervals = new ArrayList<String>(defaultIntervals == null || defaultIntervals.isEmpty()
+                        ? Arrays.asList("1m", "5m", "15m", "30m", "1h", "1d")
+                        : defaultIntervals);
             }
             intervals = normalize(intervals);
             symbols = normalizeUpper(symbols);

@@ -72,7 +72,16 @@ public class BinanceKlineImportCli {
         }
         int inserted = 0;
         int skipped = 0;
+        int batches = 0;
+        int fetchedRows = 0;
         long cursor = startMs;
+        System.out.println(symbol + " import start, interval=" + options.interval
+                + ", venue=" + options.venue
+                + ", startDate=" + options.startDate
+                + ", endDate=" + options.endDate
+                + ", mode=" + options.mode
+                + ", dryRun=" + options.dryRun
+                + ", existingCount=" + existing.size());
         while (cursor <= endMs) {
             String url = DEFAULT_BASE_URL + "/fapi/v1/klines?symbol=" + symbol
                     + "&interval=" + options.interval
@@ -87,8 +96,15 @@ public class BinanceKlineImportCli {
                 String body = response.body() == null ? "[]" : response.body().string();
                 JSONArray rows = JSON.parseArray(body);
                 if (rows == null || rows.isEmpty()) {
+                    System.out.println(symbol + " import no-more-rows, interval=" + options.interval
+                            + ", cursor=" + Instant.ofEpochMilli(cursor).atZone(ZoneOffset.UTC).toLocalDateTime()
+                            + ", fetchedRows=" + fetchedRows
+                            + ", inserted=" + inserted
+                            + ", skipped=" + skipped);
                     break;
                 }
+                batches++;
+                fetchedRows += rows.size();
                 Map<String, List<ImportKline>> groupedPending = new LinkedHashMap<String, List<ImportKline>>();
                 long nextCursor = cursor;
                 for (int i = 0; i < rows.size(); i++) {
@@ -118,13 +134,20 @@ public class BinanceKlineImportCli {
                 if (nextCursor <= cursor) {
                     break;
                 }
+                System.out.println(symbol + " import batch " + batches
+                        + ", interval=" + options.interval
+                        + ", fetched=" + rows.size()
+                        + ", insertedTotal=" + inserted
+                        + ", skippedTotal=" + skipped
+                        + ", nextCursor=" + Instant.ofEpochMilli(nextCursor).atZone(ZoneOffset.UTC).toLocalDateTime());
                 cursor = nextCursor;
             }
             if (options.sleepMs > 0) {
                 Thread.sleep(options.sleepMs);
             }
         }
-        System.out.println(symbol + " imported, inserted=" + inserted + ", skipped=" + skipped
+        System.out.println(symbol + " imported, batches=" + batches + ", fetched=" + fetchedRows
+                + ", inserted=" + inserted + ", skipped=" + skipped
                 + ", mode=" + options.mode + ", dryRun=" + options.dryRun);
     }
 

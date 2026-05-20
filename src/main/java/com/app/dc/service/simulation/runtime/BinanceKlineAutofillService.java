@@ -110,6 +110,8 @@ public class BinanceKlineAutofillService {
                     task == null ? null : task.id, request.key(), request.requiredBars, request.actualBars, request.missingBars);
             result.triggered = false;
             result.message = "autofill skipped: no missing bars";
+            result.terminal = true;
+            result.failureReason = buildFinalNotEnoughReason(request, request.actualBars, request.missingBars);
             return result;
         }
         long now = System.currentTimeMillis();
@@ -573,6 +575,7 @@ public class BinanceKlineAutofillService {
     public static class AutofillTriggerResult {
         public boolean triggered;
         public boolean duplicate;
+        public boolean terminal;
         public String key;
         public String symbol;
         public String text;
@@ -582,5 +585,6 @@ public class BinanceKlineAutofillService {
         public int actualBars;
         public int missingBars;
         public String message;
+        public String failureReason;
     }
 }

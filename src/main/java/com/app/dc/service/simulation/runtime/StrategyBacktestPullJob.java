@@ -348,6 +348,26 @@ public class StrategyBacktestPullJob {
                         autofillEx.getMessage(),
                         autofillEx);
             }
+            if (autofillResult != null && autofillResult.terminal) {
+                String failureReason = isBlank(autofillResult.failureReason)
+                        ? summarizeSuspendFailure(e)
+                        : autofillResult.failureReason;
+                Map<String, Object> failedPayload = resolvePipelinePayload(task, null);
+                failedPayload.put("suspendDetail", e.getDetail());
+                failedPayload.put("recoveryPlan", buildRecoveryPlan(e, nextRetryTime, autofillResult, autofillError));
+                failedPayload.put("error", failureReason);
+                markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.FAILED,
+                        failureReason, backtestStart, failedPayload);
+                taskDao.markFailed(task == null ? null : task.id, failureReason);
+                log.info("StrategyBacktestPullJob task status -> FAILED after autofill terminal decision, task:{}, generationTaskId:{}, candidateId:{}, thread:{}, error:{}, heap:{}",
+                        task == null ? null : task.id,
+                        task == null ? null : task.generationTaskId,
+                        task == null ? null : task.candidateId,
+                        threadName,
+                        failureReason,
+                        memorySummary());
+                return;
+            }
             taskDao.markSuspended(task == null ? null : task.id,
                     e.getReason(),
                     buildSuspendPayload(task, e, nextRetryTime, autofillResult, autofillError),

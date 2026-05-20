@@ -27,6 +27,9 @@ import java.util.concurrent.atomic.AtomicLong;
 public class BinanceKlineAutofillService {
 
     private static final String INSUFFICIENT_KLINE = "INSUFFICIENT_KLINE";
+    private static final String INSUFFICIENT_WINDOW_SLICES = "INSUFFICIENT_WINDOW_SLICES";
+    private static final String FINAL_NOT_ENOUGH = "FINAL_NOT_ENOUGH";
+    private static final String FINAL_IMPORT_FAILED = "FINAL_IMPORT_FAILED";
     private static final AtomicLong NEXT_ALLOWED_START_MS = new AtomicLong(0L);
 
     @Autowired(required = false)
@@ -83,9 +86,9 @@ public class BinanceKlineAutofillService {
             result.message = "autofill disabled";
             return result;
         }
-        if (error == null || !INSUFFICIENT_KLINE.equalsIgnoreCase(error.getReason())) {
+        if (error == null || !isRecoverableReason(error.getReason(), error.getDetail())) {
             result.triggered = false;
-            result.message = "suspend reason not insufficient kline";
+            result.message = "suspend reason not recoverable kline gap";
             return result;
         }
         AutofillRequest request = buildRequest(task, error.getDetail());
@@ -334,8 +337,37 @@ public class BinanceKlineAutofillService {
         recoveryPlan.put("autofillMessage", StringUtils.defaultString(message));
         recoveryPlan.put("autofillError", StringUtils.defaultString(error));
         recoveryPlan.put("autofillStage", StringUtils.defaultString(stage));
-        recoveryPlan.put("recoverable", true);
+        recoveryPlan.put("autofillAttempted", true);
+        boolean autofillFinal = FINAL_NOT_ENOUGH.equals(stage) || FINAL_IMPORT_FAILED.equals(stage);
+        recoveryPlan.put("autofillFinal", autofillFinal);
+        recoveryPlan.put("recoverable", !autofillFinal);
         return JsonUtils.Serializer(envelope);
+    }
+
+    private String buildFinalNotEnoughReason(AutofillRequest request, int actualBars, int missingBars) {
+        String symbol = request == null ? "" : StringUtils.defaultString(request.symbol);
+        String text = request == null ? "" : StringUtils.defaultString(request.text);
+        String begin = request == null || request.requiredBeginDate == null ? "" : request.requiredBeginDate.toString();
+        String end = request == null || request.requiredEndDate == null ? "" : request.requiredEndDate.toString();
+        int requiredBars = request == null ? 0 : request.requiredBars;
+        return String.format("??????????????????????%s %s %s~%s??? %d ?K???? %d??? %d?",
+                symbol,
+                text,
+                begin,
+                end,
+                requiredBars,
+                Math.max(0, actualBars),
+                Math.max(0, missingBars));
+    }
+
+    private String buildImportFailedReason(AutofillRequest request, Exception error) {
+        String symbol = request == null ? "" : StringUtils.defaultString(request.symbol);
+        String text = request == null ? "" : StringUtils.defaultString(request.text);
+        String message = error == null ? "" : StringUtils.defaultString(error.getMessage());
+        return String.format("?????????????????%s %s??%s",
+                symbol,
+                text,
+                StringUtils.defaultIfBlank(message, "unknown error"));
     }
 
     private String computeNextRetryTime() {
@@ -383,6 +415,12 @@ public class BinanceKlineAutofillService {
                 : requiredBeginDate;
         if (endDate.isBefore(startDate)) {
             endDate = startDate;
+        }
+        if (requiredBars <= 0) {
+            requiredBars = estimateRequiredBars(text, startDate, endDate);
+        }
+        if (missingBars <= 0 && requiredBars > actualBars) {
+            missingBars = Math.max(0, requiredBars - actualBars);
         }
         AutofillRequest request = new AutofillRequest();
         request.symbol = symbol;
@@ -458,6 +496,52 @@ public class BinanceKlineAutofillService {
         } catch (Exception e) {
             return 0;
         }
+    }
+
+    private boolean isRecoverableReason(String reason, Map<String, Object> detail) {
+        if (INSUFFICIENT_KLINE.equalsIgnoreCase(StringUtils.defaultString(reason))) {
+            return true;
+        }
+        if (INSUFFICIENT_WINDOW_SLICES.equalsIgnoreCase(StringUtils.defaultString(reason))) {
+            return true;
+        }
+        String detailReason = detail == null ? "" : stringValue(detail.get("reason"));
+        return INSUFFICIENT_KLINE.equalsIgnoreCase(detailReason)
+                || INSUFFICIENT_WINDOW_SLICES.equalsIgnoreCase(detailReason);
+    }
+
+    private int estimateRequiredBars(String text, LocalDate beginDate, LocalDate endDate) {
+        if (beginDate == null || endDate == null || endDate.isBefore(beginDate)) {
+            return 0;
+        }
+        long days = java.time.temporal.ChronoUnit.DAYS.between(beginDate, endDate) + 1L;
+        if (days <= 0L) {
+            return 0;
+        }
+        return (int) Math.max(0L, days * resolveBarsPerDay(text));
+    }
+
+    private int resolveBarsPerDay(String text) {
+        String value = stringValue(text).toUpperCase();
+        if ("1M".equals(value)) {
+            return 24 * 60;
+        }
+        if ("5M".equals(value)) {
+            return 24 * 12;
+        }
+        if ("15M".equals(value)) {
+            return 24 * 4;
+        }
+        if ("30M".equals(value)) {
+            return 24 * 2;
+        }
+        if ("1H".equals(value)) {
+            return 24;
+        }
+        if ("1D".equals(value)) {
+            return 1;
+        }
+        return 0;
     }
 
     public static class EarliestKlineRow {

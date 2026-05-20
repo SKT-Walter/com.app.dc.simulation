@@ -418,19 +418,11 @@ public class StrategyBacktestPullJob {
         if (e == null) {
             return false;
         }
-        if (WalkForwardBacktestRunner.INSUFFICIENT_WINDOW_SLICES.equalsIgnoreCase(e.getReason())) {
-            return true;
-        }
         Map<String, Object> detail = e.getDetail();
         if (detail == null || detail.isEmpty()) {
             return false;
         }
-        Object reason = detail.get("reason");
-        if (WalkForwardBacktestRunner.INSUFFICIENT_WINDOW_SLICES.equalsIgnoreCase(String.valueOf(reason))) {
-            return true;
-        }
-        String message = String.valueOf(detail.get("message"));
-        return message != null && message.toLowerCase().contains("window slices less than");
+        return false;
     }
 
     private String summarizeSuspendFailure(BacktestTaskSuspendedException e) {

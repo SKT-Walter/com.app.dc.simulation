@@ -3,6 +3,7 @@ package com.app.dc.service.workbench;
 import com.app.common.db.ClickHouseDBUtils;
 import com.app.common.utils.IdUtil;
 import com.app.dc.po.backtest.BacktestParam;
+import com.app.dc.service.simulation.BacktestSupportService;
 import com.app.dc.service.simulation.runtime.StrategyAutoPublishDao;
 import com.app.dc.service.simulation.runtime.StrategyBacktestSummary;
 import com.app.dc.service.simulation.runtime.StrategyBacktestTaskDao;
@@ -43,6 +44,9 @@ public class WorkbenchService {
 
     @Autowired
     private StrategyAutoPublishDao strategyAutoPublishDao;
+
+    @Autowired
+    private BacktestSupportService backtestSupportService;
 
     @Autowired(required = false)
     private ClickHouseDBUtils clickHouseDBUtils;
@@ -218,6 +222,8 @@ public class WorkbenchService {
         param.endDate = requiredText(request, "endDate");
         param.ignoreSentimentGuard = true;
         param.allowMissingStageAnalysis = true;
+        param.text = backtestSupportService.normalizeText(param.text);
+        backtestSupportService.validateBacktestRange(param.text, param.beginDate, param.endDate);
 
         StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
         envelope.backtestParam = param;

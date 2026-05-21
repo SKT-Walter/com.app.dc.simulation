@@ -667,6 +667,7 @@ public class BacktestService {
             req.text = defaultSupportedText();
         }
         req.text = supportService.normalizeText(req.text);
+        supportService.validateBacktestRange(req.text, req.beginDate, req.endDate);
         if (req.initialCapital == null || req.initialCapital.compareTo(BigDecimal.ZERO) <= 0) {
             req.initialCapital = BigDecimal.valueOf(10000);
         }

@@ -21,7 +21,7 @@ public class BacktestSupportService {
 
     private static final Map<String, Integer> DEFAULT_MAX_BARS_BY_TEXT = buildDefaultMaxBarsByText();
 
-    @Value("${strategy.backtest.maxBarsByText:1m:60000,5m:80000,15m:120000,30m:120000,1h:120000,1d:3650}")
+    @Value("${strategy.backtest.maxBarsByText:1m:525600,5m:525600,15m:175200,30m:87600,1h:43800,1d:1825}")
     private String configuredMaxBarsByText;
 
     public String normalizeStrategyName(String strategyName) {
@@ -173,7 +173,7 @@ public class BacktestSupportService {
         if (value != null && value.intValue() > 0) {
             return value.intValue();
         }
-        return 120000;
+        return 175200;
     }
 
     public int estimateBarCount(String text, String beginDate, String endDate) {
@@ -280,12 +280,12 @@ public class BacktestSupportService {
 
     private static Map<String, Integer> buildDefaultMaxBarsByText() {
         Map<String, Integer> result = new HashMap<String, Integer>();
-        result.put("1m", 60000);
-        result.put("5m", 80000);
-        result.put("15m", 120000);
-        result.put("30m", 120000);
-        result.put("1h", 120000);
-        result.put("1d", 3650);
+        result.put("1m", 525600);
+        result.put("5m", 525600);
+        result.put("15m", 175200);
+        result.put("30m", 87600);
+        result.put("1h", 43800);
+        result.put("1d", 1825);
         return result;
     }
 }

@@ -188,7 +188,7 @@ public class StrategyAutoPublishService {
         row.scene = candidate.scene;
         row.runtimeType = blankTo(candidate.runtimeType, "CLASSPATH");
         row.symbolScope = "*";
-        row.textScope = "*";
+        row.textScope = resolveTextScope(param);
         row.artifactUri = blankTo(candidate.artifactUri, "classpath://builtin");
         row.entryClass = candidate.entryClass;
         row.parametersJson = resolveRuntimeParametersJson(candidate, current);
@@ -199,6 +199,14 @@ public class StrategyAutoPublishService {
         row.payload = blankTo(candidate.payload, "{}");
         row.description = candidate.description;
         return row;
+    }
+
+    private String resolveTextScope(BacktestParam param) {
+        if (param == null) {
+            return "*";
+        }
+        String text = blankTo(param.text, "");
+        return StringUtils.isBlank(text) ? "*" : text;
     }
 
     private String resolveRuntimeParametersJson(StrategyCandidateRow candidate,

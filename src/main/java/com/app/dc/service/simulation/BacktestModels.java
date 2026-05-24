@@ -226,6 +226,10 @@ public final class BacktestModels {
         public int entryIndex;
         public Double stopPrice;
         public Double takePrice;
+        public Double trailingFirstStepPct;
+        public Double trailingStepPct;
+        public Double fallbackTriggerProfitPct;
+        public Double fallbackTakeProfitPct;
         public int maxHoldBars;
         public int currentHoldBars;
     }

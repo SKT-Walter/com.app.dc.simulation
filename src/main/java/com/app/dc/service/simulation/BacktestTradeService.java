@@ -30,6 +30,10 @@ public class BacktestTradeService {
         position.takePrice = signal.takerPrice == null || signal.takerPrice.compareTo(BigDecimal.ZERO) <= 0
                 ? null
                 : signal.takerPrice.doubleValue();
+        position.trailingFirstStepPct = positiveOrNull(signal.firstStep);
+        position.trailingStepPct = positiveOrNull(signal.step);
+        position.fallbackTriggerProfitPct = positiveOrNull(signal.underTriggerProfitPrice);
+        position.fallbackTakeProfitPct = positiveOrNull(signal.underTakerProfitPrice);
         position.maxHoldBars = param.maxHoldBars == null ? 0 : param.maxHoldBars;
         return position;
     }
@@ -75,6 +79,67 @@ public class BacktestTradeService {
         if (position.maxHoldBars > 0 && position.currentHoldBars >= position.maxHoldBars) {
             return closePosition(position, currentBar.getClosePrice().doubleValue(), currentBar.getEndTime().toString(),
                     "max_hold_bars", currentIndex, entryMakerFeeRatePct, exitTakerFeeRatePct);
+        }
+        applyTrailingProtection(position, currentBar);
+        return null;
+    }
+
+    private Double positiveOrNull(BigDecimal value) {
+        if (value == null || value.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        return value.doubleValue();
+    }
+
+    private void applyTrailingProtection(Position position, Bar currentBar) {
+        if (position == null || currentBar == null) {
+            return;
+        }
+        Double nextStop = calculateTrailingStop(position, currentBar.getClosePrice().doubleValue());
+        if (nextStop == null) {
+            return;
+        }
+        if (position.stopPrice == null) {
+            position.stopPrice = nextStop;
+            return;
+        }
+        if (position.side == Side.BUY) {
+            if (nextStop > position.stopPrice) {
+                position.stopPrice = nextStop;
+            }
+        } else if (position.side == Side.SELL) {
+            if (nextStop < position.stopPrice) {
+                position.stopPrice = nextStop;
+            }
+        }
+    }
+
+    private Double calculateTrailingStop(Position position, double currentClose) {
+        if (position.entryPrice <= 0.0d || position.side == null) {
+            return null;
+        }
+        double profitPct = Math.abs(((currentClose - position.entryPrice) / position.entryPrice) * 100.0d);
+        Double fallbackPct = position.fallbackTakeProfitPct;
+        if (position.trailingFirstStepPct != null && position.trailingStepPct != null
+                && profitPct > position.trailingFirstStepPct) {
+            int steps = (int) Math.floor((profitPct - position.trailingFirstStepPct) / position.trailingStepPct);
+            double stopPct = position.trailingFirstStepPct
+                    + position.trailingStepPct * (((double) steps) - 1.0d);
+            return buildProtectedStop(position, stopPct);
+        }
+        if (position.fallbackTriggerProfitPct != null && fallbackPct != null
+                && profitPct >= position.fallbackTriggerProfitPct) {
+            return buildProtectedStop(position, fallbackPct);
+        }
+        return null;
+    }
+
+    private Double buildProtectedStop(Position position, double stopPct) {
+        if (position.side == Side.BUY) {
+            return position.entryPrice * (1.0d + stopPct / 100.0d);
+        }
+        if (position.side == Side.SELL) {
+            return position.entryPrice * (1.0d - stopPct / 100.0d);
         }
         return null;
     }

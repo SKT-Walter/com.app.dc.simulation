@@ -384,12 +384,12 @@ public class BacktestBatchReportCli {
 
         String toHtml() {
             StringBuilder html = new StringBuilder();
-            html.append("<html><head><meta charset=\"UTF-8\"><title>源码 Live 批量回测总报告</title>")
-                    .append("<style>body{font-family:Segoe UI,Microsoft YaHei,sans-serif;margin:24px;color:#111827;}")
-                    .append("table{border-collapse:collapse;width:100%;margin-top:16px;}th,td{border:1px solid #d1d5db;padding:8px 10px;font-size:13px;text-align:left;vertical-align:top;}th{background:#f3f4f6;}")
+            html.append("<html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\"><title>源码 Live 批量回测总报告</title>")
+                    .append("<style>body{font-family:Segoe UI,Microsoft YaHei,sans-serif;margin:24px;color:#111827;word-break:break-word;}")
+                    .append("table{border-collapse:collapse;width:100%;min-width:720px;margin-top:16px;display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;}th,td{border:1px solid #d1d5db;padding:8px 10px;font-size:13px;text-align:left;vertical-align:top;}th{background:#f3f4f6;}")
                     .append(".cards{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 20px 0;}.card{border:1px solid #d1d5db;border-radius:8px;padding:10px 14px;min-width:160px;}")
                     .append(".label{font-size:12px;color:#6b7280;}.value{font-size:22px;font-weight:700;margin-top:4px;}")
-                    .append(".mono{font-family:Consolas,Menlo,monospace;font-size:12px;}</style></head><body>");
+                    .append(".mono{font-family:Consolas,Menlo,monospace;font-size:12px;}@media (max-width: 768px){body{margin:0;padding:14px;}h1{font-size:24px;}h2{font-size:18px;}.cards{gap:10px;margin:10px 0 16px 0;}.card{padding:10px 12px;min-width:140px;}.value{font-size:18px;}table{min-width:640px;}th,td{padding:7px 8px;font-size:12px;}.mono{font-size:11px;}}</style></head><body>");
             html.append("<h1>源码 Live 批量回测总报告</h1>");
             html.append("<div>batchTag: ").append(esc(batchTag)).append(" / 生成时间: ").append(esc(generatedAt)).append("</div>");
             html.append("<div class='cards'>");

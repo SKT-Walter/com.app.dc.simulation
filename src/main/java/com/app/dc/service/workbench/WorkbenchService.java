@@ -96,9 +96,11 @@ public class WorkbenchService {
             StrategyCandidateRow candidate = loadCandidate(row.strategyName, row.strategyVersion);
             StrategyBacktestSummary summary = loadLatestSummary(row.strategyName, row.strategyVersion);
             Map<String, Object> report = loadLatestReportMeta(row.id, row.strategyName, row.strategyVersion);
+            Map<String, Object> publish = buildPublishState(row.strategyName, row.strategyVersion);
             item.put("strategyDescription", candidate == null ? "" : blankTo(candidate.description, ""));
             item.put("summary", summaryView(summary));
             item.put("report", report);
+            item.put("publish", publish);
             items.add(item);
         }
         Map<String, Object> data = new LinkedHashMap<String, Object>();
@@ -453,6 +455,14 @@ public class WorkbenchService {
                 item.put("strategyDescription", candidate == null ? "" : blankTo(candidate.description, ""));
                 StrategyBacktestSummary summary = loadLatestSummary(row.strategyName, row.toVersion);
                 item.put("summary", summaryView(summary));
+                Map<String, Object> publishScope = candidate == null
+                        ? Collections.<String, Object>emptyMap()
+                        : buildPayloadSummaryFromRawMap(parseJsonObject(candidate.payload));
+                item.put("symbol", firstNonBlank(
+                        publishScope.get("symbol"),
+                        publishScope.get("symbols")));
+                item.put("text", firstNonBlank(
+                        publishScope.get("text")));
                 StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadExactActive(row.strategyName, row.toVersion);
                 item.put("active", active != null);
                 item.put("effectiveTime", active == null ? "" : blankTo(active.effectiveTime, ""));
@@ -671,6 +681,21 @@ public class WorkbenchService {
             summary.put("endDate", "");
         }
         return summary;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseJsonObject(String text) {
+        if (StringUtils.isBlank(text)) {
+            return new LinkedHashMap<String, Object>();
+        }
+        try {
+            Object value = JsonUtils.Deserialize(text, Map.class);
+            if (value instanceof Map) {
+                return (Map<String, Object>) value;
+            }
+        } catch (Exception ignore) {
+        }
+        return new LinkedHashMap<String, Object>();
     }
 
     private Long resolveElapsedMs(String payload) {

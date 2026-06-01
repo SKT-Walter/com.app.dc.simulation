@@ -15,9 +15,12 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -187,7 +190,7 @@ public class StrategyAutoPublishService {
         row.category = blankTo(candidate.category, "generated");
         row.scene = candidate.scene;
         row.runtimeType = blankTo(candidate.runtimeType, "CLASSPATH");
-        row.symbolScope = "*";
+        row.symbolScope = resolveSymbolScope(param);
         row.textScope = resolveTextScope(param);
         row.artifactUri = blankTo(candidate.artifactUri, "classpath://builtin");
         row.entryClass = candidate.entryClass;
@@ -207,6 +210,18 @@ public class StrategyAutoPublishService {
         }
         String text = blankTo(param.text, "");
         return StringUtils.isBlank(text) ? "*" : text;
+    }
+
+    private String resolveSymbolScope(BacktestParam param) {
+        if (param == null) {
+            throw new IllegalStateException("backtest param missing for auto publish");
+        }
+        String raw = blankTo(param.symbols, blankTo(param.symbol, ""));
+        String normalized = normalizeSymbolScope(raw);
+        if (StringUtils.isBlank(normalized)) {
+            throw new IllegalStateException("backtest symbol scope is blank");
+        }
+        return normalized;
     }
 
     private String resolveRuntimeParametersJson(StrategyCandidateRow candidate,
@@ -332,11 +347,38 @@ public class StrategyAutoPublishService {
             return null;
         }
         try {
+            StrategyBacktestTaskPayloadEnvelope envelope =
+                    JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
+            if (envelope != null && envelope.backtestParam != null) {
+                return envelope.backtestParam;
+            }
+        } catch (Exception ignore) {
+        }
+        try {
             return JsonUtils.Deserialize(task.payload, BacktestParam.class);
         } catch (Exception e) {
             log.warn("parseTaskPayload error, task:{}", task.id, e);
             return null;
         }
+    }
+
+    private String normalizeSymbolScope(String raw) {
+        if (StringUtils.isBlank(raw)) {
+            return "";
+        }
+        String normalized = raw.replace("|", ",");
+        LinkedHashSet<String> unique = new LinkedHashSet<String>();
+        for (String token : normalized.split(",")) {
+            String item = StringUtils.defaultString(token).trim().toUpperCase(Locale.ENGLISH);
+            if (StringUtils.isBlank(item)) {
+                continue;
+            }
+            unique.add(item);
+        }
+        if (unique.isEmpty()) {
+            return "";
+        }
+        return StringUtils.join(new ArrayList<String>(unique), ",");
     }
 
     private boolean gt(Double left, Double right) {

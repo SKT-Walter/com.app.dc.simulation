@@ -53,13 +53,13 @@ public class BacktestResultClickHouseDao {
         String sql = "INSERT INTO " + table
                 + " (run_time,sid,strategy_name,strategy_version,baseline_version,runtime_type,scene,"
                 + "symbol,text,begin_date,end_date,trade_count,win_count,loss_count,flat_count,"
-                + "win_rate,total_return_pct,max_drawdown_pct,initial_capital,final_capital,total_pnl,"
+                + "win_rate,total_return_pct,profit_factor,max_drawdown_pct,initial_capital,final_capital,total_pnl,"
                 + "forward_score,validate_primary_score,forward_aux_score,fee_adjusted_validate_pnl,slice_param_drift_score,oos_pass,"
                 + "window_mode,slice_count,fit_pnl,validate_pnl,forward_pnl,overfit_pass,overfit_reason,"
                 + "optimization_mode,trial_count,best_param_set,best_rank,symbol_count,fit_window_days,validate_window_days,"
                 + "forward_window_days,min_slice_count,optimization_objective,min_forward_contribution,elapsed_ms,fragile_best,"
                 + "stable_param_range,neighbor_avg_pnl,neighbor_worst_pnl,report_path,payload)"
-                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,)";
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         String sliceSql = "INSERT INTO " + sliceTable
                 + " (run_time,sid,strategy_name,strategy_version,symbol,text,slice_no,"
                 + "fit_begin,fit_end,validate_begin,validate_end,forward_begin,forward_end,"
@@ -93,6 +93,7 @@ public class BacktestResultClickHouseDao {
                         nzInt(result.flatCount),
                         nzDouble(result.winRate),
                         nzDouble(result.totalReturnPct),
+                        nzDouble(result.profitFactor),
                         nzDouble(result.maxDrawdownPct),
                         nzDouble(result.initialCapital),
                         nzDouble(result.finalCapital),

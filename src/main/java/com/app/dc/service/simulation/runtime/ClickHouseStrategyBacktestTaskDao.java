@@ -196,10 +196,12 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
                 + "parameters_json as parametersJson,"
                 + "payload as payload "
                 + "from " + safe(candidateTable)
-                + " where strategy_name=? and strategy_version=? order by create_time desc limit 1";
+                + " where strategy_name='" + escape(strategyName) + "'"
+                + " and strategy_version='" + escape(strategyVersion) + "'"
+                + " order by create_time desc limit 1";
         try {
             List<StrategyCandidateRow> rows = ClickHouseDBUtils.queryList(sql,
-                    new Object[]{strategyName, strategyVersion},
+                    new Object[]{},
                     StrategyCandidateRow.class);
             if (rows == null || rows.isEmpty()) {
                 return null;

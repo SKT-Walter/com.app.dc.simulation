@@ -213,6 +213,34 @@ public class BacktestOptimizationService {
         }
     }
 
+    public void rankFitTrials(OptimizationPlan plan, List<OptimizationTrial> trials) {
+        if (trials == null || trials.isEmpty()) {
+            return;
+        }
+        Collections.sort(trials, new Comparator<OptimizationTrial>() {
+            @Override
+            public int compare(OptimizationTrial left, OptimizationTrial right) {
+                int fit = nz(right.fitPnl).compareTo(nz(left.fitPnl));
+                if (fit != 0) {
+                    return fit;
+                }
+                int total = nz(right.totalPnl).compareTo(nz(left.totalPnl));
+                if (total != 0) {
+                    return total;
+                }
+                return nz(left.maxDrawdownPct).compareTo(nz(right.maxDrawdownPct));
+            }
+        });
+        for (int i = 0; i < trials.size(); i++) {
+            OptimizationTrial trial = trials.get(i);
+            trial.rank = Integer.valueOf(i + 1);
+            trial.fragileBest = 0;
+            trial.stableParamRangeJson = "{}";
+            trial.neighborAvgPnl = BigDecimal.ZERO;
+            trial.neighborWorstPnl = BigDecimal.ZERO;
+        }
+    }
+
     public OptimizationTrial buildTrial(int trialNo,
                                         String phase,
                                         String strategyName,

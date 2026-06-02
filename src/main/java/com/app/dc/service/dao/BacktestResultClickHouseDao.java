@@ -54,23 +54,24 @@ public class BacktestResultClickHouseDao {
                 + " (run_time,sid,strategy_name,strategy_version,baseline_version,runtime_type,scene,"
                 + "symbol,text,begin_date,end_date,trade_count,win_count,loss_count,flat_count,"
                 + "win_rate,total_return_pct,max_drawdown_pct,initial_capital,final_capital,total_pnl,"
-                + "forward_score,window_mode,slice_count,fit_pnl,validate_pnl,forward_pnl,overfit_pass,overfit_reason,"
+                + "forward_score,validate_primary_score,forward_aux_score,fee_adjusted_validate_pnl,slice_param_drift_score,oos_pass,"
+                + "window_mode,slice_count,fit_pnl,validate_pnl,forward_pnl,overfit_pass,overfit_reason,"
                 + "optimization_mode,trial_count,best_param_set,best_rank,symbol_count,fit_window_days,validate_window_days,"
                 + "forward_window_days,min_slice_count,optimization_objective,min_forward_contribution,elapsed_ms,fragile_best,"
                 + "stable_param_range,neighbor_avg_pnl,neighbor_worst_pnl,report_path,payload)"
-                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,)";
         String sliceSql = "INSERT INTO " + sliceTable
                 + " (run_time,sid,strategy_name,strategy_version,symbol,text,slice_no,"
                 + "fit_begin,fit_end,validate_begin,validate_end,forward_begin,forward_end,"
                 + "fit_pnl,validate_pnl,forward_pnl,fit_trade_count,validate_trade_count,forward_trade_count,"
-                + "fit_max_drawdown_pct,validate_max_drawdown_pct,forward_max_drawdown_pct,payload)"
-                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                + "fit_max_drawdown_pct,validate_max_drawdown_pct,forward_max_drawdown_pct,best_param_set,fit_score,validate_score,forward_score,selection_objective,fragile_best,payload)"
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         String trialSql = "INSERT INTO " + trialTable
                 + " (run_time,sid,strategy_name,strategy_version,symbol_scope,text_scope,trial_no,phase,param_set,"
                 + "fit_pnl,validate_pnl,forward_pnl,total_pnl,forward_score,max_drawdown_pct,overfit_pass,overfit_reason,rank,"
                 + "elapsed_ms,symbol_count,slice_count,fit_window_days,validate_window_days,forward_window_days,min_slice_count,"
                 + "optimization_objective,min_forward_contribution,fragile_best,stable_param_range,neighbor_avg_pnl,neighbor_worst_pnl,payload)"
-                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
         for (BacktestModels.BacktestResult result : results) {
             try {
@@ -99,6 +100,11 @@ public class BacktestResultClickHouseDao {
                                 ? calcTotalPnl(result.initialCapital, result.finalCapital)
                                 : nzDouble(result.totalPnl),
                         nzDouble(result.forwardScore),
+                        nzDouble(result.validatePrimaryScore),
+                        nzDouble(result.forwardAuxScore),
+                        nzDouble(result.feeAdjustedValidatePnl),
+                        nzDouble(result.sliceParamDriftScore),
+                        nzInt(result.oosPass),
                         safe(result.windowMode),
                         nzInt(result.sliceCount),
                         nzDouble(result.fitPnl),
@@ -164,6 +170,12 @@ public class BacktestResultClickHouseDao {
                         nzDouble(slice.fitMaxDrawdownPct),
                         nzDouble(slice.validateMaxDrawdownPct),
                         nzDouble(slice.forwardMaxDrawdownPct),
+                        safe(slice.bestParamSetJson),
+                        nzDouble(slice.fitScore),
+                        nzDouble(slice.validateScore),
+                        nzDouble(slice.forwardScore),
+                        safe(slice.selectionObjective),
+                        nzInt(slice.fragileBest),
                         safe(slice.payload)
                 };
                 ClickHouseDBUtils.update(sql, args);

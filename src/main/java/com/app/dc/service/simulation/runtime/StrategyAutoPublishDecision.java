@@ -9,8 +9,11 @@ public class StrategyAutoPublishDecision {
     public Double currentValidatePnl;
     public Double currentForwardPnl;
     public Double currentForwardScore;
+    public Double currentValidatePrimaryScore;
+    public Double currentFeeAdjustedValidatePnl;
     public Double baselineTotalPnl;
     public Double baselineValidatePnl;
     public Double baselineForwardPnl;
     public Double baselineForwardScore;
+    public Double baselineValidatePrimaryScore;
 }

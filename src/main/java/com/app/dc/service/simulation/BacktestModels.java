@@ -33,6 +33,12 @@ public final class BacktestModels {
         public BigDecimal validatePnl = BigDecimal.ZERO;
         public BigDecimal forwardPnl = BigDecimal.ZERO;
         public BigDecimal totalPnl = BigDecimal.ZERO;
+        public BigDecimal forwardScore = BigDecimal.ZERO;
+        public BigDecimal validatePrimaryScore = BigDecimal.ZERO;
+        public BigDecimal forwardAuxScore = BigDecimal.ZERO;
+        public BigDecimal feeAdjustedValidatePnl = BigDecimal.ZERO;
+        public BigDecimal sliceParamDriftScore = BigDecimal.ZERO;
+        public Integer oosPass = 0;
         public Integer overfitPass = 0;
         public String overfitReason = "";
         public String optimizationMode = "";
@@ -74,6 +80,11 @@ public final class BacktestModels {
         public BigDecimal validatePnl = BigDecimal.ZERO;
         public BigDecimal forwardPnl = BigDecimal.ZERO;
         public BigDecimal totalPnl = BigDecimal.ZERO;
+        public BigDecimal validatePrimaryScore = BigDecimal.ZERO;
+        public BigDecimal forwardAuxScore = BigDecimal.ZERO;
+        public BigDecimal feeAdjustedValidatePnl = BigDecimal.ZERO;
+        public BigDecimal sliceParamDriftScore = BigDecimal.ZERO;
+        public Integer oosPass = 0;
         public Integer overfitPass = 0;
         public String overfitReason = "";
         public String optimizationMode = "";
@@ -183,6 +194,12 @@ public final class BacktestModels {
         public BigDecimal fitMaxDrawdownPct = BigDecimal.ZERO;
         public BigDecimal validateMaxDrawdownPct = BigDecimal.ZERO;
         public BigDecimal forwardMaxDrawdownPct = BigDecimal.ZERO;
+        public String bestParamSetJson = "{}";
+        public BigDecimal fitScore = BigDecimal.ZERO;
+        public BigDecimal validateScore = BigDecimal.ZERO;
+        public BigDecimal forwardScore = BigDecimal.ZERO;
+        public String selectionObjective = "";
+        public Integer fragileBest = 0;
         public String payload = "";
     }
 

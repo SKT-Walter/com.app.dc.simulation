@@ -52,6 +52,15 @@ public class BacktestReportService {
     @Value("${binanceBacktestReportDir:./src/docs}")
     private String reportDir;
 
+    @Value("${strategy.auto.publish.minValidateTrades:5}")
+    private int minValidateTrades;
+
+    @Value("${strategy.auto.publish.maxValidateDrawdownPct:0.30}")
+    private double maxValidateDrawdownPct;
+
+    @Value("${strategy.auto.publish.minValidateProfitFactor:1.05}")
+    private double minValidateProfitFactor;
+
     @Autowired
     private BacktestQueryService backtestQueryService;
 
@@ -159,6 +168,11 @@ public class BacktestReportService {
         summary.put("validatePnl", scale(response.validatePnl));
         summary.put("forwardPnl", scale(response.forwardPnl));
         summary.put("totalPnl", scale(response.totalPnl));
+        summary.put("validatePrimaryScore", scale(response.validatePrimaryScore));
+        summary.put("forwardAuxScore", scale(response.forwardAuxScore));
+        summary.put("feeAdjustedValidatePnl", scale(response.feeAdjustedValidatePnl));
+        summary.put("sliceParamDriftScore", scale(response.sliceParamDriftScore));
+        summary.put("oosPass", nzInt(response.oosPass));
         summary.put("sliceCount", nzInt(response.sliceCount));
         summary.put("symbolCount", nzInt(response.symbolCount));
         summary.put("fitWindowDays", nzInt(response.fitWindowDays));
@@ -361,6 +375,11 @@ public class BacktestReportService {
         summary.put("validatePnl", scale(result.validatePnl));
         summary.put("forwardPnl", scale(result.forwardPnl));
         summary.put("totalPnl", scale(result.totalPnl));
+        summary.put("validatePrimaryScore", scale(result.validatePrimaryScore));
+        summary.put("forwardAuxScore", scale(result.forwardAuxScore));
+        summary.put("feeAdjustedValidatePnl", scale(result.feeAdjustedValidatePnl));
+        summary.put("sliceParamDriftScore", scale(result.sliceParamDriftScore));
+        summary.put("oosPass", nzInt(result.oosPass));
         summary.put("forwardScore", scale(result.forwardScore));
         summary.put("finalCapital", scale(result.finalCapital));
         summary.put("winRate", scale(result.winRate));
@@ -425,6 +444,12 @@ public class BacktestReportService {
             row.put("fitPnl", scale(slice.fitPnl));
             row.put("validatePnl", scale(slice.validatePnl));
             row.put("forwardPnl", scale(slice.forwardPnl));
+            row.put("bestParamSetJson", defaultIfBlank(slice.bestParamSetJson, "{}"));
+            row.put("fitScore", scale(slice.fitScore));
+            row.put("validateScore", scale(slice.validateScore));
+            row.put("forwardScore", scale(slice.forwardScore));
+            row.put("selectionObjective", s(slice.selectionObjective));
+            row.put("fragileBest", nzInt(slice.fragileBest));
             row.put("fitTradeCount", nzInt(slice.fitTradeCount));
             row.put("validateTradeCount", nzInt(slice.validateTradeCount));
             row.put("forwardTradeCount", nzInt(slice.forwardTradeCount));
@@ -724,13 +749,17 @@ public class BacktestReportService {
                 .append(metric("Fit \u6536\u76ca", summary.get("fitPnl")))
                 .append(metric("Validate \u6536\u76ca", summary.get("validatePnl")))
                 .append(metric("Forward \u6536\u76ca", summary.get("forwardPnl")))
-                .append(metric("\u603b\u6536\u76ca", summary.get("totalPnl")))
+                .append(metric("Validate \u4e3b\u5206", summary.get("validatePrimaryScore")))
+                .append(metric("Forward \u8f85\u5206", summary.get("forwardAuxScore")))
+                .append(metric("\u6263\u8d39 Validate \u6536\u76ca", summary.get("feeAdjustedValidatePnl")))
+                .append(metric("OOS \u901a\u8fc7", isTrue(summary.get("oosPass")) ? "\u662f" : "\u5426"))
                 .append(metric("Forward Score", summary.get("forwardScore")))
                 .append(metric("\u7a97\u53e3\u914d\u7f6e", s(summary.get("fitWindowDays")) + "/" + s(summary.get("validateWindowDays")) + "/" + s(summary.get("forwardWindowDays"))))
                 .append(metric("\u6700\u5c0f Slice", summary.get("minSliceCount")))
+                .append(metric("\u53c2\u6570\u6f02\u79fb", summary.get("sliceParamDriftScore")))
                 .append(metric("\u8bd5\u9a8c\u8017\u65f6(ms)", summary.get("elapsedMs")))
-                .append(metric("\u4ea4\u6613\u7b14\u6570", summary.get("tradeCount")))
-                .append(metric("\u6700\u5927\u56de\u64a4", summary.get("maxDrawdownPct")))
+                .append(metric("Validate \u4ea4\u6613\u7b14\u6570", summary.get("tradeCount")))
+                .append(metric("Validate \u6700\u5927\u56de\u64a4", summary.get("maxDrawdownPct")))
                 .append(metric("\u603b\u624b\u7eed\u8d39", summary.get("totalFee")))
                 .append("</div></div>");
 
@@ -741,6 +770,8 @@ public class BacktestReportService {
                 .append(metric("\u6700\u4f73\u6392\u540d", optimization.get("bestRank")))
                 .append(metric("Forward \u8d21\u732e\u95e8\u69db", optimization.get("minForwardContribution")))
                 .append(metric("\u6700\u4f73\u70b9\u8106\u5f31", isTrue(optimization.get("fragileBest")) ? "\u662f" : "\u5426"))
+                .append(metric("OOS \u901a\u8fc7", isTrue(summary.get("oosPass")) ? "\u662f" : "\u5426"))
+                .append(metric("\u53c2\u6570\u6f02\u79fb", summary.get("sliceParamDriftScore")))
                 .append(metric("\u90bb\u57df\u5747\u503c\u6536\u76ca", optimization.get("neighborAvgPnl")))
                 .append(metric("\u90bb\u57df\u6700\u5dee\u6536\u76ca", optimization.get("neighborWorstPnl")))
                 .append(metric("\u6700\u4f73\u53c2\u6570\u96c6", compactJsonValue(optimization.get("bestParamSetJson"))))
@@ -772,6 +803,10 @@ public class BacktestReportService {
             html.append("<div class=\"section\"><h2>").append(escape(s(item.get("symbol")))).append(" / ").append(escape(s(item.get("text")))).append("</h2><div class=\"grid\">")
                     .append(metric("\u6700\u7ec8\u8d44\u91d1", itemSummary.get("finalCapital")))
                     .append(metric("\u80dc\u7387%", itemSummary.get("winRate")))
+                    .append(metric("Validate \u4e3b\u5206", itemSummary.get("validatePrimaryScore")))
+                    .append(metric("Forward \u8f85\u5206", itemSummary.get("forwardAuxScore")))
+                    .append(metric("\u6263\u8d39 Validate", itemSummary.get("feeAdjustedValidatePnl")))
+                    .append(metric("OOS \u901a\u8fc7", isTrue(itemSummary.get("oosPass")) ? "\u662f" : "\u5426"))
                     .append(metric("Maker \u624b\u7eed\u8d39", itemSummary.get("entryFeeTotal")))
                     .append(metric("Taker \u624b\u7eed\u8d39", itemSummary.get("exitFeeTotal")))
                     .append(metric("\u7a97\u53e3\u914d\u7f6e", s(itemSummary.get("fitWindowDays")) + "/" + s(itemSummary.get("validateWindowDays")) + "/" + s(itemSummary.get("forwardWindowDays"))))
@@ -780,7 +815,7 @@ public class BacktestReportService {
 
             html.append("<div class=\"section\"><h2>\u8d26\u6237\u4f59\u989d\u53d8\u52a8\u66f2\u7ebf</h2><div class=\"svg-box\">").append(renderEquitySvg(equityCurve, phaseWindow)).append("</div></div>");
             html.append("<div class=\"section\"><h2>\u5355\u54c1\u79cd\u56fe\u5f62\u590d\u76d8</h2><div class=\"svg-box\">").append(renderReplaySvg(replay)).append("</div></div>");
-            html.append("<div class=\"section\"><h2>Walk-forward \u5207\u7247\u660e\u7ec6</h2>").append(renderTable(new String[]{"\u5207\u7247", "Fit \u5f00\u59cb", "Fit \u7ed3\u675f", "Validate \u6536\u76ca", "Forward \u6536\u76ca", "Validate \u4ea4\u6613\u6570", "Forward \u4ea4\u6613\u6570"}, slices, new String[]{"sliceNo", "fitBegin", "fitEnd", "validatePnl", "forwardPnl", "validateTradeCount", "forwardTradeCount"})).append("</div>");
+            html.append("<div class=\"section\"><h2>Walk-forward \u5207\u7247\u660e\u7ec6</h2>").append(renderTable(new String[]{"\u5207\u7247", "Fit \u5f00\u59cb", "Fit \u7ed3\u675f", "Validate \u6536\u76ca", "Forward \u6536\u76ca", "Fit \u9009\u53c2\u5206", "Validate \u5206", "\u6700\u4f73\u53c2\u6570", "\u8106\u5f31", "\u9009\u53c2\u76ee\u6807"}, slices, new String[]{"sliceNo", "fitBegin", "fitEnd", "validatePnl", "forwardPnl", "fitScore", "validateScore", "bestParamSetJson", "fragileBest", "selectionObjective"})).append("</div>");
             html.append("<div class=\"section\"><h2>\u5355\u7b14\u4ea4\u6613\u660e\u7ec6</h2>").append(renderTable(new String[]{"\u7f16\u53f7", "\u65b9\u5411", "\u5f00\u4ed3\u65f6\u95f4", "\u5f00\u4ed3\u4ef7", "\u5e73\u4ed3\u65f6\u95f4", "\u5e73\u4ed3\u4ef7", "\u6536\u76ca", "\u624b\u7eed\u8d39", "\u9000\u51fa\u539f\u56e0"}, trades, new String[]{"tradeNo", "side", "entryTime", "entryPrice", "exitTime", "exitPrice", "pnl", "totalFee", "exitReason"})).append("</div>");
             html.append("<div class=\"section\"><h2>\u62d2\u5355\u539f\u56e0\u7edf\u8ba1</h2>").append(renderTable(new String[]{"\u539f\u56e0", "\u6b21\u6570"}, rejectReasons, new String[]{"reason", "count"})).append("</div>");
         }
@@ -1144,12 +1179,17 @@ public class BacktestReportService {
         md.append("| Fit \u6536\u76ca | ").append(s(summary.get("fitPnl"))).append(" |\\n");
         md.append("| Validate \u6536\u76ca | ").append(s(summary.get("validatePnl"))).append(" |\\n");
         md.append("| Forward \u6536\u76ca | ").append(s(summary.get("forwardPnl"))).append(" |\\n");
-        md.append("| \u603b\u6536\u76ca | ").append(s(summary.get("totalPnl"))).append(" |\\n");
+        md.append("| Validate \u4e3b\u5206 | ").append(s(summary.get("validatePrimaryScore"))).append(" |\\n");
+        md.append("| Forward \u8f85\u5206 | ").append(s(summary.get("forwardAuxScore"))).append(" |\\n");
+        md.append("| \u6263\u8d39 Validate \u6536\u76ca | ").append(s(summary.get("feeAdjustedValidatePnl"))).append(" |\\n");
+        md.append("| OOS \u901a\u8fc7 | ").append(isTrue(summary.get("oosPass")) ? "Y" : "N").append(" |\\n");
+        md.append("| \u53c2\u6570\u6f02\u79fb | ").append(s(summary.get("sliceParamDriftScore"))).append(" |\\n");
         md.append("| Forward Score | ").append(s(summary.get("forwardScore"))).append(" |\\n");
         md.append("| \u603b\u624b\u7eed\u8d39 | ").append(s(summary.get("totalFee"))).append(" |\\n");
         md.append("| \u4f18\u5316\u6a21\u5f0f | ").append(s(optimization.get("optimizationMode"))).append(" |\\n");
         md.append("| Trial \u6570 | ").append(s(optimization.get("trialCount"))).append(" |\\n");
         md.append("| \u6700\u4f73\u6392\u540d | ").append(s(optimization.get("bestRank"))).append(" |\\n");
+        md.append("| \u6700\u4f73\u70b9\u8106\u5f31 | ").append(isTrue(optimization.get("fragileBest")) ? "Y" : "N").append(" |\\n");
         md.append("| \u6700\u4f73\u53c2\u6570\u96c6 | `").append(s(optimization.get("bestParamSetJson"))).append("` |\\n");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> trials = (List<Map<String, Object>>) optimization.get("trials");
@@ -1216,10 +1256,19 @@ public class BacktestReportService {
         return response != null
                 && response.overfitPass != null
                 && response.overfitPass.intValue() > 0
-                && gt(response.validatePnl, BigDecimal.ZERO)
-                && gt(response.forwardPnl, BigDecimal.ZERO)
-                && gt(response.totalPnl, BigDecimal.ZERO)
+                && response.oosPass != null
+                && response.oosPass.intValue() > 0
+                && !(response.results != null && response.results.size() > 1
+                && "{}".equals(StringUtils.trimToEmpty(response.bestParamSetJson)))
+                && gt(preferredValidateScore(response), BigDecimal.ZERO)
+                && sumTradeCount(response.results) >= Math.max(1, minValidateTrades)
+                && lte(maxDrawdownPct(response.results), BigDecimal.valueOf(maxValidateDrawdownPct))
+                && gte(avgProfitFactor(response.results), BigDecimal.valueOf(minValidateProfitFactor))
+                && gt(preferredFeeAdjustedValidate(response), BigDecimal.ZERO)
+                && gte(response.forwardPnl, BigDecimal.ZERO)
                 && gt(avgForwardScore(response.results), BigDecimal.ZERO)
+                && gte(forwardContribution(response.forwardPnl, response.totalPnl), nz(response.minForwardContribution))
+                && !isTrue(response.fragileBest)
                 && candidate != null
                 && StringUtils.isNotBlank(candidate.description);
     }
@@ -1237,19 +1286,103 @@ public class BacktestReportService {
         if (response.overfitPass == null || response.overfitPass.intValue() <= 0) {
             return "\u672a\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5";
         }
-        if (!gt(response.validatePnl, BigDecimal.ZERO)) {
-            return "validate_pnl <= 0";
+        if (response.oosPass == null || response.oosPass.intValue() <= 0) {
+            return "oos gate not passed";
         }
-        if (!gt(response.forwardPnl, BigDecimal.ZERO)) {
-            return "forward_pnl <= 0";
+        if (response.results != null && response.results.size() > 1
+                && "{}".equals(StringUtils.trimToEmpty(response.bestParamSetJson))) {
+            return "publishable best param set missing for multi-symbol result";
         }
-        if (!gt(response.totalPnl, BigDecimal.ZERO)) {
-            return "total_pnl <= 0";
+        if (!gt(preferredValidateScore(response), BigDecimal.ZERO)) {
+            return "validate primary score <= 0";
+        }
+        if (sumTradeCount(response.results) < Math.max(1, minValidateTrades)) {
+            return "validate trade count below threshold";
+        }
+        if (!lte(maxDrawdownPct(response.results), BigDecimal.valueOf(maxValidateDrawdownPct))) {
+            return "validate drawdown above threshold";
+        }
+        if (!gte(avgProfitFactor(response.results), BigDecimal.valueOf(minValidateProfitFactor))) {
+            return "validate profit factor below threshold";
+        }
+        if (!gt(preferredFeeAdjustedValidate(response), BigDecimal.ZERO)) {
+            return "fee adjusted validate pnl <= 0";
+        }
+        if (!gte(response.forwardPnl, BigDecimal.ZERO)) {
+            return "forward_pnl < 0";
+        }
+        if (isTrue(response.fragileBest)) {
+            return "fragile best param";
         }
         if (!gt(avgForwardScore(response.results), BigDecimal.ZERO)) {
             return "forward_score <= 0";
         }
+        if (!gte(forwardContribution(response.forwardPnl, response.totalPnl), nz(response.minForwardContribution))) {
+            return "forward contribution below threshold";
+        }
         return "\u6ee1\u8db3\u4e0a\u7ebf\u524d\u76c8\u5229\u95e8\u69db";
+    }
+
+    private BigDecimal preferredValidateScore(BacktestResponse response) {
+        if (response == null) {
+            return BigDecimal.ZERO;
+        }
+        if (gt(response.validatePrimaryScore, BigDecimal.ZERO)) {
+            return response.validatePrimaryScore;
+        }
+        return nz(response.validatePnl);
+    }
+
+    private BigDecimal preferredFeeAdjustedValidate(BacktestResponse response) {
+        if (response == null) {
+            return BigDecimal.ZERO;
+        }
+        if (response.feeAdjustedValidatePnl != null
+                && response.feeAdjustedValidatePnl.compareTo(BigDecimal.ZERO) != 0) {
+            return response.feeAdjustedValidatePnl;
+        }
+        return nz(response.validatePnl);
+    }
+
+    private int sumTradeCount(List<BacktestResult> results) {
+        if (results == null || results.isEmpty()) {
+            return 0;
+        }
+        int total = 0;
+        for (BacktestResult result : results) {
+            total += nzInt(result == null ? null : result.tradeCount);
+        }
+        return total;
+    }
+
+    private BigDecimal maxDrawdownPct(List<BacktestResult> results) {
+        if (results == null || results.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal max = BigDecimal.ZERO;
+        for (BacktestResult result : results) {
+            max = max.max(nz(result == null ? null : result.maxDrawdownPct));
+        }
+        return max;
+    }
+
+    private BigDecimal avgProfitFactor(List<BacktestResult> results) {
+        if (results == null || results.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal sum = BigDecimal.ZERO;
+        int count = 0;
+        for (BacktestResult result : results) {
+            if (result == null) {
+                continue;
+            }
+            sum = sum.add(nz(result.profitFactor));
+            count++;
+        }
+        if (count <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return sum.divide(BigDecimal.valueOf(count), 6, RoundingMode.HALF_UP);
     }
 
     private BigDecimal avgForwardScore(List<BacktestResult> results) {
@@ -1271,6 +1404,13 @@ public class BacktestReportService {
         return sum.divide(BigDecimal.valueOf(count), 6, RoundingMode.HALF_UP);
     }
 
+    private BigDecimal forwardContribution(BigDecimal forwardPnl, BigDecimal totalPnl) {
+        if (totalPnl == null || totalPnl.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return nz(forwardPnl).divide(totalPnl, 6, RoundingMode.HALF_UP);
+    }
+
     private String translateReason(String raw) {
         if (StringUtils.isBlank(raw)) {
             return "";
@@ -1288,6 +1428,33 @@ public class BacktestReportService {
         if ("overfit gate not passed".equalsIgnoreCase(value)) {
             return "\u672a\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5";
         }
+        if ("oos gate not passed".equalsIgnoreCase(value)) {
+            return "OOS \u95e8\u69db\u672a\u901a\u8fc7";
+        }
+        if ("publishable best param set missing for multi-symbol result".equalsIgnoreCase(value)) {
+            return "\u591a symbol \u7ed3\u679c\u7f3a\u5c11\u53ef\u53d1\u5e03\u7684\u7edf\u4e00\u6700\u4f73\u53c2\u6570\u96c6";
+        }
+        if ("validate primary score <= 0".equalsIgnoreCase(value)) {
+            return "validate \u4e3b\u5206 <= 0";
+        }
+        if ("validate trade count below threshold".equalsIgnoreCase(value)) {
+            return "validate \u4ea4\u6613\u6570\u4f4e\u4e8e\u95e8\u69db";
+        }
+        if ("validate drawdown above threshold".equalsIgnoreCase(value)) {
+            return "validate \u56de\u64a4\u8d85\u8fc7\u95e8\u69db";
+        }
+        if ("validate profit factor below threshold".equalsIgnoreCase(value)) {
+            return "validate Profit Factor \u4f4e\u4e8e\u95e8\u69db";
+        }
+        if ("fee adjusted validate pnl <= 0".equalsIgnoreCase(value)) {
+            return "\u6263\u8d39\u540e validate \u6536\u76ca <= 0";
+        }
+        if ("forward_pnl < 0".equalsIgnoreCase(value)) {
+            return "forward_pnl < 0";
+        }
+        if ("fragile best param".equalsIgnoreCase(value)) {
+            return "\u6700\u4f73\u53c2\u6570\u70b9\u8fc7\u4e8e\u8106\u5f31";
+        }
         if ("validate_pnl <= 0".equalsIgnoreCase(value)) {
             return "validate_pnl <= 0";
         }
@@ -1300,8 +1467,14 @@ public class BacktestReportService {
         if ("forward_score <= 0".equalsIgnoreCase(value)) {
             return "forward_score <= 0";
         }
+        if ("forward contribution below threshold".equalsIgnoreCase(value)) {
+            return "forward \u8d21\u732e\u5ea6\u4f4e\u4e8e\u95e8\u69db";
+        }
         if ("forward_score not better than active baseline".equalsIgnoreCase(value)) {
             return "\u672a\u4f18\u4e8e\u5f53\u524d ACTIVE \u57fa\u7ebf\u7684 forward_score";
+        }
+        if ("validate score not better than active baseline".equalsIgnoreCase(value)) {
+            return "\u672a\u4f18\u4e8e\u5f53\u524d ACTIVE \u57fa\u7ebf\u7684 validate \u4e3b\u5206";
         }
         if ("total_pnl not better than active baseline".equalsIgnoreCase(value)) {
             return "\u672a\u4f18\u4e8e\u5f53\u524d ACTIVE \u57fa\u7ebf\u7684 total_pnl";
@@ -1498,6 +1671,14 @@ public class BacktestReportService {
 
     private boolean gt(BigDecimal left, BigDecimal right) {
         return nz(left).compareTo(nz(right)) > 0;
+    }
+
+    private boolean gte(BigDecimal left, BigDecimal right) {
+        return nz(left).compareTo(nz(right)) >= 0;
+    }
+
+    private boolean lte(BigDecimal left, BigDecimal right) {
+        return nz(left).compareTo(nz(right)) <= 0;
     }
 
     private boolean isTrue(Object value) {

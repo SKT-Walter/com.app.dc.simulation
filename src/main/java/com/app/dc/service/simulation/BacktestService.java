@@ -9,7 +9,7 @@ import com.app.dc.service.simulation.BacktestModels.BacktestResult;
 import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import com.app.dc.service.simulation.runtime.StrategyBacktestTaskDao;
 import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
-import com.app.dc.service.simulation.runtime.WalkForwardBacktestRunner;
+import com.app.dc.service.simulation.runtime.SliceOptimizedWalkForwardRunner;
 import com.gateway.connector.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,7 +59,7 @@ public class BacktestService {
     private StrategyBacktestTaskDao strategyBacktestTaskDao;
 
     @Autowired
-    private WalkForwardBacktestRunner walkForwardBacktestRunner;
+    private SliceOptimizedWalkForwardRunner sliceOptimizedWalkForwardRunner;
 
     @Autowired
     private BacktestOptimizationService backtestOptimizationService;
@@ -126,84 +126,34 @@ public class BacktestService {
                 windowConfig.validateWindowDays,
                 windowConfig.forwardWindowDays,
                 windowConfig.minSliceCount);
-        List<TrialExecution> executions = new ArrayList<TrialExecution>();
-        int trialNo = 1;
         Map<String, List<TTbookOhlc>> ohlcCache = new ConcurrentHashMap<String, List<TTbookOhlc>>();
         int trialBudget = Math.max(1, maxTrialsPerTask);
-
-        List<Map<String, Object>> coarseParamSets = plan.optimizationSupported
-                ? backtestOptimizationService.buildCoarseParamSets(plan)
-                : backtestOptimizationService.buildDefaultOnly(plan);
-        int coarseCandidateCount = coarseParamSets == null ? 0 : coarseParamSets.size();
-        coarseParamSets = limitTrialSets(coarseParamSets, trialBudget, "COARSE", candidate);
-        int plannedCoarseTrials = coarseParamSets == null ? 0 : coarseParamSets.size();
         emitProgress(progressListener, buildProgressPayload(
-                candidate, req, plan, "COARSE",
-                coarseCandidateCount, 0,
-                plannedCoarseTrials, 0,
-                0, 0,
-                trialBudget));
-        executions.addAll(executeTrials("COARSE", trialNo, candidate, req, symbols, coarseParamSets,
-                windowConfig, plan, ohlcCache, progressListener, coarseCandidateCount, 0, trialBudget, 0, 0));
-        trialNo += coarseParamSets.size();
-
-        List<OptimizationTrial> rankedTrials = collectTrials(executions);
-        backtestOptimizationService.rankTrials(plan, rankedTrials);
-        int fineCandidateCount = 0;
-        int plannedFineTrials = 0;
-        if (plan.optimizationSupported) {
-            List<Map<String, Object>> fineParamSets = backtestOptimizationService.buildFineParamSets(plan, rankedTrials);
-            fineCandidateCount = fineParamSets == null ? 0 : fineParamSets.size();
-            fineParamSets = limitTrialSets(fineParamSets, Math.max(0, trialBudget - executions.size()), "FINE", candidate);
-            plannedFineTrials = fineParamSets == null ? 0 : fineParamSets.size();
-            emitProgress(progressListener, buildProgressPayload(
-                    candidate, req, plan, "FINE",
-                    coarseCandidateCount, fineCandidateCount,
-                    plannedCoarseTrials, plannedFineTrials,
-                    executions.size(), 0,
-                    trialBudget));
-            executions.addAll(executeTrials("FINE", trialNo, candidate, req, symbols, fineParamSets,
-                    windowConfig, plan, ohlcCache, progressListener, coarseCandidateCount, fineCandidateCount, trialBudget,
-                    executions.size(), plannedCoarseTrials));
-            rankedTrials = collectTrials(executions);
-            backtestOptimizationService.rankTrials(plan, rankedTrials);
-        }
-
-        TrialExecution best = bestTrial(executions);
-        if (best == null) {
-            throw new IllegalStateException("no backtest trial result produced");
-        }
-        log.info("BacktestService rerun best trial for full payload retention, strategy:{}@{}, bestRank:{}, trialNo:{}, phase:{}, heap:{}",
-                candidate.strategyName,
-                candidate.strategyVersion,
-                best.trial == null ? 0 : best.trial.rank,
-                best.trial == null ? 0 : best.trial.trialNo,
-                best.trial == null ? "" : best.trial.phase,
-                heapSummary());
-        BacktestResponse response = runSingle(candidate, req, symbols, best.paramSet,
-                windowConfig, plan, ohlcCache);
+                candidate, req, plan, "SLICE_OPTIMIZED",
+                0, 0, 0, 0, 0, 0, trialBudget));
+        BacktestResponse response = runSingle(candidate, req, symbols, Collections.<String, Object>emptyMap(),
+                windowConfig, plan, ohlcCache, trialBudget);
         response.optimizationMode = plan.optimizationMode;
         response.optimizationObjective = plan.objective;
         response.minForwardContribution = plan.minForwardContribution;
-        response.trialCount = executions.size();
+        response.trialCount = sumTrialCount(response.results);
         response.trialBudget = trialBudget;
-        response.trialBudgetUsed = executions.size();
-        response.trialBudgetHit = executions.size() >= trialBudget ? 1 : 0;
-        response.coarseCandidateCount = coarseCandidateCount;
-        response.fineCandidateCount = fineCandidateCount;
-        response.bestRank = best.trial.rank == null ? 0 : best.trial.rank;
-        response.bestParamSetJson = best.trial.paramSetJson == null ? "{}" : best.trial.paramSetJson;
+        response.trialBudgetUsed = response.trialCount;
+        response.trialBudgetHit = response.trialCount >= trialBudget ? 1 : 0;
+        response.coarseCandidateCount = 0;
+        response.fineCandidateCount = 0;
+        response.bestRank = 0;
         response.elapsedMs = nzInt(response.elapsedMs);
         response.symbolCount = nzInt(response.symbolCount);
         response.fitWindowDays = windowConfig.fitWindowDays;
         response.validateWindowDays = windowConfig.validateWindowDays;
         response.forwardWindowDays = windowConfig.forwardWindowDays;
         response.minSliceCount = windowConfig.minSliceCount;
-        response.fragileBest = best.trial.fragileBest;
-        response.stableParamRangeJson = best.trial.stableParamRangeJson == null ? "{}" : best.trial.stableParamRangeJson;
-        response.neighborAvgPnl = nz(best.trial.neighborAvgPnl);
-        response.neighborWorstPnl = nz(best.trial.neighborWorstPnl);
-        response.trials = rankedTrials;
+        response.fragileBest = aggregateFragileBest(response.results);
+        response.stableParamRangeJson = aggregateStableParamRange(response.results);
+        response.neighborAvgPnl = BigDecimal.ZERO;
+        response.neighborWorstPnl = BigDecimal.ZERO;
+        response.trials = Collections.emptyList();
         if (response.results != null) {
             for (BacktestResult result : response.results) {
                 if (result == null) {
@@ -230,17 +180,17 @@ public class BacktestService {
                 result.neighborWorstPnl = response.neighborWorstPnl;
             }
         }
-        log.info("BacktestService run end, strategy:{}@{}, bestRank:{}, trialCount:{}, totalPnl:{}, validatePnl:{}, forwardPnl:{}, sliceCount:{}, elapsedMs:{}, fragileBest:{}",
+        log.info("BacktestService run end, strategy:{}@{}, trialCount:{}, totalPnl:{}, validatePnl:{}, forwardPnl:{}, sliceCount:{}, elapsedMs:{}, fragileBest:{}, oosPass:{}",
                 candidate.strategyName,
                 candidate.strategyVersion,
-                response.bestRank,
                 response.trialCount,
                 response.totalPnl,
                 response.validatePnl,
                 response.forwardPnl,
                 response.sliceCount,
                 response.elapsedMs,
-                response.fragileBest);
+                response.fragileBest,
+                response.oosPass);
         return response;
     }
 
@@ -271,7 +221,7 @@ public class BacktestService {
             log.info("BacktestService trial start, strategy:{}@{}, phase:{}, trialNo:{}, params:{}",
                     candidate.strategyName, candidate.strategyVersion, phase, trialNo, JsonUtils.Serializer(paramSet));
             BacktestResponse response = runSingle(candidate, baseParam, symbols, paramSet,
-                    windowConfig, plan, ohlcCache);
+                    windowConfig, plan, ohlcCache, trialBudget);
             OptimizationTrial trial = backtestOptimizationService.buildTrial(trialNo, phase,
                     candidate.strategyName, candidate.strategyVersion,
                     response.symbol, response.text, paramSet, response);
@@ -417,7 +367,8 @@ public class BacktestService {
                                        Map<String, Object> trialParams,
                                        WindowConfig windowConfig,
                                        BacktestOptimizationService.OptimizationPlan plan,
-                                       Map<String, List<TTbookOhlc>> ohlcCache) throws Exception {
+                                       Map<String, List<TTbookOhlc>> ohlcCache,
+                                       int trialBudget) throws Exception {
         long startNs = System.nanoTime();
         BacktestResponse response = new BacktestResponse();
         response.symbol = symbols.size() == 1 ? symbols.get(0) : "MULTI";
@@ -447,10 +398,14 @@ public class BacktestService {
         BigDecimal validatePnl = BigDecimal.ZERO;
         BigDecimal forwardPnl = BigDecimal.ZERO;
         BigDecimal totalPnl = BigDecimal.ZERO;
+        BigDecimal validatePrimaryScore = BigDecimal.ZERO;
+        BigDecimal forwardAuxScore = BigDecimal.ZERO;
+        BigDecimal feeAdjustedValidatePnl = BigDecimal.ZERO;
+        BigDecimal sliceParamDriftScore = BigDecimal.ZERO;
         int sliceCount = Integer.MAX_VALUE;
         boolean overfitPass = true;
         String overfitReason = "";
-        List<BacktestResult> symbolResults = executeSymbols(candidate, req, symbols, trialParams, windowConfig, ohlcCache);
+        List<BacktestResult> symbolResults = executeSymbols(candidate, req, symbols, trialParams, windowConfig, plan, ohlcCache, trialBudget);
         symbolResults.sort(new Comparator<BacktestResult>() {
             @Override
             public int compare(BacktestResult left, BacktestResult right) {
@@ -466,6 +421,10 @@ public class BacktestService {
             validatePnl = validatePnl.add(nz(result.validatePnl));
             forwardPnl = forwardPnl.add(nz(result.forwardPnl));
             totalPnl = totalPnl.add(nz(result.totalPnl));
+            validatePrimaryScore = validatePrimaryScore.add(nz(result.validatePrimaryScore));
+            forwardAuxScore = forwardAuxScore.add(nz(result.forwardAuxScore));
+            feeAdjustedValidatePnl = feeAdjustedValidatePnl.add(nz(result.feeAdjustedValidatePnl));
+            sliceParamDriftScore = sliceParamDriftScore.add(nz(result.sliceParamDriftScore));
             sliceCount = Math.min(sliceCount, result.sliceCount == null ? 0 : result.sliceCount.intValue());
             if (!Integer.valueOf(1).equals(result.overfitPass)) {
                 overfitPass = false;
@@ -479,13 +438,17 @@ public class BacktestService {
         response.validatePnl = scale(validatePnl.doubleValue());
         response.forwardPnl = scale(forwardPnl.doubleValue());
         response.totalPnl = scale(totalPnl.doubleValue());
+        response.validatePrimaryScore = scale(validatePrimaryScore.doubleValue());
+        response.forwardAuxScore = results.isEmpty() ? BigDecimal.ZERO : scale(forwardAuxScore.doubleValue() / Math.max(1, results.size()));
+        response.forwardScore = response.forwardAuxScore;
+        response.feeAdjustedValidatePnl = scale(feeAdjustedValidatePnl.doubleValue());
+        response.sliceParamDriftScore = results.isEmpty() ? BigDecimal.ZERO : scale(sliceParamDriftScore.doubleValue() / Math.max(1, results.size()));
         response.sliceCount = results.isEmpty() ? 0 : sliceCount;
         response.overfitPass = results.isEmpty() ? 0 : (overfitPass ? 1 : 0);
         response.overfitReason = overfitReason;
         response.elapsedMs = elapsedMs(startNs);
-        response.bestParamSetJson = JsonUtils.Serializer(trialParams == null
-                ? Collections.<String, Object>emptyMap()
-                : new LinkedHashMap<String, Object>(trialParams));
+        response.oosPass = overfitPass && response.validatePnl.compareTo(BigDecimal.ZERO) > 0 ? 1 : 0;
+        response.bestParamSetJson = aggregateBestParamSets(results, trialParams);
         log.info("BacktestService runSingle end, strategy:{}@{}, totalPnl:{}, validatePnl:{}, forwardPnl:{}, sliceCount:{}, elapsedMs:{}",
                 candidate.strategyName, candidate.strategyVersion,
                 response.totalPnl, response.validatePnl, response.forwardPnl, response.sliceCount, response.elapsedMs);
@@ -497,7 +460,9 @@ public class BacktestService {
                                                 List<String> symbols,
                                                 final Map<String, Object> trialParams,
                                                 final WindowConfig windowConfig,
-                                                final Map<String, List<TTbookOhlc>> ohlcCache) throws Exception {
+                                                final BacktestOptimizationService.OptimizationPlan plan,
+                                                final Map<String, List<TTbookOhlc>> ohlcCache,
+                                                final int trialBudget) throws Exception {
         if (symbols == null || symbols.isEmpty()) {
             return Collections.emptyList();
         }
@@ -508,20 +473,21 @@ public class BacktestService {
                     symbols.size(),
                     strategyBacktestSymbolExecutor == null ? "executor_null"
                             : (symbols.size() <= 1 ? "single_symbol" : "shared_runtime"));
-            return executeSymbolsSerial(candidate, req, symbols, trialParams, windowConfig, ohlcCache);
+            return executeSymbolsSerial(candidate, req, symbols, trialParams, windowConfig, plan, ohlcCache, trialBudget);
         }
         log.info("BacktestService executeSymbols parallel, strategy:{}@{}, symbolCount:{}, executorActive:{}, executorPool:{}",
                 candidate.strategyName,
                 candidate.strategyVersion,
-                symbols.size(),
-                strategyBacktestSymbolExecutor.getActiveCount(),
-                strategyBacktestSymbolExecutor.getPoolSize());
+                    symbols.size(),
+                    strategyBacktestSymbolExecutor.getActiveCount(),
+                    strategyBacktestSymbolExecutor.getPoolSize());
         List<Future<BacktestResult>> futures = new ArrayList<Future<BacktestResult>>();
+        final int perSymbolBudget = Math.max(1, trialBudget / Math.max(1, symbols.size()));
         for (final String symbol : symbols) {
             futures.add(strategyBacktestSymbolExecutor.submit(new Callable<BacktestResult>() {
                 @Override
                 public BacktestResult call() throws Exception {
-                    return runSingleSymbol(candidate, req, symbol, trialParams, windowConfig, ohlcCache);
+                    return runSingleSymbol(candidate, req, symbol, trialParams, windowConfig, plan, ohlcCache, perSymbolBudget);
                 }
             }));
         }
@@ -546,10 +512,13 @@ public class BacktestService {
                                                       List<String> symbols,
                                                       Map<String, Object> trialParams,
                                                       WindowConfig windowConfig,
-                                                      Map<String, List<TTbookOhlc>> ohlcCache) throws Exception {
+                                                      BacktestOptimizationService.OptimizationPlan plan,
+                                                      Map<String, List<TTbookOhlc>> ohlcCache,
+                                                      int trialBudget) throws Exception {
         List<BacktestResult> results = new ArrayList<BacktestResult>();
+        int perSymbolBudget = Math.max(1, trialBudget / Math.max(1, symbols.size()));
         for (String symbol : symbols) {
-            results.add(runSingleSymbol(candidate, req, symbol, trialParams, windowConfig, ohlcCache));
+            results.add(runSingleSymbol(candidate, req, symbol, trialParams, windowConfig, plan, ohlcCache, perSymbolBudget));
         }
         return results;
     }
@@ -559,13 +528,15 @@ public class BacktestService {
                                            String symbol,
                                            Map<String, Object> trialParams,
                                            WindowConfig windowConfig,
-                                           Map<String, List<TTbookOhlc>> ohlcCache) throws Exception {
+                                           BacktestOptimizationService.OptimizationPlan plan,
+                                           Map<String, List<TTbookOhlc>> ohlcCache,
+                                           int trialBudget) throws Exception {
         List<TTbookOhlc> ohlcList = loadOhlc(req, symbol, ohlcCache);
         BacktestParam symbolParam = copyParamForSymbol(req, symbol);
         applyTrialParamOverrides(symbolParam, trialParams);
-        BacktestResult result = walkForwardBacktestRunner.run(candidate, symbolParam, ohlcList,
+        BacktestResult result = sliceOptimizedWalkForwardRunner.run(candidate, symbolParam, ohlcList, plan,
                 windowConfig.fitWindowDays, windowConfig.validateWindowDays,
-                windowConfig.forwardWindowDays, windowConfig.minSliceCount);
+                windowConfig.forwardWindowDays, windowConfig.minSliceCount, trialBudget);
         result.symbolCount = 1;
         result.fitWindowDays = windowConfig.fitWindowDays;
         result.validateWindowDays = windowConfig.validateWindowDays;
@@ -649,6 +620,8 @@ public class BacktestService {
         target.feeRatePct = source.feeRatePct;
         target.entryMakerFeeRatePct = source.entryMakerFeeRatePct;
         target.exitTakerFeeRatePct = source.exitTakerFeeRatePct;
+        target.fallbackStopLossPct = source.fallbackStopLossPct;
+        target.fallbackTakeProfitPct = source.fallbackTakeProfitPct;
         target.maxHoldBars = source.maxHoldBars;
         target.ignoreSentimentGuard = source.ignoreSentimentGuard;
         target.allowMissingStageAnalysis = source.allowMissingStageAnalysis;
@@ -751,6 +724,72 @@ public class BacktestService {
 
     private int elapsedMs(long startNs) {
         return (int) Math.max(0L, (System.nanoTime() - startNs) / 1_000_000L);
+    }
+
+    private int sumTrialCount(List<BacktestResult> results) {
+        int total = 0;
+        if (results == null) {
+            return 0;
+        }
+        for (BacktestResult result : results) {
+            total += nzInt(result == null ? null : result.trialCount);
+        }
+        return total;
+    }
+
+    private int aggregateFragileBest(List<BacktestResult> results) {
+        if (results == null) {
+            return 0;
+        }
+        for (BacktestResult result : results) {
+            if (result != null && Integer.valueOf(1).equals(result.fragileBest)) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
+    private String aggregateStableParamRange(List<BacktestResult> results) {
+        Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        if (results != null) {
+            for (BacktestResult result : results) {
+                if (result == null) {
+                    continue;
+                }
+                payload.put(safeString(result.symbol), safeString(result.stableParamRangeJson));
+            }
+        }
+        return JsonUtils.Serializer(payload);
+    }
+
+    private String aggregateBestParamSets(List<BacktestResult> results, Map<String, Object> trialParams) {
+        if (results == null || results.isEmpty()) {
+            return JsonUtils.Serializer(trialParams == null
+                    ? Collections.<String, Object>emptyMap()
+                    : new LinkedHashMap<String, Object>(trialParams));
+        }
+        if (results.size() == 1) {
+            String single = results.get(0) == null ? "" : results.get(0).bestParamSetJson;
+            return single == null || single.trim().isEmpty() ? "{}" : single;
+        }
+        String first = null;
+        boolean allSame = true;
+        for (BacktestResult result : results) {
+            if (result == null) {
+                continue;
+            }
+            String current = safeString(result.bestParamSetJson);
+            if (first == null) {
+                first = current;
+            } else if (!first.equals(current)) {
+                allSame = false;
+                break;
+            }
+        }
+        if (allSame && first != null && !first.trim().isEmpty()) {
+            return first;
+        }
+        return "{}";
     }
 
     private String safeString(String value) {

@@ -18,6 +18,15 @@ public class StrategyBacktestSummary {
     public Double forwardPnl;
     public Double totalPnl;
     public Double forwardScore;
+    public Double validatePrimaryScore;
+    public Double forwardAuxScore;
+    public Double feeAdjustedValidatePnl;
+    public Double sliceParamDriftScore;
+    public Integer oosPass;
+    public Integer validateTradeCount;
+    public Double validateMaxDrawdownPct;
+    public Double validateProfitFactor;
+    public Integer fragileBest;
     public Double minForwardContribution;
     public Integer overfitPass;
     public String overfitReason;

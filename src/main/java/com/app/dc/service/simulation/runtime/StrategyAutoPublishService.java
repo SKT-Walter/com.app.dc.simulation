@@ -36,6 +36,15 @@ public class StrategyAutoPublishService {
     @Value("${strategy.auto.publish.source:simulation_auto_publish}")
     private String publishSource;
 
+    @Value("${strategy.auto.publish.minValidateTrades:5}")
+    private int minValidateTrades;
+
+    @Value("${strategy.auto.publish.maxValidateDrawdownPct:0.30}")
+    private double maxValidateDrawdownPct;
+
+    @Value("${strategy.auto.publish.minValidateProfitFactor:1.05}")
+    private double minValidateProfitFactor;
+
     @Autowired
     private StrategyAutoPublishDao strategyAutoPublishDao;
 
@@ -64,6 +73,8 @@ public class StrategyAutoPublishService {
             decision.currentValidatePnl = current.validatePnl;
             decision.currentForwardPnl = current.forwardPnl;
             decision.currentForwardScore = current.forwardScore;
+            decision.currentValidatePrimaryScore = current.validatePrimaryScore;
+            decision.currentFeeAdjustedValidatePnl = current.feeAdjustedValidatePnl;
 
             if (!StringUtils.equalsIgnoreCase(current.windowMode, "WALK_FORWARD")) {
                 decision.reason = "window_mode is not WALK_FORWARD";
@@ -79,24 +90,49 @@ public class StrategyAutoPublishService {
                         : current.overfitReason;
                 return decision;
             }
-            if (!gt(current.validatePnl, 0D)) {
-                decision.reason = "validate_pnl <= 0";
+            if (!isTrue(current.oosPass)) {
+                decision.reason = "oos gate not passed";
                 return decision;
             }
-            if (!gt(current.forwardPnl, 0D)) {
-                decision.reason = "forward_pnl <= 0";
+            if (current.resultCount != null && current.resultCount.intValue() > 1
+                    && "{}".equals(StringUtils.trimToEmpty(current.bestParamSetJson))) {
+                decision.reason = "publishable best param set missing for multi-symbol result";
                 return decision;
             }
-            if (!gt(current.totalPnl, 0D)) {
-                decision.reason = "total_pnl <= 0";
+            if (!gt(preferredValidateScore(current), 0D)) {
+                decision.reason = "validate primary score <= 0";
+                return decision;
+            }
+            if (!gte(current.validateTradeCount == null ? 0D : current.validateTradeCount.doubleValue(), (double) Math.max(1, minValidateTrades))) {
+                decision.reason = "validate trade count below threshold";
+                return decision;
+            }
+            if (!lte(current.validateMaxDrawdownPct, maxValidateDrawdownPct)) {
+                decision.reason = "validate drawdown above threshold";
+                return decision;
+            }
+            if (!gte(current.validateProfitFactor, minValidateProfitFactor)) {
+                decision.reason = "validate profit factor below threshold";
+                return decision;
+            }
+            if (!gt(preferredFeeAdjustedValidate(current), 0D)) {
+                decision.reason = "fee adjusted validate pnl <= 0";
                 return decision;
             }
             if (!gt(current.forwardScore, 0D)) {
                 decision.reason = "forward_score <= 0";
                 return decision;
             }
+            if (!gte(current.forwardPnl, 0D)) {
+                decision.reason = "forward_pnl < 0";
+                return decision;
+            }
             if (!gte(forwardContribution(current.forwardPnl, current.totalPnl), current.minForwardContribution)) {
                 decision.reason = "forward contribution below threshold";
+                return decision;
+            }
+            if (isTrue(current.fragileBest)) {
+                decision.reason = "fragile best param";
                 return decision;
             }
 
@@ -134,6 +170,7 @@ public class StrategyAutoPublishService {
             decision.baselineValidatePnl = baseline.validatePnl;
             decision.baselineForwardPnl = baseline.forwardPnl;
             decision.baselineForwardScore = baseline.forwardScore;
+            decision.baselineValidatePrimaryScore = baseline.validatePrimaryScore;
 
             if (!gt(current.forwardScore, baseline.forwardScore)) {
                 decision.reason = active == null
@@ -141,10 +178,10 @@ public class StrategyAutoPublishService {
                         : "forward_score not better than active baseline";
                 return decision;
             }
-            if (!gt(current.totalPnl, baseline.totalPnl)) {
+            if (!gt(preferredValidateScore(current), preferredValidateScore(baseline))) {
                 decision.reason = active == null
-                        ? "total_pnl not better than latest live baseline"
-                        : "total_pnl not better than active baseline";
+                        ? "validate score not better than latest live baseline"
+                        : "validate score not better than active baseline";
                 return decision;
             }
 
@@ -230,6 +267,9 @@ public class StrategyAutoPublishService {
                 && !"{}".equals(current.bestParamSetJson.trim())) {
             return current.bestParamSetJson;
         }
+        if (current != null && current.resultCount != null && current.resultCount.intValue() > 1) {
+            throw new IllegalStateException("multi-symbol publish requires a concrete bestParamSetJson");
+        }
         Map<String, Object> defaults = candidate == null
                 ? Collections.<String, Object>emptyMap()
                 : StrategyParametersSupport.extractDefaultParams(candidate.parametersJson);
@@ -294,6 +334,11 @@ public class StrategyAutoPublishService {
         summary.bestRank = response == null ? 0 : response.bestRank;
         summary.bestParamSetJson = response == null ? "{}" : blankTo(response.bestParamSetJson, "{}");
         summary.minForwardContribution = response == null ? 0D : toDouble(response.minForwardContribution);
+        summary.validatePrimaryScore = response == null ? 0D : toDouble(response.validatePrimaryScore);
+        summary.forwardAuxScore = response == null ? 0D : toDouble(response.forwardAuxScore);
+        summary.feeAdjustedValidatePnl = response == null ? 0D : toDouble(response.feeAdjustedValidatePnl);
+        summary.sliceParamDriftScore = response == null ? 0D : toDouble(response.sliceParamDriftScore);
+        summary.oosPass = response == null ? 0 : response.oosPass;
         List<BacktestModels.BacktestResult> results = response == null
                 ? null
                 : response.results;
@@ -302,6 +347,10 @@ public class StrategyAutoPublishService {
         double validatePnl = 0D;
         double forwardPnl = 0D;
         double forwardScoreSum = 0D;
+        double validateTradeCount = 0D;
+        double validateMaxDrawdownPct = 0D;
+        double validateProfitFactor = 0D;
+        int fragileBest = 0;
         int count = 0;
         boolean overfitPass = true;
         String overfitReason = "";
@@ -315,6 +364,12 @@ public class StrategyAutoPublishService {
                 validatePnl += toDouble(result.validatePnl);
                 forwardPnl += toDouble(result.forwardPnl);
                 forwardScoreSum += toDouble(result.forwardScore);
+                validateTradeCount += result.tradeCount == null ? 0 : result.tradeCount.intValue();
+                validateMaxDrawdownPct = Math.max(validateMaxDrawdownPct, toDouble(result.maxDrawdownPct));
+                validateProfitFactor += toDouble(result.profitFactor);
+                if (Integer.valueOf(1).equals(result.fragileBest)) {
+                    fragileBest = 1;
+                }
                 if (!Integer.valueOf(1).equals(result.overfitPass)) {
                     overfitPass = false;
                     if (StringUtils.isBlank(overfitReason) && StringUtils.isNotBlank(result.overfitReason)) {
@@ -329,10 +384,38 @@ public class StrategyAutoPublishService {
         summary.forwardPnl = scale(forwardPnl);
         summary.totalPnl = scale(totalPnl);
         summary.forwardScore = scale(count <= 0 ? 0D : forwardScoreSum / count);
+        summary.validateTradeCount = Integer.valueOf((int) validateTradeCount);
+        summary.validateMaxDrawdownPct = scale(validateMaxDrawdownPct);
+        summary.validateProfitFactor = scale(count <= 0 ? 0D : validateProfitFactor / count);
+        summary.fragileBest = fragileBest;
         summary.overfitPass = overfitPass ? 1 : 0;
         summary.overfitReason = overfitReason;
         summary.resultCount = count;
         return summary;
+    }
+
+    private Double preferredValidateScore(StrategyBacktestSummary summary) {
+        if (summary == null) {
+            return 0D;
+        }
+        if (gt(summary.validatePrimaryScore, 0D)) {
+            return summary.validatePrimaryScore;
+        }
+        return summary.validatePnl;
+    }
+
+    private Double preferredFeeAdjustedValidate(StrategyBacktestSummary summary) {
+        if (summary == null) {
+            return 0D;
+        }
+        if (summary.feeAdjustedValidatePnl != null && Math.abs(summary.feeAdjustedValidatePnl) > 0D) {
+            return summary.feeAdjustedValidatePnl;
+        }
+        return summary.validatePnl;
+    }
+
+    private boolean lte(Double left, double right) {
+        return toDouble(left) <= right;
     }
 
     private BigDecimal calcTotalPnl(BacktestModels.BacktestResult result) {

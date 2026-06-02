@@ -377,7 +377,15 @@ public class WorkbenchService {
                 .append("count() as resultCount,")
                 .append("sum(total_pnl) as totalPnl,")
                 .append("sum(validate_pnl) as validatePnl,")
-                .append("sum(forward_pnl) as forwardPnl ")
+                .append("sum(forward_pnl) as forwardPnl,")
+                .append("sum(validate_primary_score) as validatePrimaryScore,")
+                .append("avg(forward_aux_score) as forwardAuxScore,")
+                .append("sum(fee_adjusted_validate_pnl) as feeAdjustedValidatePnl,")
+                .append("avg(slice_param_drift_score) as sliceParamDriftScore,")
+                .append("sum(trade_count) as validateTradeCount,")
+                .append("max(max_drawdown_pct) as validateMaxDrawdownPct,")
+                .append("avg(profit_factor) as validateProfitFactor,")
+                .append("min(oos_pass) as oosPass ")
                 .append("from ").append(safe(backtestResultTable, "backtest_result")).append(" where 1=1");
         if (StringUtils.isNotBlank(taskId)) {
             sql.append(" and sid='").append(escape(taskId.trim())).append("'");
@@ -404,6 +412,14 @@ public class WorkbenchService {
             report.put("totalPnl", row.totalPnl == null ? 0D : row.totalPnl.doubleValue());
             report.put("validatePnl", row.validatePnl == null ? 0D : row.validatePnl.doubleValue());
             report.put("forwardPnl", row.forwardPnl == null ? 0D : row.forwardPnl.doubleValue());
+            report.put("validatePrimaryScore", row.validatePrimaryScore == null ? 0D : row.validatePrimaryScore.doubleValue());
+            report.put("forwardAuxScore", row.forwardAuxScore == null ? 0D : row.forwardAuxScore.doubleValue());
+            report.put("feeAdjustedValidatePnl", row.feeAdjustedValidatePnl == null ? 0D : row.feeAdjustedValidatePnl.doubleValue());
+            report.put("sliceParamDriftScore", row.sliceParamDriftScore == null ? 0D : row.sliceParamDriftScore.doubleValue());
+            report.put("validateTradeCount", row.validateTradeCount == null ? 0 : row.validateTradeCount.intValue());
+            report.put("validateMaxDrawdownPct", row.validateMaxDrawdownPct == null ? 0D : row.validateMaxDrawdownPct.doubleValue());
+            report.put("validateProfitFactor", row.validateProfitFactor == null ? 0D : row.validateProfitFactor.doubleValue());
+            report.put("oosPass", row.oosPass == null ? 0 : row.oosPass.intValue());
             report.put("exists", StringUtils.isNotBlank(path));
             return report;
         } catch (Exception e) {
@@ -1033,6 +1049,15 @@ public class WorkbenchService {
         view.put("forwardPnl", summary.forwardPnl == null ? 0D : summary.forwardPnl.doubleValue());
         view.put("totalPnl", summary.totalPnl == null ? 0D : summary.totalPnl.doubleValue());
         view.put("forwardScore", summary.forwardScore == null ? 0D : summary.forwardScore.doubleValue());
+        view.put("validatePrimaryScore", summary.validatePrimaryScore == null ? 0D : summary.validatePrimaryScore.doubleValue());
+        view.put("forwardAuxScore", summary.forwardAuxScore == null ? 0D : summary.forwardAuxScore.doubleValue());
+        view.put("feeAdjustedValidatePnl", summary.feeAdjustedValidatePnl == null ? 0D : summary.feeAdjustedValidatePnl.doubleValue());
+        view.put("sliceParamDriftScore", summary.sliceParamDriftScore == null ? 0D : summary.sliceParamDriftScore.doubleValue());
+        view.put("validateTradeCount", summary.validateTradeCount == null ? 0 : summary.validateTradeCount.intValue());
+        view.put("validateMaxDrawdownPct", summary.validateMaxDrawdownPct == null ? 0D : summary.validateMaxDrawdownPct.doubleValue());
+        view.put("validateProfitFactor", summary.validateProfitFactor == null ? 0D : summary.validateProfitFactor.doubleValue());
+        view.put("fragileBest", summary.fragileBest == null ? 0 : summary.fragileBest.intValue());
+        view.put("oosPass", summary.oosPass == null ? 0 : summary.oosPass.intValue());
         view.put("minForwardContribution", summary.minForwardContribution == null ? 0D : summary.minForwardContribution.doubleValue());
         view.put("overfitPass", summary.overfitPass == null ? 0 : summary.overfitPass.intValue());
         view.put("overfitReason", blankTo(summary.overfitReason, ""));
@@ -1212,5 +1237,13 @@ public class WorkbenchService {
         public Double totalPnl;
         public Double validatePnl;
         public Double forwardPnl;
+        public Double validatePrimaryScore;
+        public Double forwardAuxScore;
+        public Double feeAdjustedValidatePnl;
+        public Double sliceParamDriftScore;
+        public Integer validateTradeCount;
+        public Double validateMaxDrawdownPct;
+        public Double validateProfitFactor;
+        public Integer oosPass;
     }
 }

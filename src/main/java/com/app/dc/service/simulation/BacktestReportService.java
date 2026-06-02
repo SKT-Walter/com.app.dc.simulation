@@ -285,8 +285,12 @@ public class BacktestReportService {
             trials.add(row);
         }
         optimization.put("trials", trials);
+        optimization.put("paramParticipation", buildOptimizationParamParticipation(response));
+        optimization.put("combinationSummary", buildOptimizationCombinationSummary(response));
         optimization.put("quality", buildOptimizationQuality(response, candidate));
-        optimization.put("heatmap", buildOptimizationHeatmap(response, candidate));
+        List<Map<String, Object>> heatmaps = buildOptimizationHeatmaps(response, candidate);
+        optimization.put("heatmaps", heatmaps);
+        optimization.put("heatmap", heatmaps.isEmpty() ? buildDisabledHeatmap("本次未产出可用热力图。") : heatmaps.get(0));
         return optimization;
     }
 
@@ -489,13 +493,36 @@ public class BacktestReportService {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> buildOptimizationHeatmap(BacktestResponse response, StrategyCandidateRow candidate) {
-        Map<String, Object> heatmap = new LinkedHashMap<String, Object>();
+    private List<Map<String, Object>> buildOptimizationHeatmaps(BacktestResponse response, StrategyCandidateRow candidate) {
+        List<Map<String, Object>> heatmaps = new ArrayList<Map<String, Object>>();
+        Map<String, Object> validateHeatmap = buildSliceHeatmap(response, "avgValidatePnl", "Validate ?????????");
+        if (validateHeatmap != null) {
+            heatmaps.add(validateHeatmap);
+        }
+        Map<String, Object> tradeHeatmap = buildSliceHeatmap(response, "avgValidateTradeCount", "Validate ?????????");
+        if (tradeHeatmap != null) {
+            heatmaps.add(tradeHeatmap);
+        }
+        Map<String, Object> forwardHeatmap = buildSliceHeatmap(response, "avgForwardPnl", "Forward ?????????");
+        if (forwardHeatmap != null) {
+            heatmaps.add(forwardHeatmap);
+        }
+        Map<String, Object> fitHeatmap = buildTrialHeatmap(response, candidate, "avgFitPnl", "Fit ?????????");
+        if (fitHeatmap != null) {
+            heatmaps.add(fitHeatmap);
+        }
+        if (heatmaps.isEmpty()) {
+            heatmaps.add(buildDisabledHeatmap("本次未产出可用热力图。"));
+        }
+        return heatmaps;
+    }
+
+    private Map<String, Object> buildTrialHeatmap(BacktestResponse response,
+                                                  StrategyCandidateRow candidate,
+                                                  String metric,
+                                                  String title) {
         if (!hasOptimizationEvidence(response, candidate) || response == null || response.trials == null || response.trials.isEmpty()) {
-            heatmap.put("enabled", 0);
-            heatmap.put("note", "本次回测未产出可用 optimization trial，热力图不可用。");
-            heatmap.put("cells", Collections.emptyList());
-            return heatmap;
+            return buildDisabledHeatmap("本次回测未产出可用 optimization trial，热力图不可用。");
         }
         Map<String, Set<String>> distinct = new LinkedHashMap<String, Set<String>>();
         List<Map<String, Object>> trialParamMaps = new ArrayList<Map<String, Object>>();
@@ -523,17 +550,14 @@ public class BacktestReportService {
             return a.compareTo(b);
         });
         if (varying.size() < 2) {
-            heatmap.put("enabled", 0);
-            heatmap.put("note", "试验参数变化维度不足，无法生成二维热力图。");
-            heatmap.put("cells", Collections.emptyList());
-            return heatmap;
+            return buildDisabledHeatmap("试验参数变化维度不足，无法生成二维热力图。");
         }
         String xParam = varying.get(0);
         String yParam = varying.get(1);
-        Map<String, BigDecimal> sumByCell = new LinkedHashMap<String, BigDecimal>();
-        Map<String, Integer> countByCell = new LinkedHashMap<String, Integer>();
+        List<String> aggregatedParams = varying.size() <= 2 ? Collections.<String>emptyList() : varying.subList(2, varying.size());
         Set<String> xValueSet = new LinkedHashSet<String>();
         Set<String> yValueSet = new LinkedHashSet<String>();
+        List<HeatmapPoint> points = new ArrayList<HeatmapPoint>();
         for (int i = 0; i < response.trials.size(); i++) {
             BacktestModels.OptimizationTrial trial = response.trials.get(i);
             Map<String, Object> params = i < trialParamMaps.size() ? trialParamMaps.get(i) : Collections.<String, Object>emptyMap();
@@ -541,8 +565,114 @@ public class BacktestReportService {
             String yValue = String.valueOf(params.get(yParam));
             xValueSet.add(xValue);
             yValueSet.add(yValue);
-            String key = xValue + "\u0001" + yValue;
-            sumByCell.put(key, nz(sumByCell.get(key)).add(nz(trial == null ? null : trial.fitPnl)));
+            BigDecimal value = nz(trial == null ? null : trial.fitPnl);
+            points.add(new HeatmapPoint(xValue, yValue, value));
+        }
+        String note = aggregatedParams.isEmpty()
+                ? "当前展示的是本次实际参与回测的参数组合落点；空白格表示该参数组合本次未被搜索到。"
+                : "当前仅展示参与回测次数最多的两个参数维度，其余变化参数已按实际 trial 结果做聚合平均；空白格表示该参数组合本次未被搜索到。";
+        Map<String, Object> heatmap = finalizeHeatmap(title, metric, xParam, yParam, xValueSet, yValueSet, aggregatedParams, points, note);
+        heatmap.put("searchMode", defaultIfBlank(response == null ? null : response.optimizationMode, "UNKNOWN"));
+        return heatmap;
+    }
+
+    private Map<String, Object> buildSliceHeatmap(BacktestResponse response, String metric, String title) {
+        if (response == null || response.results == null || response.results.isEmpty()) {
+            return null;
+        }
+        Map<String, Set<String>> distinct = new LinkedHashMap<String, Set<String>>();
+        List<HeatmapPoint> points = new ArrayList<HeatmapPoint>();
+        Set<String> xValueSet = new LinkedHashSet<String>();
+        Set<String> yValueSet = new LinkedHashSet<String>();
+        for (BacktestResult result : response.results) {
+            if (result == null || result.sliceResults == null) {
+                continue;
+            }
+            for (BacktestSliceResult slice : result.sliceResults) {
+                Map<String, Object> params = parseJsonMap(slice == null ? null : slice.bestParamSetJson);
+                for (Map.Entry<String, Object> entry : params.entrySet()) {
+                    if (entry.getValue() == null) {
+                        continue;
+                    }
+                    distinct.computeIfAbsent(entry.getKey(), k -> new LinkedHashSet<String>()).add(String.valueOf(entry.getValue()));
+                }
+            }
+        }
+        List<String> varying = new ArrayList<String>();
+        for (Map.Entry<String, Set<String>> entry : distinct.entrySet()) {
+            if (entry.getValue().size() > 1) {
+                varying.add(entry.getKey());
+            }
+        }
+        varying.sort((a, b) -> {
+            int cmp = Integer.compare(distinct.get(b).size(), distinct.get(a).size());
+            if (cmp != 0) {
+                return cmp;
+            }
+            return a.compareTo(b);
+        });
+        if (varying.size() < 2) {
+            return buildDisabledHeatmap("最佳参数在各个 slice 中变化维度不足，无法生成二维热力图。");
+        }
+        String xParam = varying.get(0);
+        String yParam = varying.get(1);
+        List<String> aggregatedParams = varying.size() <= 2 ? Collections.<String>emptyList() : varying.subList(2, varying.size());
+        for (BacktestResult result : response.results) {
+            if (result == null || result.sliceResults == null) {
+                continue;
+            }
+            for (BacktestSliceResult slice : result.sliceResults) {
+                Map<String, Object> params = parseJsonMap(slice == null ? null : slice.bestParamSetJson);
+                String xValue = String.valueOf(params.get(xParam));
+                String yValue = String.valueOf(params.get(yParam));
+                if ("null".equals(xValue) || "null".equals(yValue)) {
+                    continue;
+                }
+                xValueSet.add(xValue);
+                yValueSet.add(yValue);
+                BigDecimal value;
+                if ("avgValidatePnl".equals(metric)) {
+                    value = nz(slice == null ? null : slice.validatePnl);
+                } else if ("avgForwardPnl".equals(metric)) {
+                    value = nz(slice == null ? null : slice.forwardPnl);
+                } else if ("avgValidateTradeCount".equals(metric)) {
+                    value = BigDecimal.valueOf(nzInt(slice == null ? null : slice.validateTradeCount));
+                } else {
+                    value = BigDecimal.ZERO;
+                }
+                points.add(new HeatmapPoint(xValue, yValue, value));
+            }
+        }
+        String note;
+        if ("avgValidateTradeCount".equals(metric)) {
+            note = "当前展示的是各 slice 最佳参数组合在 Validate 阶段的平均交易覆盖情况；空白格表示该参数组合没有成为任何 slice 的最佳参数。";
+        } else {
+            note = "当前展示的是各 slice 最佳参数组合在样本外阶段的平均结果；空白格表示该参数组合没有成为任何 slice 的最佳参数。";
+        }
+        if (!aggregatedParams.isEmpty()) {
+            note += " 其余变化参数已按实际 slice 最优结果做聚合平均。";
+        }
+        Map<String, Object> heatmap = finalizeHeatmap(title, metric, xParam, yParam, xValueSet, yValueSet, aggregatedParams, points, note);
+        heatmap.put("searchMode", "SLICE_BEST_AGGREGATION");
+        heatmap.put("gridComplete", 0);
+        return heatmap;
+    }
+
+    private Map<String, Object> finalizeHeatmap(String title,
+                                                String metric,
+                                                String xParam,
+                                                String yParam,
+                                                Set<String> xValueSet,
+                                                Set<String> yValueSet,
+                                                List<String> aggregatedParams,
+                                                List<HeatmapPoint> points,
+                                                String note) {
+        Map<String, Object> heatmap = new LinkedHashMap<String, Object>();
+        Map<String, BigDecimal> sumByCell = new LinkedHashMap<String, BigDecimal>();
+        Map<String, Integer> countByCell = new LinkedHashMap<String, Integer>();
+        for (HeatmapPoint point : points) {
+            String key = point.xValue + "\u0001" + point.yValue;
+            sumByCell.put(key, nz(sumByCell.get(key)).add(nz(point.value)));
             countByCell.put(key, nzInt(countByCell.get(key)) + 1);
         }
         List<String> xValues = new ArrayList<String>(xValueSet);
@@ -566,15 +696,110 @@ public class BacktestReportService {
                 cells.add(cell);
             }
         }
+        heatmap.put("title", title);
         heatmap.put("enabled", cells.isEmpty() ? 0 : 1);
-        heatmap.put("metric", "fitPnl");
+        heatmap.put("metric", metric);
         heatmap.put("xParam", xParam);
         heatmap.put("yParam", yParam);
         heatmap.put("xValues", xValues);
         heatmap.put("yValues", yValues);
+        heatmap.put("aggregatedParams", new ArrayList<String>(aggregatedParams));
         heatmap.put("cells", cells);
-        heatmap.put("note", cells.isEmpty() ? "试验记录不足，暂时无法形成热力图。" : "");
+        heatmap.put("gridComplete", (!xValues.isEmpty() && !yValues.isEmpty() && !cells.isEmpty() && aggregatedParams.isEmpty() && cells.size() == xValues.size() * yValues.size()) ? 1 : 0);
+        heatmap.put("note", cells.isEmpty() ? "试验记录不足，暂时无法形成热力图。" : note);
         return heatmap;
+    }
+
+    private Map<String, Object> buildDisabledHeatmap(String note) {
+        Map<String, Object> heatmap = new LinkedHashMap<String, Object>();
+        heatmap.put("title", "参数热力图");
+        heatmap.put("enabled", 0);
+        heatmap.put("metric", "");
+        heatmap.put("xParam", "");
+        heatmap.put("yParam", "");
+        heatmap.put("xValues", Collections.emptyList());
+        heatmap.put("yValues", Collections.emptyList());
+        heatmap.put("aggregatedParams", Collections.emptyList());
+        heatmap.put("cells", Collections.emptyList());
+        heatmap.put("searchMode", "UNKNOWN");
+        heatmap.put("gridComplete", 0);
+        heatmap.put("note", note);
+        return heatmap;
+    }
+
+    private List<Map<String, Object>> buildOptimizationParamParticipation(BacktestResponse response) {
+        if (response == null || response.trials == null || response.trials.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<String, Set<String>> distinct = new LinkedHashMap<String, Set<String>>();
+        for (BacktestModels.OptimizationTrial trial : response.trials) {
+            Map<String, Object> params = parseJsonMap(trial == null ? null : trial.paramSetJson);
+            for (Map.Entry<String, Object> entry : params.entrySet()) {
+                if (entry.getValue() == null) {
+                    continue;
+                }
+                distinct.computeIfAbsent(entry.getKey(), k -> new LinkedHashSet<String>()).add(String.valueOf(entry.getValue()));
+            }
+        }
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        for (Map.Entry<String, Set<String>> entry : distinct.entrySet()) {
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            List<String> values = new ArrayList<String>(entry.getValue());
+            values.sort(this::compareParamValueStrings);
+            row.put("name", entry.getKey());
+            row.put("valueCount", values.size());
+            row.put("values", values);
+            row.put("valuesText", StringUtils.join(values, ", "));
+            rows.add(row);
+        }
+        rows.sort((a, b) -> {
+            int cmp = Integer.compare(nzInt(b.get("valueCount")), nzInt(a.get("valueCount")));
+            if (cmp != 0) {
+                return cmp;
+            }
+            return s(a.get("name")).compareTo(s(b.get("name")));
+        });
+        return rows;
+    }
+
+    private List<Map<String, Object>> buildOptimizationCombinationSummary(BacktestResponse response) {
+        if (response == null || response.trials == null || response.trials.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<String, CombinationAgg> aggMap = new LinkedHashMap<String, CombinationAgg>();
+        for (BacktestModels.OptimizationTrial trial : response.trials) {
+            String paramJson = defaultIfBlank(trial == null ? null : trial.paramSetJson, "{}");
+            CombinationAgg agg = aggMap.computeIfAbsent(paramJson, k -> new CombinationAgg(paramJson));
+            agg.count++;
+            agg.fitPnl = agg.fitPnl.add(nz(trial == null ? null : trial.fitPnl));
+            agg.validatePnl = agg.validatePnl.add(nz(trial == null ? null : trial.validatePnl));
+            agg.forwardPnl = agg.forwardPnl.add(nz(trial == null ? null : trial.forwardPnl));
+            if (trial != null && gt(trial.fitPnl, BigDecimal.ZERO)) {
+                agg.positiveFitCount++;
+            }
+        }
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        for (CombinationAgg agg : aggMap.values()) {
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            row.put("paramSetJson", agg.paramSetJson);
+            row.put("count", agg.count);
+            row.put("avgFitPnl", scale(agg.fitPnl.divide(BigDecimal.valueOf(Math.max(1, agg.count)), 6, RoundingMode.HALF_UP)));
+            row.put("avgValidatePnl", scale(agg.validatePnl.divide(BigDecimal.valueOf(Math.max(1, agg.count)), 6, RoundingMode.HALF_UP)));
+            row.put("avgForwardPnl", scale(agg.forwardPnl.divide(BigDecimal.valueOf(Math.max(1, agg.count)), 6, RoundingMode.HALF_UP)));
+            row.put("positiveFitCount", agg.positiveFitCount);
+            rows.add(row);
+        }
+        rows.sort((a, b) -> {
+            int cmp = n(b.get("avgFitPnl")).compareTo(n(a.get("avgFitPnl")));
+            if (cmp != 0) {
+                return cmp;
+            }
+            return Integer.compare(nzInt(b.get("count")), nzInt(a.get("count")));
+        });
+        if (rows.size() > 20) {
+            return new ArrayList<Map<String, Object>>(rows.subList(0, 20));
+        }
+        return rows;
     }
 
     private Map<String, Object> buildGates(BacktestResponse response,
@@ -1088,7 +1313,9 @@ public class BacktestReportService {
                 .append(metric("\u7a33\u5b9a\u53c2\u6570\u533a\u95f4", compactJsonValue(optimization.get("stableParamRangeJson"))))
                 .append("</div>")
                 .append(renderOptimizationQuality(optimization))
+                .append(renderOptimizationParticipation(optimization))
                 .append(renderHeatmapSection(optimization))
+                .append(renderOptimizationCombinationSummary(optimization))
                 .append(renderOptimizationTrialsV2(optimization))
                 .append("</div>");
 
@@ -1199,18 +1426,79 @@ public class BacktestReportService {
         if (optimization == null) {
             return "";
         }
-        Map<String, Object> heatmap = (Map<String, Object>) optimization.get("heatmap");
-        if (heatmap == null) {
+        List<Map<String, Object>> heatmaps = (List<Map<String, Object>>) optimization.get("heatmaps");
+        if (heatmaps == null || heatmaps.isEmpty()) {
+            Map<String, Object> heatmap = (Map<String, Object>) optimization.get("heatmap");
+            if (heatmap == null) {
+                return "";
+            }
+            heatmaps = Collections.singletonList(heatmap);
+        }
+        StringBuilder html = new StringBuilder();
+        html.append("<div class=\"section\"><h2>参数热力图区</h2>");
+        for (Map<String, Object> heatmap : heatmaps) {
+            if (heatmap == null) {
+                continue;
+            }
+            String title = defaultIfBlank(s(heatmap.get("title")), "参数热力图");
+            if (!isTrue(heatmap.get("enabled"))) {
+                html.append("<div class=\"card\" style=\"margin-bottom:12px;\"><h3>")
+                        .append(escape(title))
+                        .append("</h3><div class=\"tips\">")
+                        .append(escape(s(heatmap.get("note"))))
+                        .append("</div></div>");
+                continue;
+            }
+            html.append("<div class=\"card\" style=\"margin-bottom:12px;\"><h3>")
+                    .append(escape(title))
+                    .append("</h3>")
+                    .append("<div class=\"muted\" style=\"margin-bottom:10px;\">搜索模式：")
+                    .append(escape(s(heatmap.get("searchMode"))))
+                    .append(" / 完整网格：")
+                    .append(isTrue(heatmap.get("gridComplete")) ? "Y" : "N")
+                    .append("</div>")
+                    .append("<div class=\"muted\" style=\"margin-bottom:10px;\">指标：")
+                    .append(escape(s(heatmap.get("metric"))))
+                    .append(" / X：")
+                    .append(escape(s(heatmap.get("xParam"))))
+                    .append(" / Y：")
+                    .append(escape(s(heatmap.get("yParam"))))
+                    .append("</div>")
+                    .append(StringUtils.isBlank(s(heatmap.get("note"))) ? "" : "<div class=\"muted\" style=\"margin-bottom:10px;\">" + escape(s(heatmap.get("note"))) + "</div>")
+                    .append(renderHeatmapMatrix(heatmap))
+                    .append("</div>");
+        }
+        html.append("</div>");
+        return html.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private String renderOptimizationParticipation(Map<String, Object> optimization) {
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) optimization.get("paramParticipation");
+        if (rows == null || rows.isEmpty()) {
             return "";
         }
-        if (!isTrue(heatmap.get("enabled"))) {
-            return "<div class=\"section\"><h2>参数热力图</h2><div class=\"tips\">" + escape(s(heatmap.get("note"))) + "</div></div>";
+        return "<div class=\"section\"><h2>参与优化参数</h2>"
+                + "<div class=\"muted\" style=\"margin-bottom:10px;\">这里展示本次实际参与回测优化的参数，以及每个参数实际出现过的取值集合。</div>"
+                + renderTable(
+                new String[]{"参数名", "取值数量", "实际取值"},
+                rows,
+                new String[]{"name", "valueCount", "valuesText"})
+                + "</div>";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String renderOptimizationCombinationSummary(Map<String, Object> optimization) {
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) optimization.get("combinationSummary");
+        if (rows == null || rows.isEmpty()) {
+            return "<div class=\"section\"><h2>参数组合结果表</h2><div class=\"tips\">本次未产出可用参数组合结果。</div></div>";
         }
-        return "<div class=\"section\"><h2>参数热力图</h2>"
-                + "<div class=\"muted\" style=\"margin-bottom:10px;\">指标：" + escape(s(heatmap.get("metric")))
-                + " / X：" + escape(s(heatmap.get("xParam")))
-                + " / Y：" + escape(s(heatmap.get("yParam"))) + "</div>"
-                + renderHeatmapMatrix(heatmap)
+        return "<div class=\"section\"><h2>参数组合结果表</h2>"
+                + "<div class=\"muted\" style=\"margin-bottom:10px;\">这里按完整参数组合汇总本次实际 trial 结果，帮助我们看到哪些参数组合真正参与了回测，以及大致表现区间。</div>"
+                + renderTable(
+                new String[]{"参数组合", "出现次数", "平均 Fit", "平均 Validate", "平均 Forward", "正 Fit 次数"},
+                rows,
+                new String[]{"paramSetJson", "count", "avgFitPnl", "avgValidatePnl", "avgForwardPnl", "positiveFitCount"})
                 + "</div>";
     }
 
@@ -1260,6 +1548,31 @@ public class BacktestReportService {
         }
         html.append("</tbody></table></div>");
         return html.toString();
+    }
+
+    private static final class CombinationAgg {
+        private final String paramSetJson;
+        private int count;
+        private int positiveFitCount;
+        private BigDecimal fitPnl = BigDecimal.ZERO;
+        private BigDecimal validatePnl = BigDecimal.ZERO;
+        private BigDecimal forwardPnl = BigDecimal.ZERO;
+
+        private CombinationAgg(String paramSetJson) {
+            this.paramSetJson = paramSetJson;
+        }
+    }
+
+    private static final class HeatmapPoint {
+        private final String xValue;
+        private final String yValue;
+        private final BigDecimal value;
+
+        private HeatmapPoint(String xValue, String yValue, BigDecimal value) {
+            this.xValue = xValue;
+            this.yValue = yValue;
+            this.value = value == null ? BigDecimal.ZERO : value;
+        }
     }
 
     private String heatColor(BigDecimal value, BigDecimal maxAbs) {
@@ -1670,14 +1983,57 @@ public class BacktestReportService {
             }
         }
         @SuppressWarnings("unchecked")
-        Map<String, Object> heatmap = (Map<String, Object>) optimization.get("heatmap");
-        if (heatmap != null) {
-            md.append("\\n## \u53c2\u6570\u70ed\u529b\u56fe\\n\\n");
-            md.append("- \u542f\u7528\uff1a").append(isTrue(heatmap.get("enabled")) ? "Y" : "N").append("\\n");
-            md.append("- \u6307\u6807\uff1a").append(s(heatmap.get("metric"))).append("\\n");
-            md.append("- X \u8f74\uff1a").append(s(heatmap.get("xParam"))).append("\\n");
-            md.append("- Y \u8f74\uff1a").append(s(heatmap.get("yParam"))).append("\\n");
-            md.append("- \u8bf4\u660e\uff1a").append(s(heatmap.get("note"))).append("\\n");
+        List<Map<String, Object>> participation = (List<Map<String, Object>>) optimization.get("paramParticipation");
+        if (participation != null && !participation.isEmpty()) {
+            md.append("\\n## 参与优化参数\\n\\n");
+            md.append("| 参数名 | 取值数量 | 实际取值 |\\n|---|---:|---|\\n");
+            for (Map<String, Object> row : participation) {
+                md.append("| ").append(s(row.get("name")))
+                        .append(" | ").append(s(row.get("valueCount")))
+                        .append(" | ").append(s(row.get("valuesText")))
+                        .append(" |\\n");
+            }
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> heatmaps = (List<Map<String, Object>>) optimization.get("heatmaps");
+        if ((heatmaps == null || heatmaps.isEmpty()) && optimization.get("heatmap") instanceof Map) {
+            heatmaps = Collections.singletonList((Map<String, Object>) optimization.get("heatmap"));
+        }
+        if (heatmaps != null && !heatmaps.isEmpty()) {
+            md.append("\\n## \u53c2\u6570\u70ed\u529b\u56fe\\u533a\\n\\n");
+            for (Map<String, Object> heatmap : heatmaps) {
+                if (heatmap == null) {
+                    continue;
+                }
+                md.append("### ").append(s(heatmap.get("title"))).append("\\n\\n");
+                md.append("- \u542f\u7528\uff1a").append(isTrue(heatmap.get("enabled")) ? "Y" : "N").append("\\n");
+                md.append("- \u6307\u6807\uff1a").append(s(heatmap.get("metric"))).append("\\n");
+                md.append("- X \u8f74\uff1a").append(s(heatmap.get("xParam"))).append("\\n");
+                md.append("- Y \\u8f74\\uff1a").append(s(heatmap.get("yParam"))).append("\\n");
+                md.append("- 搜索模式：").append(s(heatmap.get("searchMode"))).append("\\n");
+                md.append("- 完整网格：").append(isTrue(heatmap.get("gridComplete")) ? "Y" : "N").append("\\n");
+                @SuppressWarnings("unchecked")
+                List<String> aggregatedParams = (List<String>) heatmap.get("aggregatedParams");
+                if (aggregatedParams != null && !aggregatedParams.isEmpty()) {
+                    md.append("- \u5176\u4f59\u805a\u5408\u53c2\u6570\uff1a").append(StringUtils.join(aggregatedParams, ", ")).append("\\n");
+                }
+                md.append("- \u8bf4\u660e\uff1a").append(s(heatmap.get("note"))).append("\\n\\n");
+            }
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> combinationSummary = (List<Map<String, Object>>) optimization.get("combinationSummary");
+        if (combinationSummary != null && !combinationSummary.isEmpty()) {
+            md.append("\\n## 参数组合结果表\\n\\n");
+            md.append("| 参数组合 | 次数 | 平均 Fit | 平均 Validate | 平均 Forward | 正 Fit 次数 |\\n|---|---:|---:|---:|---:|---:|\\n");
+            for (Map<String, Object> row : combinationSummary) {
+                md.append("| `").append(s(row.get("paramSetJson")))
+                        .append("` | ").append(s(row.get("count")))
+                        .append(" | ").append(s(row.get("avgFitPnl")))
+                        .append(" | ").append(s(row.get("avgValidatePnl")))
+                        .append(" | ").append(s(row.get("avgForwardPnl")))
+                        .append(" | ").append(s(row.get("positiveFitCount")))
+                        .append(" |\\n");
+            }
         }
         @SuppressWarnings("unchecked")
         List<String> failedRules = (List<String>) gates.get("failedRules");
@@ -2451,3 +2807,5 @@ public class BacktestReportService {
         }
     }
 }
+
+

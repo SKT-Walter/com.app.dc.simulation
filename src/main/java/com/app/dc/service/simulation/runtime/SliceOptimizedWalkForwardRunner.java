@@ -86,11 +86,10 @@ public class SliceOptimizedWalkForwardRunner {
         BigDecimal totalValidateFee = BigDecimal.ZERO;
         BigDecimal forwardScoreSum = BigDecimal.ZERO;
         BigDecimal validateScoreSum = BigDecimal.ZERO;
-        int perSliceBudget = Math.max(1, Math.max(1, trialBudget) / Math.max(1, slices.size()));
+        int perSliceBudget = resolvePerSliceBudget(trialBudget, slices.size());
         List<Map<String, Object>> selectedParamSets = new ArrayList<Map<String, Object>>();
-        boolean overfitPass = true;
-        String overfitReason = "";
         int fragileCount = 0;
+        int nextTrialNo = 1;
 
         for (int i = 0; i < slices.size(); i++) {
             WindowSlice slice = slices.get(i);
@@ -101,7 +100,8 @@ public class SliceOptimizedWalkForwardRunner {
             ensureNonEmpty("validate", validateRows, candidate, param, slice.validateBegin, slice.validateEnd);
             ensureNonEmpty("forward", forwardRows, candidate, param, slice.forwardBegin, slice.forwardEnd);
 
-            SliceSelection selection = selectBestParamForSlice(candidate, param, plan, fitRows, slice, i + 1, perSliceBudget);
+            SliceSelection selection = selectBestParamForSlice(candidate, param, plan, fitRows, slice, i + 1, perSliceBudget, nextTrialNo);
+            nextTrialNo = selection.nextTrialNo;
             selectedParamSets.add(selection.paramSet);
             fragileCount += selection.fragileBest;
             if (selection.optimizationTrials != null && !selection.optimizationTrials.isEmpty()) {
@@ -123,20 +123,6 @@ public class SliceOptimizedWalkForwardRunner {
             aggregate.maxDrawdownPct = max(aggregate.maxDrawdownPct, validateResult.maxDrawdownPct);
             aggregate.totalBars += nzInt(validateResult.totalBars);
             aggregate.sliceResults.add(buildSlice(candidate, param, i + 1, slice, selection, fitResult, validateResult, forwardResult));
-
-            if (nz(fitResult.totalPnl).compareTo(BigDecimal.ZERO) > 0
-                    && nz(validateResult.totalPnl).compareTo(BigDecimal.ZERO) <= 0) {
-                overfitPass = false;
-                if (overfitReason.isEmpty()) {
-                    overfitReason = "fit_pnl > 0 but validate_pnl <= 0";
-                }
-            } else if (nz(validateResult.totalPnl).compareTo(BigDecimal.ZERO) > 0
-                    && nz(forwardResult.totalPnl).compareTo(BigDecimal.ZERO) < 0) {
-                overfitPass = false;
-                if (overfitReason.isEmpty()) {
-                    overfitReason = "validate_pnl > 0 but forward_pnl < 0";
-                }
-            }
         }
 
         aggregate.fitPnl = scale(fitPnl);
@@ -169,12 +155,10 @@ public class SliceOptimizedWalkForwardRunner {
                 .divide(BigDecimal.valueOf(nzInt(aggregate.tradeCount)), 6, RoundingMode.HALF_UP));
         aggregate.fragileBest = slices.isEmpty() ? 0 : (fragileCount > 0 ? 1 : 0);
         aggregate.sliceParamDriftScore = scale(calculateSliceParamDrift(selectedParamSets, plan));
-        aggregate.oosPass = overfitPass
-                && aggregate.validatePnl.compareTo(BigDecimal.ZERO) > 0
-                && nzInt(aggregate.tradeCount) > 0
-                ? 1 : 0;
-        aggregate.overfitPass = overfitPass ? 1 : 0;
-        aggregate.overfitReason = overfitReason;
+        GateDecision gate = evaluateOosGate(aggregate.fitPnl, aggregate.validatePnl, aggregate.forwardPnl, aggregate.tradeCount);
+        aggregate.oosPass = gate.oosPass ? 1 : 0;
+        aggregate.overfitPass = gate.overfitPass ? 1 : 0;
+        aggregate.overfitReason = gate.reason;
         aggregate.bestParamSetJson = buildRepresentativeParamSetJson(selectedParamSets);
         aggregate.stableParamRangeJson = buildStableParamSummaryJson(selectedParamSets);
         aggregate.neighborAvgPnl = BigDecimal.ZERO;
@@ -189,14 +173,17 @@ public class SliceOptimizedWalkForwardRunner {
                                                    List<TTbookOhlc> fitRows,
                                                    WindowSlice slice,
                                                    int sliceNo,
-                                                   int sliceBudget) throws Exception {
+                                                   int sliceBudget,
+                                                   int startTrialNo) throws Exception {
         SliceSelection selection = new SliceSelection();
+        selection.nextTrialNo = startTrialNo;
         List<Map<String, Object>> coarseSets = plan == null || !plan.optimizationSupported
                 ? backtestOptimizationService.buildDefaultOnly(plan)
                 : backtestOptimizationService.buildCoarseParamSets(plan);
         int coarseBudget = Math.max(1, sliceBudget / 2);
         coarseSets = limit(coarseSets, coarseBudget);
-        List<SliceFitTrial> coarseTrials = executeFitTrials(candidate, baseParam, fitRows, slice, coarseSets, "COARSE");
+        List<SliceFitTrial> coarseTrials = executeFitTrials(candidate, baseParam, fitRows, slice, coarseSets, "COARSE", selection.nextTrialNo);
+        selection.nextTrialNo += coarseTrials.size();
         List<BacktestModels.OptimizationTrial> rankedCoarseTrials =
                 toOptimizationTrials(candidate, baseParam, plan, sliceNo, coarseTrials);
         backtestOptimizationService.rankFitTrials(plan, rankedCoarseTrials);
@@ -205,7 +192,8 @@ public class SliceOptimizedWalkForwardRunner {
                 ? Collections.<Map<String, Object>>emptyList()
                 : backtestOptimizationService.buildFineParamSets(plan, rankedCoarseTrials);
         fineSets = limit(fineSets, Math.max(0, sliceBudget - coarseTrials.size()));
-        List<SliceFitTrial> fineTrials = executeFitTrials(candidate, baseParam, fitRows, slice, fineSets, "FINE");
+        List<SliceFitTrial> fineTrials = executeFitTrials(candidate, baseParam, fitRows, slice, fineSets, "FINE", selection.nextTrialNo);
+        selection.nextTrialNo += fineTrials.size();
 
         List<SliceFitTrial> allTrials = new ArrayList<SliceFitTrial>();
         allTrials.addAll(coarseTrials);
@@ -256,12 +244,13 @@ public class SliceOptimizedWalkForwardRunner {
                                                  List<TTbookOhlc> fitRows,
                                                  WindowSlice slice,
                                                  List<Map<String, Object>> paramSets,
-                                                 String phase) throws Exception {
+                                                 String phase,
+                                                 int startTrialNo) throws Exception {
         List<SliceFitTrial> results = new ArrayList<SliceFitTrial>();
         if (paramSets == null) {
             return results;
         }
-        int trialNo = 1;
+        int trialNo = Math.max(1, startTrialNo);
         for (Map<String, Object> paramSet : paramSets) {
             BacktestModels.BacktestResult fitResult = runWindow(candidate, baseParam, paramSet, fitRows, slice.fitBegin, slice.fitEnd);
             SliceFitTrial trial = new SliceFitTrial();
@@ -273,6 +262,36 @@ public class SliceOptimizedWalkForwardRunner {
             results.add(trial);
         }
         return results;
+    }
+
+    private int resolvePerSliceBudget(int trialBudget, int sliceCount) {
+        int safeBudget = Math.max(1, trialBudget);
+        int safeSlices = Math.max(1, sliceCount);
+        int average = (int) Math.ceil((double) safeBudget / (double) safeSlices);
+        return Math.max(4, average);
+    }
+
+    private GateDecision evaluateOosGate(BigDecimal fitPnl,
+                                         BigDecimal validatePnl,
+                                         BigDecimal forwardPnl,
+                                         Integer tradeCount) {
+        GateDecision gate = new GateDecision();
+        gate.overfitPass = true;
+        gate.oosPass = false;
+        gate.reason = "";
+        if (nz(fitPnl).compareTo(BigDecimal.ZERO) > 0
+                && nz(validatePnl).compareTo(BigDecimal.ZERO) <= 0) {
+            gate.overfitPass = false;
+            gate.reason = "fit_pnl > 0 but validate_pnl <= 0";
+        } else if (nz(validatePnl).compareTo(BigDecimal.ZERO) > 0
+                && nz(forwardPnl).compareTo(BigDecimal.ZERO) < 0) {
+            gate.overfitPass = false;
+            gate.reason = "validate_pnl > 0 but forward_pnl < 0";
+        }
+        gate.oosPass = gate.overfitPass
+                && nz(validatePnl).compareTo(BigDecimal.ZERO) > 0
+                && nzInt(tradeCount) > 0;
+        return gate;
     }
 
     private List<BacktestModels.OptimizationTrial> toOptimizationTrials(StrategyCandidateRow candidate,
@@ -528,11 +547,28 @@ public class SliceOptimizedWalkForwardRunner {
         if (selectedParamSets == null || selectedParamSets.isEmpty()) {
             return "{}";
         }
-        Map<String, Object> last = selectedParamSets.get(selectedParamSets.size() - 1);
-        if (last == null || last.isEmpty()) {
+        Map<String, Integer> counts = new LinkedHashMap<String, Integer>();
+        Map<String, Object> latestByKey = new LinkedHashMap<String, Object>();
+        for (Map<String, Object> paramSet : selectedParamSets) {
+            if (paramSet == null || paramSet.isEmpty()) {
+                continue;
+            }
+            String key = JsonUtils.Serializer(new LinkedHashMap<String, Object>(paramSet));
+            counts.put(key, counts.containsKey(key) ? counts.get(key) + 1 : 1);
+            latestByKey.put(key, new LinkedHashMap<String, Object>(paramSet));
+        }
+        String bestKey = null;
+        int bestCount = -1;
+        for (Map.Entry<String, Integer> entry : counts.entrySet()) {
+            if (entry.getValue() >= bestCount) {
+                bestKey = entry.getKey();
+                bestCount = entry.getValue();
+            }
+        }
+        if (bestKey == null) {
             return "{}";
         }
-        return JsonUtils.Serializer(new LinkedHashMap<String, Object>(last));
+        return JsonUtils.Serializer(latestByKey.get(bestKey));
     }
 
     private String buildStableParamSummaryJson(List<Map<String, Object>> selectedParamSets) {
@@ -714,6 +750,7 @@ public class SliceOptimizedWalkForwardRunner {
         private BigDecimal neighborAvgPnl = BigDecimal.ZERO;
         private BigDecimal neighborWorstPnl = BigDecimal.ZERO;
         private List<BacktestModels.OptimizationTrial> optimizationTrials = Collections.emptyList();
+        private int nextTrialNo = 1;
     }
 
     private static class SliceFitTrial {
@@ -722,5 +759,11 @@ public class SliceOptimizedWalkForwardRunner {
         private Map<String, Object> paramSet = new LinkedHashMap<String, Object>();
         private String paramSetJson = "{}";
         private BacktestModels.BacktestResult fitResult;
+    }
+
+    private static class GateDecision {
+        private boolean overfitPass;
+        private boolean oosPass;
+        private String reason;
     }
 }

@@ -313,6 +313,7 @@ public class BacktestReportService {
             finalDecision = "PASS";
         }
         audit.put("finalDecision", finalDecision);
+        audit.put("finalDecisionLabel", auditDecisionLabelText(finalDecision));
         audit.put("summary", buildAuditSummary(response, candidate, checks, finalDecision));
         audit.put("checks", checks);
         return audit;
@@ -358,50 +359,50 @@ public class BacktestReportService {
     private List<Map<String, Object>> buildAuditChecks(BacktestResponse response, StrategyCandidateRow candidate) {
         List<Map<String, Object>> checks = new ArrayList<Map<String, Object>>();
         if (response == null) {
-            addAuditCheck(checks, "Backtest Result", "response exists", "missing", "FAIL", "未生成回测结果");
+            addAuditCheck(checks, "回测结果", "必须存在", "缺失", "FAIL", "未生成回测结果");
             return checks;
         }
         addAuditCheck(checks,
-                "Optimization Evidence",
-                expectsOptimizationEvidence(candidate) ? "trialCount > 0" : "not required",
-                expectsOptimizationEvidence(candidate) ? String.valueOf(nzInt(response.trialCount)) : "N/A",
+                "优化证据",
+                expectsOptimizationEvidence(candidate) ? "trialCount > 0" : "无需优化",
+                expectsOptimizationEvidence(candidate) ? String.valueOf(nzInt(response.trialCount)) : "不适用",
                 !expectsOptimizationEvidence(candidate) || hasOptimizationEvidence(response, candidate) ? "PASS" : "FAIL",
                 optimizationEvidenceMessage(response, candidate));
         addAuditCheck(checks,
-                "Overfit Gate",
-                "must pass",
-                isTrue(response.overfitPass) ? "PASS" : "FAIL",
+                "过拟合检查",
+                "必须通过",
+                isTrue(response.overfitPass) ? "通过" : "失败",
                 isTrue(response.overfitPass) ? "PASS" : "FAIL",
                 translateReason(defaultIfBlank(response.overfitReason, "")));
         addAuditCheck(checks,
-                "OOS Gate",
-                "must pass",
-                isTrue(response.oosPass) ? "PASS" : "FAIL",
+                "OOS 门槛",
+                "必须通过",
+                isTrue(response.oosPass) ? "通过" : "失败",
                 isTrue(response.oosPass) ? "PASS" : "FAIL",
                 isTrue(response.oosPass) ? "validate/forward 审核通过" : "validate/forward 审核未同时通过");
         BigDecimal validateScore = preferredValidateScore(response);
         addAuditCheck(checks,
-                "Validate Primary Score",
+                "Validate 主分",
                 "> 0",
                 scale(validateScore).toPlainString(),
                 gt(validateScore, BigDecimal.ZERO) ? "PASS" : "FAIL",
                 gt(validateScore, BigDecimal.ZERO) ? "" : "Validate 主 OOS 分数不为正");
         addAuditCheck(checks,
-                "Forward PnL",
+                "Forward 收益",
                 ">= 0",
                 scale(response.forwardPnl).toPlainString(),
                 gte(response.forwardPnl, BigDecimal.ZERO) ? "PASS" : "FAIL",
                 gte(response.forwardPnl, BigDecimal.ZERO) ? "" : "Forward 辅助确认收益为负");
         int tradeCount = sumTradeCount(response.results);
         addAuditCheck(checks,
-                "Validate Trade Count",
+                "Validate 交易数",
                 ">= " + Math.max(1, minValidateTrades),
                 String.valueOf(tradeCount),
                 tradeCount >= Math.max(1, minValidateTrades) ? "PASS" : "WARN",
                 tradeCount >= Math.max(1, minValidateTrades) ? "" : "Validate 交易样本偏少");
         BigDecimal maxDd = maxDrawdownPct(response.results);
         addAuditCheck(checks,
-                "Validate Max Drawdown",
+                "Validate 最大回撤",
                 "<= " + scale(BigDecimal.valueOf(maxValidateDrawdownPct)).toPlainString(),
                 scale(maxDd).toPlainString(),
                 lte(maxDd, BigDecimal.valueOf(maxValidateDrawdownPct)) ? "PASS" : "FAIL",
@@ -415,22 +416,22 @@ public class BacktestReportService {
                 gte(profitFactor, BigDecimal.valueOf(minValidateProfitFactor)) ? "" : "Profit factor 偏弱");
         BigDecimal feeAdjustedValidate = preferredFeeAdjustedValidate(response);
         addAuditCheck(checks,
-                "Fee Adjusted Validate PnL",
+                "扣费后 Validate 收益",
                 "> 0",
                 scale(feeAdjustedValidate).toPlainString(),
                 gt(feeAdjustedValidate, BigDecimal.ZERO) ? "PASS" : "FAIL",
                 gt(feeAdjustedValidate, BigDecimal.ZERO) ? "" : "扣费后的 Validate 收益不为正");
         addAuditCheck(checks,
-                "Fragile Best",
-                "must be 0",
+                "参数脆弱性",
+                "fragileBest 必须为 0",
                 String.valueOf(nzInt(response.fragileBest)),
                 isTrue(response.fragileBest) ? "WARN" : "PASS",
                 isTrue(response.fragileBest) ? "最优参数点呈现孤点特征" : "最优参数邻域相对稳定");
         boolean multiSymbolMissingPublishable = response.results != null && response.results.size() > 1
                 && "{}".equals(StringUtils.trimToEmpty(response.bestParamSetJson));
         addAuditCheck(checks,
-                "Publishable Param Set",
-                response.results != null && response.results.size() > 1 ? "multi-symbol requires shared bestParamSet" : "bestParamSet available",
+                "可发布参数集",
+                response.results != null && response.results.size() > 1 ? "多 symbol 需形成统一 bestParamSet" : "需存在 bestParamSet",
                 defaultIfBlank(response.bestParamSetJson, "{}"),
                 multiSymbolMissingPublishable ? "FAIL" : "PASS",
                 multiSymbolMissingPublishable ? "多 symbol 结果未形成统一可发布参数集" : "");
@@ -448,6 +449,7 @@ public class BacktestReportService {
         row.put("rule", rule);
         row.put("actual", actual);
         row.put("status", status);
+        row.put("statusLabel", auditStatusLabel(status));
         row.put("message", message);
         checks.add(row);
     }
@@ -480,6 +482,7 @@ public class BacktestReportService {
             }
         }
         quality.put("status", status);
+        quality.put("statusLabel", optimizationQualityLabel(status));
         quality.put("message", reasons.isEmpty() ? "" : reasons.get(0));
         quality.put("reasons", reasons);
         return quality;
@@ -1045,8 +1048,8 @@ public class BacktestReportService {
 
         html.append("<div class=\"section\"><h2>\u5ba1\u6838\u68c0\u67e5</h2>")
                 .append("<div class=\"grid\">")
-                .append(statusCard("\u5ba1\u6838\u7ed3\u8bba", s(audit.get("finalDecision")), s(audit.get("summary")), auditDecisionClass(s(audit.get("finalDecision")))))
-                .append(statusCard("\u53c2\u6570\u8d28\u91cf", s(((Map<String, Object>) optimization.get("quality")).get("status")), s(((Map<String, Object>) optimization.get("quality")).get("message")), optimizationQualityClass(s(((Map<String, Object>) optimization.get("quality")).get("status")))))
+                .append(statusCard("\u5ba1\u6838\u7ed3\u8bba", s(audit.get("finalDecisionLabel")), s(audit.get("summary")), auditDecisionClass(s(audit.get("finalDecision")))))
+                .append(statusCard("\u53c2\u6570\u8d28\u91cf", s(((Map<String, Object>) optimization.get("quality")).get("statusLabel")), s(((Map<String, Object>) optimization.get("quality")).get("message")), optimizationQualityClass(s(((Map<String, Object>) optimization.get("quality")).get("status")))))
                 .append("</div>")
                 .append(renderAuditTable(audit))
                 .append("</div>");
@@ -1164,7 +1167,7 @@ public class BacktestReportService {
         return renderTable(
                 new String[]{"检查项", "规则", "实际值", "结果", "说明"},
                 checks,
-                new String[]{"name", "rule", "actual", "status", "message"});
+                new String[]{"name", "rule", "actual", "statusLabel", "message"});
     }
 
     @SuppressWarnings("unchecked")
@@ -1637,7 +1640,7 @@ public class BacktestReportService {
         md.append("| \u6700\u4f73\u53c2\u6570\u96c6 | `").append(s(optimization.get("bestParamSetJson"))).append("` |\\n");
         md.append("| \u4f18\u5316\u8bc1\u636e\u8bf4\u660e | ").append(s(optimization.get("evidenceMessage"))).append(" |\\n");
         md.append("\\n## \u5ba1\u6838\u68c0\u67e5\\n\\n");
-        md.append("- \u5ba1\u6838\u7ed3\u8bba\uff1a").append(s(audit.get("finalDecision"))).append("\\n");
+        md.append("- \u5ba1\u6838\u7ed3\u8bba\uff1a").append(s(audit.get("finalDecisionLabel"))).append("\\n");
         md.append("- \u7ed3\u8bba\u6458\u8981\uff1a").append(s(audit.get("summary"))).append("\\n\\n");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> checks = (List<Map<String, Object>>) audit.get("checks");
@@ -1647,7 +1650,7 @@ public class BacktestReportService {
                 md.append("| ").append(s(check.get("name")))
                         .append(" | ").append(s(check.get("rule")))
                         .append(" | ").append(s(check.get("actual")))
-                        .append(" | ").append(s(check.get("status")))
+                        .append(" | ").append(s(check.get("statusLabel")))
                         .append(" | ").append(s(check.get("message")))
                         .append(" |\\n");
             }
@@ -1763,6 +1766,29 @@ public class BacktestReportService {
         return "fail";
     }
 
+    private String auditDecisionLabelText(String decision) {
+        if ("PASS".equalsIgnoreCase(decision)) {
+            return "通过";
+        }
+        if ("WATCH".equalsIgnoreCase(decision)) {
+            return "观察";
+        }
+        return "失败";
+    }
+
+    private String auditStatusLabel(String status) {
+        if ("PASS".equalsIgnoreCase(status)) {
+            return "通过";
+        }
+        if ("WARN".equalsIgnoreCase(status) || "WATCH".equalsIgnoreCase(status)) {
+            return "观察";
+        }
+        if ("N/A".equalsIgnoreCase(status)) {
+            return "不适用";
+        }
+        return "失败";
+    }
+
     private String optimizationQualityClass(String status) {
         if ("GOOD".equalsIgnoreCase(status)) {
             return "pass";
@@ -1771,6 +1797,25 @@ public class BacktestReportService {
             return "warn";
         }
         return "fail";
+    }
+
+    private String optimizationQualityLabel(String status) {
+        if ("GOOD".equalsIgnoreCase(status)) {
+            return "良好";
+        }
+        if ("WATCH".equalsIgnoreCase(status)) {
+            return "观察";
+        }
+        if ("WEAK".equalsIgnoreCase(status)) {
+            return "偏弱";
+        }
+        if ("MISSING".equalsIgnoreCase(status)) {
+            return "缺失";
+        }
+        if ("N/A".equalsIgnoreCase(status)) {
+            return "不适用";
+        }
+        return "失败";
     }
 
     @SuppressWarnings("unchecked")
@@ -1854,44 +1899,44 @@ public class BacktestReportService {
             return "\u5c1a\u672a\u751f\u6210\u56de\u6d4b\u7ed3\u679c";
         }
         if (!hasOptimizationEvidence(response, candidate)) {
-            return "optimization evidence missing";
+            return "缺少优化证据";
         }
         if (response.overfitPass == null || response.overfitPass.intValue() <= 0) {
             return "\u672a\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5";
         }
         if (response.oosPass == null || response.oosPass.intValue() <= 0) {
-            return "oos gate not passed";
+            return "OOS 门槛未通过";
         }
         if (response.results != null && response.results.size() > 1
                 && "{}".equals(StringUtils.trimToEmpty(response.bestParamSetJson))) {
-            return "publishable best param set missing for multi-symbol result";
+            return "多 symbol 结果缺少统一可发布参数集";
         }
         if (!gt(preferredValidateScore(response), BigDecimal.ZERO)) {
-            return "validate primary score <= 0";
+            return "Validate 主分 <= 0";
         }
         if (sumTradeCount(response.results) < Math.max(1, minValidateTrades)) {
-            return "validate trade count below threshold";
+            return "Validate 交易数低于阈值";
         }
         if (!lte(maxDrawdownPct(response.results), BigDecimal.valueOf(maxValidateDrawdownPct))) {
-            return "validate drawdown above threshold";
+            return "Validate 最大回撤超过阈值";
         }
         if (!gte(avgProfitFactor(response.results), BigDecimal.valueOf(minValidateProfitFactor))) {
-            return "validate profit factor below threshold";
+            return "Validate Profit Factor 低于阈值";
         }
         if (!gt(preferredFeeAdjustedValidate(response), BigDecimal.ZERO)) {
-            return "fee adjusted validate pnl <= 0";
+            return "扣费后 Validate 收益 <= 0";
         }
         if (!gte(response.forwardPnl, BigDecimal.ZERO)) {
-            return "forward_pnl < 0";
+            return "Forward 收益 < 0";
         }
         if (isTrue(response.fragileBest)) {
-            return "fragile best param";
+            return "最优参数呈现脆弱特征";
         }
         if (!gt(avgForwardScore(response.results), BigDecimal.ZERO)) {
-            return "forward_score <= 0";
+            return "Forward Score <= 0";
         }
         if (!gte(forwardContribution(response.forwardPnl, response.totalPnl), nz(response.minForwardContribution))) {
-            return "forward contribution below threshold";
+            return "Forward 贡献度低于阈值";
         }
         return "\u6ee1\u8db3\u4e0a\u7ebf\u524d\u76c8\u5229\u95e8\u69db";
     }
@@ -1935,22 +1980,22 @@ public class BacktestReportService {
             return rows;
         }
         if (!hasOptimizationEvidence(response, candidate)) {
-            rows.add("optimization evidence missing");
+            rows.add("缺少优化证据");
         }
         if (!isTrue(response.overfitPass)) {
-            rows.add("overfit gate not passed");
+            rows.add("未通过过拟合检查");
         }
         if (!isTrue(response.oosPass)) {
-            rows.add("oos gate not passed");
+            rows.add("OOS 门槛未通过");
         }
         if (!gt(preferredValidateScore(response), BigDecimal.ZERO)) {
-            rows.add("validate primary score <= 0");
+            rows.add("Validate 主分 <= 0");
         }
         if (!gte(response.forwardPnl, BigDecimal.ZERO)) {
-            rows.add("forward_pnl < 0");
+            rows.add("Forward 收益 < 0");
         }
         if (isTrue(response.fragileBest)) {
-            rows.add("fragile best param");
+            rows.add("最优参数呈现脆弱特征");
         }
         return rows;
     }

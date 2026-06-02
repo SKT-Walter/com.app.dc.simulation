@@ -141,9 +141,9 @@ public class BacktestService {
         response.trialBudget = trialBudget;
         response.trialBudgetUsed = response.trialCount;
         response.trialBudgetHit = response.trialCount >= trialBudget ? 1 : 0;
-        response.coarseCandidateCount = 0;
-        response.fineCandidateCount = 0;
-        response.bestRank = 0;
+        response.coarseCandidateCount = countTrialsByPhase(response.trials, "COARSE");
+        response.fineCandidateCount = countTrialsByPhase(response.trials, "FINE");
+        response.bestRank = minRank(response.trials);
         response.elapsedMs = nzInt(response.elapsedMs);
         response.symbolCount = nzInt(response.symbolCount);
         response.fitWindowDays = windowConfig.fitWindowDays;
@@ -391,8 +391,6 @@ public class BacktestService {
         BigDecimal feeAdjustedValidatePnl = BigDecimal.ZERO;
         BigDecimal sliceParamDriftScore = BigDecimal.ZERO;
         int sliceCount = Integer.MAX_VALUE;
-        boolean overfitPass = true;
-        String overfitReason = "";
         List<BacktestResult> symbolResults = executeSymbols(candidate, req, symbols, trialParams, windowConfig, plan, ohlcCache, trialBudget);
         symbolResults.sort(new Comparator<BacktestResult>() {
             @Override
@@ -414,12 +412,6 @@ public class BacktestService {
             feeAdjustedValidatePnl = feeAdjustedValidatePnl.add(nz(result.feeAdjustedValidatePnl));
             sliceParamDriftScore = sliceParamDriftScore.add(nz(result.sliceParamDriftScore));
             sliceCount = Math.min(sliceCount, result.sliceCount == null ? 0 : result.sliceCount.intValue());
-            if (!Integer.valueOf(1).equals(result.overfitPass)) {
-                overfitPass = false;
-                if (overfitReason.isEmpty() && result.overfitReason != null) {
-                    overfitReason = result.overfitReason;
-                }
-            }
         }
         response.results = results.isEmpty() ? Collections.<BacktestResult>emptyList() : results;
         response.fitPnl = scale(fitPnl.doubleValue());
@@ -432,10 +424,11 @@ public class BacktestService {
         response.feeAdjustedValidatePnl = scale(feeAdjustedValidatePnl.doubleValue());
         response.sliceParamDriftScore = results.isEmpty() ? BigDecimal.ZERO : scale(sliceParamDriftScore.doubleValue() / Math.max(1, results.size()));
         response.sliceCount = results.isEmpty() ? 0 : sliceCount;
-        response.overfitPass = results.isEmpty() ? 0 : (overfitPass ? 1 : 0);
-        response.overfitReason = overfitReason;
+        GateDecision gate = evaluateAggregateGate(response.fitPnl, response.validatePnl, response.forwardPnl, sumTradeCount(results));
+        response.overfitPass = results.isEmpty() ? 0 : (gate.overfitPass ? 1 : 0);
+        response.overfitReason = gate.reason;
         response.elapsedMs = elapsedMs(startNs);
-        response.oosPass = overfitPass && response.validatePnl.compareTo(BigDecimal.ZERO) > 0 ? 1 : 0;
+        response.oosPass = gate.oosPass ? 1 : 0;
         response.bestParamSetJson = aggregateBestParamSets(results, trialParams);
         response.trials = collectOptimizationTrials(results);
         response.trialCount = response.trials == null ? 0 : response.trials.size();
@@ -443,6 +436,29 @@ public class BacktestService {
                 candidate.strategyName, candidate.strategyVersion,
                 response.totalPnl, response.validatePnl, response.forwardPnl, response.sliceCount, response.elapsedMs);
         return response;
+    }
+
+    private GateDecision evaluateAggregateGate(BigDecimal fitPnl,
+                                               BigDecimal validatePnl,
+                                               BigDecimal forwardPnl,
+                                               int tradeCount) {
+        GateDecision gate = new GateDecision();
+        gate.overfitPass = true;
+        gate.oosPass = false;
+        gate.reason = "";
+        if (nz(fitPnl).compareTo(BigDecimal.ZERO) > 0
+                && nz(validatePnl).compareTo(BigDecimal.ZERO) <= 0) {
+            gate.overfitPass = false;
+            gate.reason = "fit_pnl > 0 but validate_pnl <= 0";
+        } else if (nz(validatePnl).compareTo(BigDecimal.ZERO) > 0
+                && nz(forwardPnl).compareTo(BigDecimal.ZERO) < 0) {
+            gate.overfitPass = false;
+            gate.reason = "validate_pnl > 0 but forward_pnl < 0";
+        }
+        gate.oosPass = gate.overfitPass
+                && nz(validatePnl).compareTo(BigDecimal.ZERO) > 0
+                && tradeCount > 0;
+        return gate;
     }
 
     private List<BacktestResult> executeSymbols(final StrategyCandidateRow candidate,
@@ -757,6 +773,46 @@ public class BacktestService {
         return 0;
     }
 
+    private int sumTradeCount(List<BacktestResult> results) {
+        if (results == null || results.isEmpty()) {
+            return 0;
+        }
+        int total = 0;
+        for (BacktestResult result : results) {
+            if (result != null && result.tradeCount != null) {
+                total += result.tradeCount.intValue();
+            }
+        }
+        return total;
+    }
+
+    private int countTrialsByPhase(List<OptimizationTrial> trials, String phase) {
+        if (trials == null || trials.isEmpty() || phase == null) {
+            return 0;
+        }
+        int count = 0;
+        for (OptimizationTrial trial : trials) {
+            if (trial != null && phase.equalsIgnoreCase(safeString(trial.phase))) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private int minRank(List<OptimizationTrial> trials) {
+        if (trials == null || trials.isEmpty()) {
+            return 0;
+        }
+        int best = Integer.MAX_VALUE;
+        for (OptimizationTrial trial : trials) {
+            if (trial == null || trial.rank == null || trial.rank.intValue() <= 0) {
+                continue;
+            }
+            best = Math.min(best, trial.rank.intValue());
+        }
+        return best == Integer.MAX_VALUE ? 0 : best;
+    }
+
     private String aggregateStableParamRange(List<BacktestResult> results) {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         if (results != null) {
@@ -814,6 +870,12 @@ public class BacktestService {
         private int validateWindowDays;
         private int forwardWindowDays;
         private int minSliceCount;
+    }
+
+    private static class GateDecision {
+        private boolean overfitPass;
+        private boolean oosPass;
+        private String reason;
     }
 
     private String heapSummary() {

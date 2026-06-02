@@ -80,6 +80,10 @@ public class StrategyAutoPublishService {
                 decision.reason = "window_mode is not WALK_FORWARD";
                 return decision;
             }
+            if (expectsOptimizationEvidence(candidate) && (current.trialCount == null || current.trialCount.intValue() <= 0)) {
+                decision.reason = "optimization evidence missing";
+                return decision;
+            }
             if (!gt(current.sliceCount == null ? 0D : current.sliceCount.doubleValue(), 2D)) {
                 decision.reason = "slice_count < 3";
                 return decision;
@@ -412,6 +416,10 @@ public class StrategyAutoPublishService {
             return summary.feeAdjustedValidatePnl;
         }
         return summary.validatePnl;
+    }
+
+    private boolean expectsOptimizationEvidence(StrategyCandidateRow candidate) {
+        return candidate != null && StrategyParametersSupport.isOptimizationSupported(candidate.parametersJson);
     }
 
     private boolean lte(Double left, double right) {

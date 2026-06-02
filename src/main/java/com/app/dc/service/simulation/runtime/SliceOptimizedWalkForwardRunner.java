@@ -78,6 +78,7 @@ public class SliceOptimizedWalkForwardRunner {
         aggregate.sliceCount = slices.size();
         aggregate.symbolCount = 1;
         aggregate.sliceResults = new ArrayList<BacktestModels.BacktestSliceResult>();
+        aggregate.optimizationTrials = new ArrayList<BacktestModels.OptimizationTrial>();
 
         BigDecimal fitPnl = BigDecimal.ZERO;
         BigDecimal validatePnl = BigDecimal.ZERO;
@@ -100,9 +101,12 @@ public class SliceOptimizedWalkForwardRunner {
             ensureNonEmpty("validate", validateRows, candidate, param, slice.validateBegin, slice.validateEnd);
             ensureNonEmpty("forward", forwardRows, candidate, param, slice.forwardBegin, slice.forwardEnd);
 
-            SliceSelection selection = selectBestParamForSlice(candidate, param, plan, fitRows, slice, perSliceBudget);
+            SliceSelection selection = selectBestParamForSlice(candidate, param, plan, fitRows, slice, i + 1, perSliceBudget);
             selectedParamSets.add(selection.paramSet);
             fragileCount += selection.fragileBest;
+            if (selection.optimizationTrials != null && !selection.optimizationTrials.isEmpty()) {
+                aggregate.optimizationTrials.addAll(selection.optimizationTrials);
+            }
 
             BacktestModels.BacktestResult fitResult = selection.fitResult;
             BacktestModels.BacktestResult validateResult = runWindow(candidate, param, selection.paramSet, validateRows, slice.validateBegin, slice.validateEnd);
@@ -175,6 +179,7 @@ public class SliceOptimizedWalkForwardRunner {
         aggregate.stableParamRangeJson = buildStableParamSummaryJson(selectedParamSets);
         aggregate.neighborAvgPnl = BigDecimal.ZERO;
         aggregate.neighborWorstPnl = BigDecimal.ZERO;
+        aggregate.trialCount = aggregate.optimizationTrials == null ? 0 : aggregate.optimizationTrials.size();
         return aggregate;
     }
 
@@ -183,6 +188,7 @@ public class SliceOptimizedWalkForwardRunner {
                                                    BacktestOptimizationService.OptimizationPlan plan,
                                                    List<TTbookOhlc> fitRows,
                                                    WindowSlice slice,
+                                                   int sliceNo,
                                                    int sliceBudget) throws Exception {
         SliceSelection selection = new SliceSelection();
         List<Map<String, Object>> coarseSets = plan == null || !plan.optimizationSupported
@@ -191,11 +197,13 @@ public class SliceOptimizedWalkForwardRunner {
         int coarseBudget = Math.max(1, sliceBudget / 2);
         coarseSets = limit(coarseSets, coarseBudget);
         List<SliceFitTrial> coarseTrials = executeFitTrials(candidate, baseParam, fitRows, slice, coarseSets, "COARSE");
-        backtestOptimizationService.rankFitTrials(plan, toOptimizationTrials(coarseTrials));
+        List<BacktestModels.OptimizationTrial> rankedCoarseTrials =
+                toOptimizationTrials(candidate, baseParam, plan, sliceNo, coarseTrials);
+        backtestOptimizationService.rankFitTrials(plan, rankedCoarseTrials);
 
         List<Map<String, Object>> fineSets = plan == null || !plan.optimizationSupported
                 ? Collections.<Map<String, Object>>emptyList()
-                : backtestOptimizationService.buildFineParamSets(plan, toOptimizationTrials(coarseTrials));
+                : backtestOptimizationService.buildFineParamSets(plan, rankedCoarseTrials);
         fineSets = limit(fineSets, Math.max(0, sliceBudget - coarseTrials.size()));
         List<SliceFitTrial> fineTrials = executeFitTrials(candidate, baseParam, fitRows, slice, fineSets, "FINE");
 
@@ -210,10 +218,13 @@ public class SliceOptimizedWalkForwardRunner {
             selection.selectionObjective = plan == null ? "" : plan.objective;
             selection.fitScore = nz(fitResult.totalPnl);
             selection.fragileBest = 1;
+            selection.optimizationTrials = Collections.emptyList();
             return selection;
         }
-        List<BacktestModels.OptimizationTrial> ranked = toOptimizationTrials(allTrials);
+        List<BacktestModels.OptimizationTrial> ranked =
+                toOptimizationTrials(candidate, baseParam, plan, sliceNo, allTrials);
         backtestOptimizationService.rankFitTrials(plan, ranked);
+        selection.optimizationTrials = ranked;
         Map<String, BacktestModels.OptimizationTrial> byParam = new LinkedHashMap<String, BacktestModels.OptimizationTrial>();
         for (BacktestModels.OptimizationTrial trial : ranked) {
             byParam.put(trial.paramSetJson, trial);
@@ -264,7 +275,11 @@ public class SliceOptimizedWalkForwardRunner {
         return results;
     }
 
-    private List<BacktestModels.OptimizationTrial> toOptimizationTrials(List<SliceFitTrial> trials) {
+    private List<BacktestModels.OptimizationTrial> toOptimizationTrials(StrategyCandidateRow candidate,
+                                                                        BacktestParam baseParam,
+                                                                        BacktestOptimizationService.OptimizationPlan plan,
+                                                                        int sliceNo,
+                                                                        List<SliceFitTrial> trials) {
         List<BacktestModels.OptimizationTrial> results = new ArrayList<BacktestModels.OptimizationTrial>();
         if (trials == null) {
             return results;
@@ -272,12 +287,25 @@ public class SliceOptimizedWalkForwardRunner {
         for (SliceFitTrial trial : trials) {
             BacktestModels.OptimizationTrial row = new BacktestModels.OptimizationTrial();
             row.trialNo = trial.trialNo;
+            row.sliceNo = sliceNo;
             row.phase = trial.phase;
+            row.strategyName = candidate == null ? "" : candidate.strategyName;
+            row.strategyVersion = candidate == null ? "" : candidate.strategyVersion;
+            row.symbolScope = baseParam == null ? "" : baseParam.symbol;
+            row.textScope = baseParam == null ? "" : baseParam.text;
             row.paramSetJson = trial.paramSetJson;
             row.fitPnl = nz(trial.fitResult == null ? null : trial.fitResult.totalPnl);
             row.totalPnl = row.fitPnl;
             row.maxDrawdownPct = nz(trial.fitResult == null ? null : trial.fitResult.maxDrawdownPct);
             row.overfitPass = 1;
+            row.sliceCount = 1;
+            row.symbolCount = 1;
+            row.fitWindowDays = plan == null ? 0 : plan.fitWindowDays;
+            row.validateWindowDays = plan == null ? 0 : plan.validateWindowDays;
+            row.forwardWindowDays = plan == null ? 0 : plan.forwardWindowDays;
+            row.minSliceCount = plan == null ? 0 : plan.minSliceCount;
+            row.optimizationObjective = plan == null ? "" : plan.objective;
+            row.minForwardContribution = plan == null ? BigDecimal.ZERO : nz(plan.minForwardContribution);
             results.add(row);
         }
         return results;
@@ -685,6 +713,7 @@ public class SliceOptimizedWalkForwardRunner {
         private int fragileBest = 0;
         private BigDecimal neighborAvgPnl = BigDecimal.ZERO;
         private BigDecimal neighborWorstPnl = BigDecimal.ZERO;
+        private List<BacktestModels.OptimizationTrial> optimizationTrials = Collections.emptyList();
     }
 
     private static class SliceFitTrial {

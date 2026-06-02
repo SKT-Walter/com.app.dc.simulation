@@ -139,10 +139,12 @@ public final class BacktestModels {
         public List<EquityPoint> equityCurve;
         public Map<String, Integer> rejectReasonCounts;
         public List<BacktestSliceResult> sliceResults;
+        public List<OptimizationTrial> optimizationTrials;
     }
 
     public static class OptimizationTrial {
         public Integer trialNo = 0;
+        public Integer sliceNo = 0;
         public String phase = "";
         public String strategyName;
         public String strategyVersion;

@@ -12,6 +12,7 @@ import com.app.dc.service.simulation.runtime.StrategyBacktestTaskDao;
 import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
 import com.app.dc.service.simulation.runtime.StrategyLiveRegistryPublishRow;
 import com.app.dc.service.simulation.runtime.StrategyReleaseEventRecord;
+import com.app.dc.signal.StrategyParametersSupport;
 import com.gateway.connector.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -106,7 +107,7 @@ public class BacktestReportService {
         report.put("tracking", buildTracking(sid, response, candidate, active, release, decision));
         report.put("summary", buildSummary(response));
         report.put("gates", buildGates(response, candidate, active, release, decision));
-        report.put("optimization", buildOptimization(response));
+        report.put("optimization", buildOptimization(response, candidate));
         report.put("results", buildResults(response));
         return report;
     }
@@ -222,10 +223,14 @@ public class BacktestReportService {
         return summary;
     }
 
-    private Map<String, Object> buildOptimization(BacktestResponse response) {
+    private Map<String, Object> buildOptimization(BacktestResponse response, StrategyCandidateRow candidate) {
         Map<String, Object> optimization = new LinkedHashMap<String, Object>();
+        String evidenceStatus = optimizationEvidenceStatus(response, candidate);
+        String evidenceMessage = optimizationEvidenceMessage(response, candidate);
         optimization.put("optimizationMode", s(response == null ? null : response.optimizationMode));
         optimization.put("optimizationObjective", s(response == null ? null : response.optimizationObjective));
+        optimization.put("evidenceStatus", evidenceStatus);
+        optimization.put("evidenceMessage", evidenceMessage);
         optimization.put("minForwardContribution", scale(response == null ? null : response.minForwardContribution));
         optimization.put("trialCount", nzInt(response == null ? null : response.trialCount));
         optimization.put("trialBudget", nzInt(response == null ? null : response.trialBudget));
@@ -295,6 +300,8 @@ public class BacktestReportService {
         gates.put("overfitReason", translateReason(overfitReason));
         gates.put("publishEligible", publishEligible ? 1 : 0);
         gates.put("publishReason", publishReason);
+        gates.put("failedRules", buildFailedRules(response, candidate));
+        gates.put("warnings", buildWarnings(response, candidate));
 
         if (active != null) {
             gates.put("liveRegistryEntered", 1);
@@ -766,6 +773,7 @@ public class BacktestReportService {
         html.append("<div class=\"section\"><h2>\u53c2\u6570\u4f18\u5316\u7ed3\u679c</h2><div class=\"grid\">")
                 .append(metric("\u4f18\u5316\u6a21\u5f0f", optimization.get("optimizationMode")))
                 .append(metric("\u4f18\u5316\u76ee\u6807", optimization.get("optimizationObjective")))
+                .append(metric("\u4f18\u5316\u8bc1\u636e", optimization.get("evidenceStatus")))
                 .append(metric("Trial \u6570", optimization.get("trialCount")))
                 .append(metric("\u6700\u4f73\u6392\u540d", optimization.get("bestRank")))
                 .append(metric("Forward \u8d21\u732e\u95e8\u69db", optimization.get("minForwardContribution")))
@@ -782,6 +790,10 @@ public class BacktestReportService {
 
         html.append("<div class=\"section\"><div class=\"tips\">")
                 .append(isTrue(gates.get("liveRegistryEntered")) ? "\u8be5\u7b56\u7565\u5df2\u6ee1\u8db3\u56de\u6d4b\u4e0e\u53d1\u5e03\u95e8\u69db\uff0c\u5e76\u5df2\u8fdb\u5165 live_registry\u3002" : "\u8be5\u7b56\u7565\u672a\u8fdb\u5165\u5b9e\u76d8\uff0c\u539f\u56e0\uff1a" + escape(s(gates.get("liveRegistryReason"))))
+                .append("<br/>")
+                .append("\u4f18\u5316\u8bc1\u636e\uff1a").append(escape(s(optimization.get("evidenceMessage"))))
+                .append(renderStringList("\u672a\u901a\u8fc7\u9879", (List<String>) gates.get("failedRules")))
+                .append(renderStringList("\u63d0\u793a", (List<String>) gates.get("warnings")))
                 .append("</div></div>");
 
         for (Map<String, Object> item : results) {
@@ -1187,10 +1199,28 @@ public class BacktestReportService {
         md.append("| Forward Score | ").append(s(summary.get("forwardScore"))).append(" |\\n");
         md.append("| \u603b\u624b\u7eed\u8d39 | ").append(s(summary.get("totalFee"))).append(" |\\n");
         md.append("| \u4f18\u5316\u6a21\u5f0f | ").append(s(optimization.get("optimizationMode"))).append(" |\\n");
+        md.append("| \u4f18\u5316\u8bc1\u636e | ").append(s(optimization.get("evidenceStatus"))).append(" |\\n");
         md.append("| Trial \u6570 | ").append(s(optimization.get("trialCount"))).append(" |\\n");
         md.append("| \u6700\u4f73\u6392\u540d | ").append(s(optimization.get("bestRank"))).append(" |\\n");
         md.append("| \u6700\u4f73\u70b9\u8106\u5f31 | ").append(isTrue(optimization.get("fragileBest")) ? "Y" : "N").append(" |\\n");
         md.append("| \u6700\u4f73\u53c2\u6570\u96c6 | `").append(s(optimization.get("bestParamSetJson"))).append("` |\\n");
+        md.append("| \u4f18\u5316\u8bc1\u636e\u8bf4\u660e | ").append(s(optimization.get("evidenceMessage"))).append(" |\\n");
+        @SuppressWarnings("unchecked")
+        List<String> failedRules = (List<String>) gates.get("failedRules");
+        if (failedRules != null && !failedRules.isEmpty()) {
+            md.append("\\n## \u672a\u901a\u8fc7\u9879\\n\\n");
+            for (String item : failedRules) {
+                md.append("- ").append(item).append("\\n");
+            }
+        }
+        @SuppressWarnings("unchecked")
+        List<String> warnings = (List<String>) gates.get("warnings");
+        if (warnings != null && !warnings.isEmpty()) {
+            md.append("\\n## \u63d0\u793a\\n\\n");
+            for (String item : warnings) {
+                md.append("- ").append(item).append("\\n");
+            }
+        }
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> trials = (List<Map<String, Object>>) optimization.get("trials");
         if (trials != null && !trials.isEmpty()) {
@@ -1252,8 +1282,22 @@ public class BacktestReportService {
         return text.substring(0, 69) + "...";
     }
 
+    private String renderStringList(String title, List<String> items) {
+        if (items == null || items.isEmpty()) {
+            return "";
+        }
+        StringBuilder html = new StringBuilder();
+        html.append("<div style=\"margin-top:10px;\"><strong>").append(escape(title)).append(":</strong><ul style=\"margin:6px 0 0 18px; padding:0;\">");
+        for (String item : items) {
+            html.append("<li>").append(escape(s(item))).append("</li>");
+        }
+        html.append("</ul></div>");
+        return html.toString();
+    }
+
     private boolean isPublishEligible(BacktestResponse response, StrategyCandidateRow candidate) {
         return response != null
+                && hasOptimizationEvidence(response, candidate)
                 && response.overfitPass != null
                 && response.overfitPass.intValue() > 0
                 && response.oosPass != null
@@ -1282,6 +1326,9 @@ public class BacktestReportService {
         }
         if (response == null) {
             return "\u5c1a\u672a\u751f\u6210\u56de\u6d4b\u7ed3\u679c";
+        }
+        if (!hasOptimizationEvidence(response, candidate)) {
+            return "optimization evidence missing";
         }
         if (response.overfitPass == null || response.overfitPass.intValue() <= 0) {
             return "\u672a\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5";
@@ -1321,6 +1368,86 @@ public class BacktestReportService {
             return "forward contribution below threshold";
         }
         return "\u6ee1\u8db3\u4e0a\u7ebf\u524d\u76c8\u5229\u95e8\u69db";
+    }
+
+    private boolean expectsOptimizationEvidence(StrategyCandidateRow candidate) {
+        return candidate != null && StrategyParametersSupport.isOptimizationSupported(candidate.parametersJson);
+    }
+
+    private boolean hasOptimizationEvidence(BacktestResponse response, StrategyCandidateRow candidate) {
+        if (!expectsOptimizationEvidence(candidate)) {
+            return true;
+        }
+        return response != null
+                && response.trialCount != null
+                && response.trialCount.intValue() > 0
+                && response.trials != null
+                && !response.trials.isEmpty();
+    }
+
+    private String optimizationEvidenceStatus(BacktestResponse response, StrategyCandidateRow candidate) {
+        if (!expectsOptimizationEvidence(candidate)) {
+            return "NOT_REQUIRED";
+        }
+        return hasOptimizationEvidence(response, candidate) ? "PRESENT" : "MISSING";
+    }
+
+    private String optimizationEvidenceMessage(BacktestResponse response, StrategyCandidateRow candidate) {
+        if (!expectsOptimizationEvidence(candidate)) {
+            return "\u672c\u6b21\u5019\u9009\u672a\u542f\u7528\u53c2\u6570\u4f18\u5316";
+        }
+        if (hasOptimizationEvidence(response, candidate)) {
+            return "\u5df2\u4ea7\u51fa slice fit trial \u8bc1\u636e\u4e0e\u53c2\u6570\u6392\u540d";
+        }
+        return "\u672c\u6b21\u56de\u6d4b\u672a\u4ea7\u51fa\u53ef\u7528\u7684 optimization trial \u8bc1\u636e";
+    }
+
+    private List<String> buildFailedRules(BacktestResponse response, StrategyCandidateRow candidate) {
+        List<String> rows = new ArrayList<String>();
+        if (response == null) {
+            rows.add("\u672a\u751f\u6210\u56de\u6d4b\u7ed3\u679c");
+            return rows;
+        }
+        if (!hasOptimizationEvidence(response, candidate)) {
+            rows.add("optimization evidence missing");
+        }
+        if (!isTrue(response.overfitPass)) {
+            rows.add("overfit gate not passed");
+        }
+        if (!isTrue(response.oosPass)) {
+            rows.add("oos gate not passed");
+        }
+        if (!gt(preferredValidateScore(response), BigDecimal.ZERO)) {
+            rows.add("validate primary score <= 0");
+        }
+        if (!gte(response.forwardPnl, BigDecimal.ZERO)) {
+            rows.add("forward_pnl < 0");
+        }
+        if (isTrue(response.fragileBest)) {
+            rows.add("fragile best param");
+        }
+        return rows;
+    }
+
+    private List<String> buildWarnings(BacktestResponse response, StrategyCandidateRow candidate) {
+        List<String> rows = new ArrayList<String>();
+        if (response == null) {
+            return rows;
+        }
+        if (expectsOptimizationEvidence(candidate) && !hasOptimizationEvidence(response, candidate)) {
+            rows.add("\u4f18\u5316\u8bc1\u636e\u7f3a\u5931\uff0c\u53c2\u6570\u7a33\u5b9a\u6027\u6307\u6807\u4ec5\u4f9b\u53c2\u8003");
+        }
+        if (response.results != null && response.results.size() > 1
+                && "{}".equals(StringUtils.trimToEmpty(response.bestParamSetJson))) {
+            rows.add("\u591a symbol \u56de\u6d4b\u672a\u5f62\u6210\u53ef\u53d1\u5e03\u7684\u7edf\u4e00 bestParamSet");
+        }
+        if (response.sliceParamDriftScore != null
+                && response.sliceParamDriftScore.compareTo(BigDecimal.ZERO) == 0
+                && expectsOptimizationEvidence(candidate)
+                && !hasOptimizationEvidence(response, candidate)) {
+            rows.add("\u53c2\u6570\u6f02\u79fb\u4e3a 0 \u53ef\u80fd\u4ec5\u56e0\u4e3a trial \u7f3a\u5931\uff0c\u4e0d\u4ee3\u8868\u771f\u6b63\u7a33\u5b9a");
+        }
+        return rows;
     }
 
     private BigDecimal preferredValidateScore(BacktestResponse response) {

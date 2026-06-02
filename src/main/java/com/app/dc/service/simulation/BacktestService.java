@@ -136,7 +136,8 @@ public class BacktestService {
         response.optimizationMode = plan.optimizationMode;
         response.optimizationObjective = plan.objective;
         response.minForwardContribution = plan.minForwardContribution;
-        response.trialCount = sumTrialCount(response.results);
+        response.trials = collectOptimizationTrials(response.results);
+        response.trialCount = response.trials == null ? 0 : response.trials.size();
         response.trialBudget = trialBudget;
         response.trialBudgetUsed = response.trialCount;
         response.trialBudgetHit = response.trialCount >= trialBudget ? 1 : 0;
@@ -153,7 +154,6 @@ public class BacktestService {
         response.stableParamRangeJson = aggregateStableParamRange(response.results);
         response.neighborAvgPnl = BigDecimal.ZERO;
         response.neighborWorstPnl = BigDecimal.ZERO;
-        response.trials = Collections.emptyList();
         if (response.results != null) {
             for (BacktestResult result : response.results) {
                 if (result == null) {
@@ -162,22 +162,10 @@ public class BacktestService {
                 result.optimizationMode = response.optimizationMode;
                 result.optimizationObjective = response.optimizationObjective;
                 result.minForwardContribution = response.minForwardContribution;
-                result.trialCount = response.trialCount;
-                result.trialBudget = response.trialBudget;
-                result.trialBudgetUsed = response.trialBudgetUsed;
-                result.trialBudgetHit = response.trialBudgetHit;
-                result.coarseCandidateCount = response.coarseCandidateCount;
-                result.fineCandidateCount = response.fineCandidateCount;
-                result.bestRank = response.bestRank;
-                result.bestParamSetJson = response.bestParamSetJson;
                 result.fitWindowDays = response.fitWindowDays;
                 result.validateWindowDays = response.validateWindowDays;
                 result.forwardWindowDays = response.forwardWindowDays;
                 result.minSliceCount = response.minSliceCount;
-                result.fragileBest = response.fragileBest;
-                result.stableParamRangeJson = response.stableParamRangeJson;
-                result.neighborAvgPnl = response.neighborAvgPnl;
-                result.neighborWorstPnl = response.neighborWorstPnl;
             }
         }
         log.info("BacktestService run end, strategy:{}@{}, trialCount:{}, totalPnl:{}, validatePnl:{}, forwardPnl:{}, sliceCount:{}, elapsedMs:{}, fragileBest:{}, oosPass:{}",
@@ -449,6 +437,8 @@ public class BacktestService {
         response.elapsedMs = elapsedMs(startNs);
         response.oosPass = overfitPass && response.validatePnl.compareTo(BigDecimal.ZERO) > 0 ? 1 : 0;
         response.bestParamSetJson = aggregateBestParamSets(results, trialParams);
+        response.trials = collectOptimizationTrials(results);
+        response.trialCount = response.trials == null ? 0 : response.trials.size();
         log.info("BacktestService runSingle end, strategy:{}@{}, totalPnl:{}, validatePnl:{}, forwardPnl:{}, sliceCount:{}, elapsedMs:{}",
                 candidate.strategyName, candidate.strategyVersion,
                 response.totalPnl, response.validatePnl, response.forwardPnl, response.sliceCount, response.elapsedMs);
@@ -542,6 +532,9 @@ public class BacktestService {
         result.validateWindowDays = windowConfig.validateWindowDays;
         result.forwardWindowDays = windowConfig.forwardWindowDays;
         result.minSliceCount = windowConfig.minSliceCount;
+        result.trialBudget = trialBudget;
+        result.trialBudgetUsed = result.trialCount;
+        result.trialBudgetHit = nzInt(result.trialCount) >= trialBudget ? 1 : 0;
         return result;
     }
 
@@ -735,6 +728,21 @@ public class BacktestService {
             total += nzInt(result == null ? null : result.trialCount);
         }
         return total;
+    }
+
+    private List<OptimizationTrial> collectOptimizationTrials(List<BacktestResult> results) {
+        List<OptimizationTrial> trials = new ArrayList<OptimizationTrial>();
+        if (results == null) {
+            return trials;
+        }
+        for (BacktestResult result : results) {
+            if (result == null || result.optimizationTrials == null || result.optimizationTrials.isEmpty()) {
+                continue;
+            }
+            trials.addAll(result.optimizationTrials);
+            result.trialCount = result.optimizationTrials.size();
+        }
+        return trials;
     }
 
     private int aggregateFragileBest(List<BacktestResult> results) {

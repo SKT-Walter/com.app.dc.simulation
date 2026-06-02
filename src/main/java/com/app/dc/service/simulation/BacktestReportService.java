@@ -35,9 +35,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.StringJoiner;
 
 @Service
@@ -107,6 +109,7 @@ public class BacktestReportService {
         report.put("tracking", buildTracking(sid, response, candidate, active, release, decision));
         report.put("summary", buildSummary(response));
         report.put("gates", buildGates(response, candidate, active, release, decision));
+        report.put("audit", buildAudit(response, candidate));
         report.put("optimization", buildOptimization(response, candidate));
         report.put("results", buildResults(response));
         return report;
@@ -282,7 +285,293 @@ public class BacktestReportService {
             trials.add(row);
         }
         optimization.put("trials", trials);
+        optimization.put("quality", buildOptimizationQuality(response, candidate));
+        optimization.put("heatmap", buildOptimizationHeatmap(response, candidate));
         return optimization;
+    }
+
+    private Map<String, Object> buildAudit(BacktestResponse response, StrategyCandidateRow candidate) {
+        Map<String, Object> audit = new LinkedHashMap<String, Object>();
+        List<Map<String, Object>> checks = buildAuditChecks(response, candidate);
+        boolean hardFail = false;
+        boolean softWarn = false;
+        for (Map<String, Object> check : checks) {
+            String status = s(check.get("status"));
+            if ("FAIL".equals(status)) {
+                hardFail = true;
+            } else if ("WARN".equals(status)) {
+                softWarn = true;
+            }
+        }
+        BigDecimal validateScore = preferredValidateScore(response);
+        String finalDecision;
+        if (hardFail) {
+            finalDecision = gt(validateScore, BigDecimal.ZERO) ? "WATCH" : "FAIL";
+        } else if (softWarn) {
+            finalDecision = "WATCH";
+        } else {
+            finalDecision = "PASS";
+        }
+        audit.put("finalDecision", finalDecision);
+        audit.put("summary", buildAuditSummary(response, candidate, checks, finalDecision));
+        audit.put("checks", checks);
+        return audit;
+    }
+
+    private String buildAuditSummary(BacktestResponse response,
+                                     StrategyCandidateRow candidate,
+                                     List<Map<String, Object>> checks,
+                                     String finalDecision) {
+        if (response == null) {
+            return "回测结果不存在，无法完成审核。";
+        }
+        List<String> failed = new ArrayList<String>();
+        List<String> warnings = new ArrayList<String>();
+        for (Map<String, Object> check : checks) {
+            String status = s(check.get("status"));
+            String name = s(check.get("name"));
+            String message = s(check.get("message"));
+            if ("FAIL".equals(status)) {
+                failed.add(StringUtils.isBlank(message) ? name : name + " - " + message);
+            } else if ("WARN".equals(status)) {
+                warnings.add(StringUtils.isBlank(message) ? name : name + " - " + message);
+            }
+        }
+        if ("PASS".equals(finalDecision)) {
+            return "Validate OOS、Forward 辅助确认、参数稳健性和优化证据均满足当前审核门槛。";
+        }
+        if ("WATCH".equals(finalDecision)) {
+            if (!failed.isEmpty()) {
+                return "Validate 仍有一定可读性，但存在需要人工复核的问题：" + StringUtils.join(failed, "；");
+            }
+            return "主要门槛通过，但存在观察项：" + StringUtils.join(warnings, "；");
+        }
+        if (!failed.isEmpty()) {
+            return "关键审核门槛未通过：" + StringUtils.join(failed, "；");
+        }
+        if (!hasOptimizationEvidence(response, candidate)) {
+            return "缺少参数寻优证据，当前回测结果不能作为自动发布依据。";
+        }
+        return "当前回测未通过审核。";
+    }
+
+    private List<Map<String, Object>> buildAuditChecks(BacktestResponse response, StrategyCandidateRow candidate) {
+        List<Map<String, Object>> checks = new ArrayList<Map<String, Object>>();
+        if (response == null) {
+            addAuditCheck(checks, "Backtest Result", "response exists", "missing", "FAIL", "未生成回测结果");
+            return checks;
+        }
+        addAuditCheck(checks,
+                "Optimization Evidence",
+                expectsOptimizationEvidence(candidate) ? "trialCount > 0" : "not required",
+                expectsOptimizationEvidence(candidate) ? String.valueOf(nzInt(response.trialCount)) : "N/A",
+                !expectsOptimizationEvidence(candidate) || hasOptimizationEvidence(response, candidate) ? "PASS" : "FAIL",
+                optimizationEvidenceMessage(response, candidate));
+        addAuditCheck(checks,
+                "Overfit Gate",
+                "must pass",
+                isTrue(response.overfitPass) ? "PASS" : "FAIL",
+                isTrue(response.overfitPass) ? "PASS" : "FAIL",
+                translateReason(defaultIfBlank(response.overfitReason, "")));
+        addAuditCheck(checks,
+                "OOS Gate",
+                "must pass",
+                isTrue(response.oosPass) ? "PASS" : "FAIL",
+                isTrue(response.oosPass) ? "PASS" : "FAIL",
+                isTrue(response.oosPass) ? "validate/forward 审核通过" : "validate/forward 审核未同时通过");
+        BigDecimal validateScore = preferredValidateScore(response);
+        addAuditCheck(checks,
+                "Validate Primary Score",
+                "> 0",
+                scale(validateScore).toPlainString(),
+                gt(validateScore, BigDecimal.ZERO) ? "PASS" : "FAIL",
+                gt(validateScore, BigDecimal.ZERO) ? "" : "Validate 主 OOS 分数不为正");
+        addAuditCheck(checks,
+                "Forward PnL",
+                ">= 0",
+                scale(response.forwardPnl).toPlainString(),
+                gte(response.forwardPnl, BigDecimal.ZERO) ? "PASS" : "FAIL",
+                gte(response.forwardPnl, BigDecimal.ZERO) ? "" : "Forward 辅助确认收益为负");
+        int tradeCount = sumTradeCount(response.results);
+        addAuditCheck(checks,
+                "Validate Trade Count",
+                ">= " + Math.max(1, minValidateTrades),
+                String.valueOf(tradeCount),
+                tradeCount >= Math.max(1, minValidateTrades) ? "PASS" : "WARN",
+                tradeCount >= Math.max(1, minValidateTrades) ? "" : "Validate 交易样本偏少");
+        BigDecimal maxDd = maxDrawdownPct(response.results);
+        addAuditCheck(checks,
+                "Validate Max Drawdown",
+                "<= " + scale(BigDecimal.valueOf(maxValidateDrawdownPct)).toPlainString(),
+                scale(maxDd).toPlainString(),
+                lte(maxDd, BigDecimal.valueOf(maxValidateDrawdownPct)) ? "PASS" : "FAIL",
+                lte(maxDd, BigDecimal.valueOf(maxValidateDrawdownPct)) ? "" : "Validate 最大回撤超过阈值");
+        BigDecimal profitFactor = avgProfitFactor(response.results);
+        addAuditCheck(checks,
+                "Validate Profit Factor",
+                ">= " + scale(BigDecimal.valueOf(minValidateProfitFactor)).toPlainString(),
+                scale(profitFactor).toPlainString(),
+                gte(profitFactor, BigDecimal.valueOf(minValidateProfitFactor)) ? "PASS" : "WARN",
+                gte(profitFactor, BigDecimal.valueOf(minValidateProfitFactor)) ? "" : "Profit factor 偏弱");
+        BigDecimal feeAdjustedValidate = preferredFeeAdjustedValidate(response);
+        addAuditCheck(checks,
+                "Fee Adjusted Validate PnL",
+                "> 0",
+                scale(feeAdjustedValidate).toPlainString(),
+                gt(feeAdjustedValidate, BigDecimal.ZERO) ? "PASS" : "FAIL",
+                gt(feeAdjustedValidate, BigDecimal.ZERO) ? "" : "扣费后的 Validate 收益不为正");
+        addAuditCheck(checks,
+                "Fragile Best",
+                "must be 0",
+                String.valueOf(nzInt(response.fragileBest)),
+                isTrue(response.fragileBest) ? "WARN" : "PASS",
+                isTrue(response.fragileBest) ? "最优参数点呈现孤点特征" : "最优参数邻域相对稳定");
+        boolean multiSymbolMissingPublishable = response.results != null && response.results.size() > 1
+                && "{}".equals(StringUtils.trimToEmpty(response.bestParamSetJson));
+        addAuditCheck(checks,
+                "Publishable Param Set",
+                response.results != null && response.results.size() > 1 ? "multi-symbol requires shared bestParamSet" : "bestParamSet available",
+                defaultIfBlank(response.bestParamSetJson, "{}"),
+                multiSymbolMissingPublishable ? "FAIL" : "PASS",
+                multiSymbolMissingPublishable ? "多 symbol 结果未形成统一可发布参数集" : "");
+        return checks;
+    }
+
+    private void addAuditCheck(List<Map<String, Object>> checks,
+                               String name,
+                               String rule,
+                               String actual,
+                               String status,
+                               String message) {
+        Map<String, Object> row = new LinkedHashMap<String, Object>();
+        row.put("name", name);
+        row.put("rule", rule);
+        row.put("actual", actual);
+        row.put("status", status);
+        row.put("message", message);
+        checks.add(row);
+    }
+
+    private Map<String, Object> buildOptimizationQuality(BacktestResponse response, StrategyCandidateRow candidate) {
+        Map<String, Object> quality = new LinkedHashMap<String, Object>();
+        String status;
+        List<String> reasons = new ArrayList<String>();
+        if (!expectsOptimizationEvidence(candidate)) {
+            status = "N/A";
+            reasons.add("当前候选未启用参数优化。");
+        } else if (!hasOptimizationEvidence(response, candidate)) {
+            status = "MISSING";
+            reasons.add("未产出 optimization trial，参数质量指标不能视为真实稳定性结论。");
+        } else if (response != null && isTrue(response.fragileBest)) {
+            status = "WEAK";
+            reasons.add("最优参数点呈现孤点特征。");
+            if (response.neighborWorstPnl != null) {
+                reasons.add("邻域最差收益=" + scale(response.neighborWorstPnl).toPlainString());
+            }
+        } else if (response != null && gt(response.sliceParamDriftScore, BigDecimal.valueOf(2D))) {
+            status = "WATCH";
+            reasons.add("不同 slice 间参数漂移较大。");
+            reasons.add("sliceParamDriftScore=" + scale(response.sliceParamDriftScore).toPlainString());
+        } else {
+            status = "GOOD";
+            reasons.add("存在真实 trial 证据，且最优点未被判定为 fragile。");
+            if (response != null) {
+                reasons.add("neighborAvgPnl=" + scale(response.neighborAvgPnl).toPlainString());
+            }
+        }
+        quality.put("status", status);
+        quality.put("message", reasons.isEmpty() ? "" : reasons.get(0));
+        quality.put("reasons", reasons);
+        return quality;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> buildOptimizationHeatmap(BacktestResponse response, StrategyCandidateRow candidate) {
+        Map<String, Object> heatmap = new LinkedHashMap<String, Object>();
+        if (!hasOptimizationEvidence(response, candidate) || response == null || response.trials == null || response.trials.isEmpty()) {
+            heatmap.put("enabled", 0);
+            heatmap.put("note", "本次回测未产出可用 optimization trial，热力图不可用。");
+            heatmap.put("cells", Collections.emptyList());
+            return heatmap;
+        }
+        Map<String, Set<String>> distinct = new LinkedHashMap<String, Set<String>>();
+        List<Map<String, Object>> trialParamMaps = new ArrayList<Map<String, Object>>();
+        for (BacktestModels.OptimizationTrial trial : response.trials) {
+            Map<String, Object> params = parseJsonMap(trial == null ? null : trial.paramSetJson);
+            trialParamMaps.add(params);
+            for (Map.Entry<String, Object> entry : params.entrySet()) {
+                if (entry.getValue() == null) {
+                    continue;
+                }
+                distinct.computeIfAbsent(entry.getKey(), k -> new LinkedHashSet<String>()).add(String.valueOf(entry.getValue()));
+            }
+        }
+        List<String> varying = new ArrayList<String>();
+        for (Map.Entry<String, Set<String>> entry : distinct.entrySet()) {
+            if (entry.getValue().size() > 1) {
+                varying.add(entry.getKey());
+            }
+        }
+        varying.sort((a, b) -> {
+            int cmp = Integer.compare(distinct.get(b).size(), distinct.get(a).size());
+            if (cmp != 0) {
+                return cmp;
+            }
+            return a.compareTo(b);
+        });
+        if (varying.size() < 2) {
+            heatmap.put("enabled", 0);
+            heatmap.put("note", "试验参数变化维度不足，无法生成二维热力图。");
+            heatmap.put("cells", Collections.emptyList());
+            return heatmap;
+        }
+        String xParam = varying.get(0);
+        String yParam = varying.get(1);
+        Map<String, BigDecimal> sumByCell = new LinkedHashMap<String, BigDecimal>();
+        Map<String, Integer> countByCell = new LinkedHashMap<String, Integer>();
+        Set<String> xValueSet = new LinkedHashSet<String>();
+        Set<String> yValueSet = new LinkedHashSet<String>();
+        for (int i = 0; i < response.trials.size(); i++) {
+            BacktestModels.OptimizationTrial trial = response.trials.get(i);
+            Map<String, Object> params = i < trialParamMaps.size() ? trialParamMaps.get(i) : Collections.<String, Object>emptyMap();
+            String xValue = String.valueOf(params.get(xParam));
+            String yValue = String.valueOf(params.get(yParam));
+            xValueSet.add(xValue);
+            yValueSet.add(yValue);
+            String key = xValue + "\u0001" + yValue;
+            sumByCell.put(key, nz(sumByCell.get(key)).add(nz(trial == null ? null : trial.fitPnl)));
+            countByCell.put(key, nzInt(countByCell.get(key)) + 1);
+        }
+        List<String> xValues = new ArrayList<String>(xValueSet);
+        List<String> yValues = new ArrayList<String>(yValueSet);
+        xValues.sort(this::compareParamValueStrings);
+        yValues.sort(this::compareParamValueStrings);
+        List<Map<String, Object>> cells = new ArrayList<Map<String, Object>>();
+        for (String yValue : yValues) {
+            for (String xValue : xValues) {
+                String key = xValue + "\u0001" + yValue;
+                Integer count = countByCell.get(key);
+                if (count == null || count.intValue() <= 0) {
+                    continue;
+                }
+                BigDecimal avg = nz(sumByCell.get(key)).divide(BigDecimal.valueOf(count), 6, RoundingMode.HALF_UP);
+                Map<String, Object> cell = new LinkedHashMap<String, Object>();
+                cell.put("xValue", xValue);
+                cell.put("yValue", yValue);
+                cell.put("value", scale(avg));
+                cell.put("count", count);
+                cells.add(cell);
+            }
+        }
+        heatmap.put("enabled", cells.isEmpty() ? 0 : 1);
+        heatmap.put("metric", "fitPnl");
+        heatmap.put("xParam", xParam);
+        heatmap.put("yParam", yParam);
+        heatmap.put("xValues", xValues);
+        heatmap.put("yValues", yValues);
+        heatmap.put("cells", cells);
+        heatmap.put("note", cells.isEmpty() ? "试验记录不足，暂时无法形成热力图。" : "");
+        return heatmap;
     }
 
     private Map<String, Object> buildGates(BacktestResponse response,
@@ -663,6 +952,8 @@ public class BacktestReportService {
         @SuppressWarnings("unchecked")
         Map<String, Object> gates = (Map<String, Object>) report.get("gates");
         @SuppressWarnings("unchecked")
+        Map<String, Object> audit = (Map<String, Object>) report.get("audit");
+        @SuppressWarnings("unchecked")
         Map<String, Object> optimization = (Map<String, Object>) report.get("optimization");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> results = (List<Map<String, Object>>) report.get("results");
@@ -752,6 +1043,14 @@ public class BacktestReportService {
                 .append(statusCard("\u5b9e\u76d8\u51c6\u5165\u7ed3\u679c", isTrue(gates.get("liveRegistryEntered")) ? "\u5df2\u8fdb\u5165\u5b9e\u76d8" : "\u672a\u8fdb\u5165\u5b9e\u76d8", isTrue(gates.get("liveRegistryEntered")) ? "\u5199\u5165\u7248\u672c\uff1a" + safeCell(gates.get("liveStrategyLabel")) + " / \u751f\u6548\u65f6\u95f4\uff1a" + safeCell(gates.get("liveEffectiveTime")) + " / \u72b6\u6001\uff1a" + safeCell(gates.get("liveStatus")) : s(gates.get("liveRegistryReason")), isTrue(gates.get("liveRegistryEntered")) ? "pass" : "fail"))
                 .append("</div></div>");
 
+        html.append("<div class=\"section\"><h2>\u5ba1\u6838\u68c0\u67e5</h2>")
+                .append("<div class=\"grid\">")
+                .append(statusCard("\u5ba1\u6838\u7ed3\u8bba", s(audit.get("finalDecision")), s(audit.get("summary")), auditDecisionClass(s(audit.get("finalDecision")))))
+                .append(statusCard("\u53c2\u6570\u8d28\u91cf", s(((Map<String, Object>) optimization.get("quality")).get("status")), s(((Map<String, Object>) optimization.get("quality")).get("message")), optimizationQualityClass(s(((Map<String, Object>) optimization.get("quality")).get("status")))))
+                .append("</div>")
+                .append(renderAuditTable(audit))
+                .append("</div>");
+
         html.append("<div class=\"section\"><h2>\u6c47\u603b\u6307\u6807</h2><div class=\"grid\">")
                 .append(metric("Fit \u6536\u76ca", summary.get("fitPnl")))
                 .append(metric("Validate \u6536\u76ca", summary.get("validatePnl")))
@@ -785,6 +1084,8 @@ public class BacktestReportService {
                 .append(metric("\u6700\u4f73\u53c2\u6570\u96c6", compactJsonValue(optimization.get("bestParamSetJson"))))
                 .append(metric("\u7a33\u5b9a\u53c2\u6570\u533a\u95f4", compactJsonValue(optimization.get("stableParamRangeJson"))))
                 .append("</div>")
+                .append(renderOptimizationQuality(optimization))
+                .append(renderHeatmapSection(optimization))
                 .append(renderOptimizationTrialsV2(optimization))
                 .append("</div>");
 
@@ -852,6 +1153,134 @@ public class BacktestReportService {
         return "<div class=\"card\"><div class=\"metric-label\">" + escape(label)
                 + "</div><div class=\"metric-value\">" + escape(s(value))
                 + "</div></div>";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String renderAuditTable(Map<String, Object> audit) {
+        if (audit == null) {
+            return "";
+        }
+        List<Map<String, Object>> checks = (List<Map<String, Object>>) audit.get("checks");
+        return renderTable(
+                new String[]{"检查项", "规则", "实际值", "结果", "说明"},
+                checks,
+                new String[]{"name", "rule", "actual", "status", "message"});
+    }
+
+    @SuppressWarnings("unchecked")
+    private String renderOptimizationQuality(Map<String, Object> optimization) {
+        if (optimization == null) {
+            return "";
+        }
+        Map<String, Object> quality = (Map<String, Object>) optimization.get("quality");
+        if (quality == null) {
+            return "";
+        }
+        StringBuilder html = new StringBuilder();
+        html.append("<div class=\"section\"><h2>参数质量检查</h2><div class=\"grid\">")
+                .append(statusCard("参数质量状态",
+                        s(quality.get("status")),
+                        s(quality.get("message")),
+                        optimizationQualityClass(s(quality.get("status")))))
+                .append("</div>");
+        List<String> reasons = (List<String>) quality.get("reasons");
+        if (reasons != null && !reasons.isEmpty()) {
+            html.append(renderStringList("质量说明", reasons));
+        }
+        html.append("</div>");
+        return html.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private String renderHeatmapSection(Map<String, Object> optimization) {
+        if (optimization == null) {
+            return "";
+        }
+        Map<String, Object> heatmap = (Map<String, Object>) optimization.get("heatmap");
+        if (heatmap == null) {
+            return "";
+        }
+        if (!isTrue(heatmap.get("enabled"))) {
+            return "<div class=\"section\"><h2>参数热力图</h2><div class=\"tips\">" + escape(s(heatmap.get("note"))) + "</div></div>";
+        }
+        return "<div class=\"section\"><h2>参数热力图</h2>"
+                + "<div class=\"muted\" style=\"margin-bottom:10px;\">指标：" + escape(s(heatmap.get("metric")))
+                + " / X：" + escape(s(heatmap.get("xParam")))
+                + " / Y：" + escape(s(heatmap.get("yParam"))) + "</div>"
+                + renderHeatmapMatrix(heatmap)
+                + "</div>";
+    }
+
+    @SuppressWarnings("unchecked")
+    private String renderHeatmapMatrix(Map<String, Object> heatmap) {
+        List<String> xValues = (List<String>) heatmap.get("xValues");
+        List<String> yValues = (List<String>) heatmap.get("yValues");
+        List<Map<String, Object>> cells = (List<Map<String, Object>>) heatmap.get("cells");
+        if (xValues == null || xValues.isEmpty() || yValues == null || yValues.isEmpty() || cells == null || cells.isEmpty()) {
+            return "<div class=\"tips\">热力图数据不足。</div>";
+        }
+        Map<String, Map<String, Object>> cellMap = new LinkedHashMap<String, Map<String, Object>>();
+        BigDecimal maxAbs = BigDecimal.ZERO;
+        for (Map<String, Object> cell : cells) {
+            String key = s(cell.get("xValue")) + "\u0001" + s(cell.get("yValue"));
+            cellMap.put(key, cell);
+            maxAbs = maxAbs.max(n(cell.get("value")).abs());
+        }
+        if (maxAbs.compareTo(BigDecimal.ZERO) == 0) {
+            maxAbs = BigDecimal.ONE;
+        }
+        StringBuilder html = new StringBuilder();
+        html.append("<div class=\"table-wrap\"><table><thead><tr><th>")
+                .append(escape(s(heatmap.get("yParam"))))
+                .append(" \\ ")
+                .append(escape(s(heatmap.get("xParam"))))
+                .append("</th>");
+        for (String x : xValues) {
+            html.append("<th>").append(escape(x)).append("</th>");
+        }
+        html.append("</tr></thead><tbody>");
+        for (String y : yValues) {
+            html.append("<tr><td>").append(escape(y)).append("</td>");
+            for (String x : xValues) {
+                Map<String, Object> cell = cellMap.get(x + "\u0001" + y);
+                if (cell == null) {
+                    html.append("<td class=\"muted\">-</td>");
+                    continue;
+                }
+                BigDecimal value = n(cell.get("value"));
+                int count = nzInt(cell.get("count"));
+                html.append("<td style=\"background:").append(heatColor(value, maxAbs)).append(";\">")
+                        .append(escape(scale(value).toPlainString()))
+                        .append("<div class=\"muted\">n=").append(count).append("</div></td>");
+            }
+            html.append("</tr>");
+        }
+        html.append("</tbody></table></div>");
+        return html.toString();
+    }
+
+    private String heatColor(BigDecimal value, BigDecimal maxAbs) {
+        if (value == null || maxAbs == null || maxAbs.compareTo(BigDecimal.ZERO) <= 0) {
+            return "#f8fafc";
+        }
+        double ratio = Math.min(1D, value.abs().divide(maxAbs, 6, RoundingMode.HALF_UP).doubleValue());
+        if (value.compareTo(BigDecimal.ZERO) > 0) {
+            int red = (int) Math.round(236 - 42 * ratio);
+            int green = (int) Math.round(253 - 18 * ratio);
+            int blue = (int) Math.round(243 - 86 * ratio);
+            return String.format(Locale.US, "#%02x%02x%02x", clampColor(red), clampColor(green), clampColor(blue));
+        }
+        if (value.compareTo(BigDecimal.ZERO) < 0) {
+            int red = (int) Math.round(254 - 18 * ratio);
+            int green = (int) Math.round(242 - 84 * ratio);
+            int blue = (int) Math.round(242 - 70 * ratio);
+            return String.format(Locale.US, "#%02x%02x%02x", clampColor(red), clampColor(green), clampColor(blue));
+        }
+        return "#f8fafc";
+    }
+
+    private int clampColor(int value) {
+        return Math.max(0, Math.min(255, value));
     }
 
     private String renderTable(String[] headers, List<Map<String, Object>> rows, String[] keys) {
@@ -1164,6 +1593,8 @@ public class BacktestReportService {
         @SuppressWarnings("unchecked")
         Map<String, Object> gates = (Map<String, Object>) report.get("gates");
         @SuppressWarnings("unchecked")
+        Map<String, Object> audit = (Map<String, Object>) report.get("audit");
+        @SuppressWarnings("unchecked")
         Map<String, Object> optimization = (Map<String, Object>) report.get("optimization");
 
         StringBuilder md = new StringBuilder();
@@ -1205,6 +1636,46 @@ public class BacktestReportService {
         md.append("| \u6700\u4f73\u70b9\u8106\u5f31 | ").append(isTrue(optimization.get("fragileBest")) ? "Y" : "N").append(" |\\n");
         md.append("| \u6700\u4f73\u53c2\u6570\u96c6 | `").append(s(optimization.get("bestParamSetJson"))).append("` |\\n");
         md.append("| \u4f18\u5316\u8bc1\u636e\u8bf4\u660e | ").append(s(optimization.get("evidenceMessage"))).append(" |\\n");
+        md.append("\\n## \u5ba1\u6838\u68c0\u67e5\\n\\n");
+        md.append("- \u5ba1\u6838\u7ed3\u8bba\uff1a").append(s(audit.get("finalDecision"))).append("\\n");
+        md.append("- \u7ed3\u8bba\u6458\u8981\uff1a").append(s(audit.get("summary"))).append("\\n\\n");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> checks = (List<Map<String, Object>>) audit.get("checks");
+        if (checks != null && !checks.isEmpty()) {
+            md.append("| \u68c0\u67e5\u9879 | \u89c4\u5219 | \u5b9e\u9645\u503c | \u7ed3\u679c | \u8bf4\u660e |\\n|---|---|---|---|---|\\n");
+            for (Map<String, Object> check : checks) {
+                md.append("| ").append(s(check.get("name")))
+                        .append(" | ").append(s(check.get("rule")))
+                        .append(" | ").append(s(check.get("actual")))
+                        .append(" | ").append(s(check.get("status")))
+                        .append(" | ").append(s(check.get("message")))
+                        .append(" |\\n");
+            }
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> quality = (Map<String, Object>) optimization.get("quality");
+        if (quality != null) {
+            md.append("\\n## \u53c2\u6570\u8d28\u91cf\\n\\n");
+            md.append("- \u72b6\u6001\uff1a").append(s(quality.get("status"))).append("\\n");
+            md.append("- \u8bf4\u660e\uff1a").append(s(quality.get("message"))).append("\\n");
+            @SuppressWarnings("unchecked")
+            List<String> qualityReasons = (List<String>) quality.get("reasons");
+            if (qualityReasons != null && !qualityReasons.isEmpty()) {
+                for (String item : qualityReasons) {
+                    md.append("  - ").append(item).append("\\n");
+                }
+            }
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> heatmap = (Map<String, Object>) optimization.get("heatmap");
+        if (heatmap != null) {
+            md.append("\\n## \u53c2\u6570\u70ed\u529b\u56fe\\n\\n");
+            md.append("- \u542f\u7528\uff1a").append(isTrue(heatmap.get("enabled")) ? "Y" : "N").append("\\n");
+            md.append("- \u6307\u6807\uff1a").append(s(heatmap.get("metric"))).append("\\n");
+            md.append("- X \u8f74\uff1a").append(s(heatmap.get("xParam"))).append("\\n");
+            md.append("- Y \u8f74\uff1a").append(s(heatmap.get("yParam"))).append("\\n");
+            md.append("- \u8bf4\u660e\uff1a").append(s(heatmap.get("note"))).append("\\n");
+        }
         @SuppressWarnings("unchecked")
         List<String> failedRules = (List<String>) gates.get("failedRules");
         if (failedRules != null && !failedRules.isEmpty()) {
@@ -1280,6 +1751,61 @@ public class BacktestReportService {
             return text;
         }
         return text.substring(0, 69) + "...";
+    }
+
+    private String auditDecisionClass(String decision) {
+        if ("PASS".equalsIgnoreCase(decision)) {
+            return "pass";
+        }
+        if ("WATCH".equalsIgnoreCase(decision)) {
+            return "warn";
+        }
+        return "fail";
+    }
+
+    private String optimizationQualityClass(String status) {
+        if ("GOOD".equalsIgnoreCase(status)) {
+            return "pass";
+        }
+        if ("WATCH".equalsIgnoreCase(status) || "N/A".equalsIgnoreCase(status)) {
+            return "warn";
+        }
+        return "fail";
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseJsonMap(String json) {
+        if (StringUtils.isBlank(json) || "{}".equals(StringUtils.trim(json))) {
+            return Collections.emptyMap();
+        }
+        try {
+            Object parsed = JsonUtils.Deserialize(json, Map.class);
+            if (parsed instanceof Map) {
+                return new LinkedHashMap<String, Object>((Map<String, Object>) parsed);
+            }
+        } catch (Exception ignore) {
+        }
+        return Collections.emptyMap();
+    }
+
+    private int compareParamValueStrings(String a, String b) {
+        BigDecimal left = parseBigDecimalOrNull(a);
+        BigDecimal right = parseBigDecimalOrNull(b);
+        if (left != null && right != null) {
+            return left.compareTo(right);
+        }
+        return StringUtils.defaultString(a).compareTo(StringUtils.defaultString(b));
+    }
+
+    private BigDecimal parseBigDecimalOrNull(String value) {
+        if (StringUtils.isBlank(value) || "null".equalsIgnoreCase(value)) {
+            return null;
+        }
+        try {
+            return new BigDecimal(value.trim());
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private String renderStringList(String title, List<String> items) {

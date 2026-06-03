@@ -68,7 +68,7 @@ public class BacktestService {
     @Qualifier("strategyBacktestSymbolExecutor")
     private ThreadPoolTaskExecutor strategyBacktestSymbolExecutor;
 
-    @Value("${strategy.backtest.maxTrialsPerTask:160}")
+    @Value("${strategy.backtest.maxTrialsPerTask:1000}")
     private int maxTrialsPerTask;
 
     public BacktestResponse run(BacktestParam param) throws Exception {

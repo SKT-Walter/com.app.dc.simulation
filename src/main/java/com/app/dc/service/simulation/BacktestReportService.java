@@ -438,18 +438,18 @@ public class BacktestReportService {
                 String.valueOf(nzInt(response.fragileBest)),
                 isTrue(response.fragileBest) ? "WARN" : "PASS",
                 isTrue(response.fragileBest) ? "最优参数点呈现孤点特征" : "最优参数邻域相对稳定");
-        boolean singleSymbolMissingPublishable = !(response.results != null && response.results.size() > 1)
+                boolean singleSymbolMissingPublishable = !(response.results != null && response.results.size() > 1)
                 && "{}".equals(StringUtils.trimToEmpty(response.bestParamSetJson));
         addAuditCheck(checks,
-                "??????",
-                response.results != null && response.results.size() > 1 ? "? symbol ??? symbol ??????" : "??? bestParamSet",
+                "可发布参数集",
+                response.results != null && response.results.size() > 1 ? "多 symbol 允许按 symbol 独立参数发布" : "需存在 bestParamSet",
                 response.results != null && response.results.size() > 1
-                        ? "? symbol ??????"
+                        ? "按 symbol 独立最优参数"
                         : defaultIfBlank(response.bestParamSetJson, "{}"),
                 response.results != null && response.results.size() > 1 ? "PASS" : (singleSymbolMissingPublishable ? "FAIL" : "PASS"),
                 response.results != null && response.results.size() > 1
-                        ? "? symbol ???????? bestParamSet???? symbol ????"
-                        : (singleSymbolMissingPublishable ? "?? symbol ????????" : ""));
+                        ? "多 symbol 场景不再要求统一 bestParamSet，支持按 symbol 拆分发布"
+                        : (singleSymbolMissingPublishable ? "单一 symbol 缺少可发布参数集" : ""));
         return checks;
     }
 

@@ -1,5 +1,7 @@
 package com.app.dc.service.simulation.runtime;
 
+import java.util.List;
+
 public interface StrategyAutoPublishDao {
     StrategyLiveRegistryPublishRow loadCurrentActive(String strategyName);
 
@@ -12,6 +14,8 @@ public interface StrategyAutoPublishDao {
     StrategyLiveRegistryPublishRow loadExactActive(String strategyName, String strategyVersion);
 
     StrategyLiveRegistryPublishRow loadExactActive(String strategyName, String strategyVersion, String symbolScope);
+
+    List<StrategyLiveRegistryPublishRow> listExactActiveRows(String strategyName, String strategyVersion);
 
     StrategyBacktestSummary loadLatestSummary(String strategyName, String strategyVersion);
 

@@ -356,6 +356,10 @@ public class WorkbenchService {
         return strategyAutoPublishDao.loadLatestSummary(strategyName, strategyVersion);
     }
 
+    protected StrategyBacktestSummary loadLatestSummary(String strategyName, String strategyVersion, String symbolScope) {
+        return strategyAutoPublishDao.loadLatestSummary(strategyName, strategyVersion, symbolScope);
+    }
+
     protected Map<String, Object> loadLatestReportMeta(String taskId, String strategyName, String strategyVersion) {
         Map<String, Object> report = new LinkedHashMap<String, Object>();
         report.put("reportPath", "");
@@ -467,19 +471,27 @@ public class WorkbenchService {
                 item.put("reason", row.reason);
                 item.put("source", row.source);
                 item.put("payload", blankTo(row.payload, ""));
+                Map<String, Object> releasePayload = parseJsonObject(row.payload);
+                String releaseSymbolScope = firstNonBlank(releasePayload.get("symbolScope"));
                 StrategyCandidateRow candidate = loadCandidate(row.strategyName, row.toVersion);
                 item.put("strategyDescription", candidate == null ? "" : blankTo(candidate.description, ""));
-                StrategyBacktestSummary summary = loadLatestSummary(row.strategyName, row.toVersion);
+                StrategyBacktestSummary summary = StringUtils.isNotBlank(releaseSymbolScope)
+                        ? loadLatestSummary(row.strategyName, row.toVersion, releaseSymbolScope)
+                        : loadLatestSummary(row.strategyName, row.toVersion);
                 item.put("summary", summaryView(summary));
                 Map<String, Object> publishScope = candidate == null
                         ? Collections.<String, Object>emptyMap()
                         : buildPayloadSummaryFromRawMap(parseJsonObject(candidate.payload));
                 item.put("symbol", firstNonBlank(
+                        releaseSymbolScope,
                         publishScope.get("symbol"),
                         publishScope.get("symbols")));
+                StrategyLiveRegistryPublishRow active = StringUtils.isNotBlank(releaseSymbolScope)
+                        ? strategyAutoPublishDao.loadExactActive(row.strategyName, row.toVersion, releaseSymbolScope)
+                        : strategyAutoPublishDao.loadExactActive(row.strategyName, row.toVersion);
                 item.put("text", firstNonBlank(
+                        active == null ? "" : active.textScope,
                         publishScope.get("text")));
-                StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadExactActive(row.strategyName, row.toVersion);
                 item.put("active", active != null);
                 item.put("effectiveTime", active == null ? "" : blankTo(active.effectiveTime, ""));
                 items.add(item);
@@ -1067,9 +1079,12 @@ public class WorkbenchService {
 
     private Map<String, Object> buildPublishState(String strategyName, String strategyVersion) {
         Map<String, Object> publish = new LinkedHashMap<String, Object>();
-        StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadExactActive(strategyName, strategyVersion);
+        List<StrategyLiveRegistryPublishRow> activeRows = strategyAutoPublishDao.listExactActiveRows(strategyName, strategyVersion);
+        StrategyLiveRegistryPublishRow active = activeRows == null || activeRows.isEmpty() ? null : activeRows.get(0);
         StrategyReleaseEventRecord event = strategyAutoPublishDao.loadLatestReleaseEvent(strategyName, strategyVersion);
         publish.put("active", active != null);
+        publish.put("activeCount", activeRows == null ? 0 : activeRows.size());
+        publish.put("activeSymbols", joinActiveSymbols(activeRows));
         publish.put("effectiveTime", active == null ? "" : blankTo(active.effectiveTime, ""));
         publish.put("currentLiveVersion", active == null ? "" : blankTo(active.strategyVersion, ""));
         publish.put("currentLiveStatus", active == null ? "" : blankTo(active.status, ""));
@@ -1078,6 +1093,20 @@ public class WorkbenchService {
         publish.put("releaseEventReason", event == null ? "" : blankTo(event.reason, ""));
         publish.put("releaseEventSource", event == null ? "" : blankTo(event.source, ""));
         return publish;
+    }
+
+    private String joinActiveSymbols(List<StrategyLiveRegistryPublishRow> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return "";
+        }
+        List<String> values = new ArrayList<String>();
+        for (StrategyLiveRegistryPublishRow row : rows) {
+            if (row == null || StringUtils.isBlank(row.symbolScope)) {
+                continue;
+            }
+            values.add(row.symbolScope.trim());
+        }
+        return String.join(",", values);
     }
 
     private boolean matchesSymbol(Map<String, Object> item, String symbol) {

@@ -97,6 +97,25 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
     }
 
     @Override
+    public List<StrategyLiveRegistryPublishRow> listExactActiveRows(String strategyName, String strategyVersion) {
+        if (!ready() || StringUtils.isBlank(strategyName) || StringUtils.isBlank(strategyVersion)) {
+            return Collections.emptyList();
+        }
+        String sql = registryQuery()
+                + " where lower(strategy_name)=lower(?) and lower(strategy_version)=lower(?) and status='ACTIVE'"
+                + " and (retire_time is null or retire_time > now())"
+                + " order by effective_time desc";
+        try {
+            List<StrategyLiveRegistryPublishRow> rows = ClickHouseDBUtils.queryList(sql,
+                    new Object[]{strategyName, strategyVersion}, StrategyLiveRegistryPublishRow.class);
+            return rows == null ? Collections.<StrategyLiveRegistryPublishRow>emptyList() : rows;
+        } catch (Exception e) {
+            log.error("listExactActiveRows error, strategy:{}@{}", strategyName, strategyVersion, e);
+            return Collections.emptyList();
+        }
+    }
+
+    @Override
     public StrategyLiveRegistryPublishRow loadExactActive(String strategyName, String strategyVersion, String symbolScope) {
         if (!ready() || StringUtils.isBlank(strategyName) || StringUtils.isBlank(strategyVersion)) {
             return null;

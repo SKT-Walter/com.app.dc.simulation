@@ -103,12 +103,12 @@ public class BacktestReportService {
     private Map<String, Object> buildReport(String sid, BacktestResponse response, StrategyAutoPublishDecision decision) {
         Map<String, Object> report = new LinkedHashMap<String, Object>();
         StrategyCandidateRow candidate = strategyBacktestTaskDao.loadCandidate(response.strategyName, response.strategyVersion);
-        StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadExactActive(response.strategyName, response.strategyVersion);
+        List<StrategyLiveRegistryPublishRow> activeRows = strategyAutoPublishDao.listExactActiveRows(response.strategyName, response.strategyVersion);
         StrategyReleaseEventRecord release = strategyAutoPublishDao.loadLatestReleaseEvent(response.strategyName, response.strategyVersion);
         report.put("reportMeta", buildMeta(sid, response));
-        report.put("tracking", buildTracking(sid, response, candidate, active, release, decision));
+        report.put("tracking", buildTracking(sid, response, candidate, activeRows, release, decision));
         report.put("summary", buildSummary(response));
-        report.put("gates", buildGates(response, candidate, active, release, decision));
+        report.put("gates", buildGates(response, candidate, activeRows, release, decision));
         report.put("audit", buildAudit(response, candidate));
         report.put("optimization", buildOptimization(response, candidate));
         report.put("results", buildResults(response));
@@ -140,10 +140,11 @@ public class BacktestReportService {
     private Map<String, Object> buildTracking(String sid,
                                               BacktestResponse response,
                                               StrategyCandidateRow candidate,
-                                              StrategyLiveRegistryPublishRow active,
+                                              List<StrategyLiveRegistryPublishRow> activeRows,
                                               StrategyReleaseEventRecord release,
                                               StrategyAutoPublishDecision decision) {
         Map<String, Object> tracking = new LinkedHashMap<String, Object>();
+        StrategyLiveRegistryPublishRow active = activeRows == null || activeRows.isEmpty() ? null : activeRows.get(0);
         tracking.put("sid", defaultIfBlank(sid, ""));
         tracking.put("strategyName", s(response == null ? null : response.strategyName));
         tracking.put("strategyVersion", s(response == null ? null : response.strategyVersion));
@@ -158,6 +159,8 @@ public class BacktestReportService {
         tracking.put("currentLiveLabel", active == null ? "" : strategyLabel(active.strategyName, active.strategyVersion));
         tracking.put("currentLiveStatus", active == null ? "" : s(active.status));
         tracking.put("currentLiveEffectiveTime", active == null ? "" : s(active.effectiveTime));
+        tracking.put("currentLiveCount", activeRows == null ? 0 : activeRows.size());
+        tracking.put("currentLiveSymbols", joinActiveSymbols(activeRows));
         tracking.put("releaseEventType", release == null ? "" : s(release.eventType));
         tracking.put("releaseEventTime", release == null ? "" : s(release.eventTime));
         tracking.put("releaseEventReason", release == null ? "" : translateReason(s(release.reason)));
@@ -435,14 +438,18 @@ public class BacktestReportService {
                 String.valueOf(nzInt(response.fragileBest)),
                 isTrue(response.fragileBest) ? "WARN" : "PASS",
                 isTrue(response.fragileBest) ? "最优参数点呈现孤点特征" : "最优参数邻域相对稳定");
-        boolean multiSymbolMissingPublishable = response.results != null && response.results.size() > 1
+        boolean singleSymbolMissingPublishable = !(response.results != null && response.results.size() > 1)
                 && "{}".equals(StringUtils.trimToEmpty(response.bestParamSetJson));
         addAuditCheck(checks,
-                "可发布参数集",
-                response.results != null && response.results.size() > 1 ? "多 symbol 需形成统一 bestParamSet" : "需存在 bestParamSet",
-                defaultIfBlank(response.bestParamSetJson, "{}"),
-                multiSymbolMissingPublishable ? "FAIL" : "PASS",
-                multiSymbolMissingPublishable ? "多 symbol 结果未形成统一可发布参数集" : "");
+                "??????",
+                response.results != null && response.results.size() > 1 ? "? symbol ??? symbol ??????" : "??? bestParamSet",
+                response.results != null && response.results.size() > 1
+                        ? "? symbol ??????"
+                        : defaultIfBlank(response.bestParamSetJson, "{}"),
+                response.results != null && response.results.size() > 1 ? "PASS" : (singleSymbolMissingPublishable ? "FAIL" : "PASS"),
+                response.results != null && response.results.size() > 1
+                        ? "? symbol ???????? bestParamSet???? symbol ????"
+                        : (singleSymbolMissingPublishable ? "?? symbol ????????" : ""));
         return checks;
     }
 
@@ -832,14 +839,19 @@ public class BacktestReportService {
 
     private Map<String, Object> buildGates(BacktestResponse response,
                                            StrategyCandidateRow candidate,
-                                           StrategyLiveRegistryPublishRow active,
+                                           List<StrategyLiveRegistryPublishRow> activeRows,
                                            StrategyReleaseEventRecord release,
                                            StrategyAutoPublishDecision decision) {
         Map<String, Object> gates = new LinkedHashMap<String, Object>();
+        StrategyLiveRegistryPublishRow active = activeRows == null || activeRows.isEmpty() ? null : activeRows.get(0);
         boolean overfitPass = response.overfitPass != null && response.overfitPass.intValue() > 0;
         String overfitReason = StringUtils.defaultIfBlank(response.overfitReason, overfitPass ? "通过过拟合检查" : "未通过过拟合检查");
-        boolean publishEligible = isPublishEligible(response, candidate);
-        String publishReason = publishReason(response, candidate);
+        boolean publishEligible = decision != null
+                ? (decision.publishedCount != null ? decision.publishedCount.intValue() > 0 : decision.published)
+                : isPublishEligible(response, candidate);
+        String publishReason = decision != null && StringUtils.isNotBlank(decision.reason)
+                ? translateReason(decision.reason)
+                : publishReason(response, candidate);
 
         gates.put("overfitPass", overfitPass ? 1 : 0);
         gates.put("overfitReason", translateReason(overfitReason));
@@ -854,6 +866,8 @@ public class BacktestReportService {
             gates.put("liveStrategyLabel", strategyLabel(active.strategyName, active.strategyVersion));
             gates.put("liveEffectiveTime", s(active.effectiveTime));
             gates.put("liveStatus", s(active.status));
+            gates.put("liveCount", activeRows == null ? 0 : activeRows.size());
+            gates.put("liveSymbols", joinActiveSymbols(activeRows));
             return gates;
         }
 
@@ -861,6 +875,8 @@ public class BacktestReportService {
         gates.put("liveStrategyLabel", strategyLabel(response.strategyName, response.strategyVersion));
         gates.put("liveEffectiveTime", "");
         gates.put("liveStatus", "");
+        gates.put("liveCount", 0);
+        gates.put("liveSymbols", "");
 
         String liveReason = "";
         if (decision != null && StringUtils.isNotBlank(decision.reason)) {
@@ -2264,8 +2280,6 @@ public class BacktestReportService {
                 && response.overfitPass.intValue() > 0
                 && response.oosPass != null
                 && response.oosPass.intValue() > 0
-                && !(response.results != null && response.results.size() > 1
-                && "{}".equals(StringUtils.trimToEmpty(response.bestParamSetJson)))
                 && gt(preferredValidateScore(response), BigDecimal.ZERO)
                 && sumTradeCount(response.results) >= Math.max(1, minValidateTrades)
                 && lte(maxDrawdownPct(response.results), BigDecimal.valueOf(maxValidateDrawdownPct))
@@ -2297,10 +2311,6 @@ public class BacktestReportService {
         }
         if (response.oosPass == null || response.oosPass.intValue() <= 0) {
             return "OOS 门槛未通过";
-        }
-        if (response.results != null && response.results.size() > 1
-                && "{}".equals(StringUtils.trimToEmpty(response.bestParamSetJson))) {
-            return "多 symbol 结果缺少统一可发布参数集";
         }
         if (!gt(preferredValidateScore(response), BigDecimal.ZERO)) {
             return "Validate 主分 <= 0";
@@ -2398,10 +2408,6 @@ public class BacktestReportService {
         }
         if (expectsOptimizationEvidence(candidate) && !hasOptimizationEvidence(response, candidate)) {
             rows.add("\u4f18\u5316\u8bc1\u636e\u7f3a\u5931\uff0c\u53c2\u6570\u7a33\u5b9a\u6027\u6307\u6807\u4ec5\u4f9b\u53c2\u8003");
-        }
-        if (response.results != null && response.results.size() > 1
-                && "{}".equals(StringUtils.trimToEmpty(response.bestParamSetJson))) {
-            rows.add("\u591a symbol \u56de\u6d4b\u672a\u5f62\u6210\u53ef\u53d1\u5e03\u7684\u7edf\u4e00 bestParamSet");
         }
         if (response.sliceParamDriftScore != null
                 && response.sliceParamDriftScore.compareTo(BigDecimal.ZERO) == 0
@@ -2631,6 +2637,20 @@ public class BacktestReportService {
             if (StringUtils.isNotBlank(item)) {
                 joiner.add(item.trim());
             }
+        }
+        return joiner.toString();
+    }
+
+    private String joinActiveSymbols(List<StrategyLiveRegistryPublishRow> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return "";
+        }
+        StringJoiner joiner = new StringJoiner(",");
+        for (StrategyLiveRegistryPublishRow row : rows) {
+            if (row == null || StringUtils.isBlank(row.symbolScope)) {
+                continue;
+            }
+            joiner.add(row.symbolScope.trim());
         }
         return joiner.toString();
     }

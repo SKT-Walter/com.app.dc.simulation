@@ -495,19 +495,32 @@ public class BacktestReportService {
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> buildOptimizationHeatmaps(BacktestResponse response, StrategyCandidateRow candidate) {
         List<Map<String, Object>> heatmaps = new ArrayList<Map<String, Object>>();
-        Map<String, Object> validateHeatmap = buildSliceHeatmap(response, "avgValidatePnl", "Validate ?????????");
+        Map<String, Object> validateHeatmap = buildSliceHeatmap(
+                response,
+                "avgValidatePnl",
+                "参数结果热图（Validate）");
         if (validateHeatmap != null) {
             heatmaps.add(validateHeatmap);
         }
-        Map<String, Object> tradeHeatmap = buildSliceHeatmap(response, "avgValidateTradeCount", "Validate ?????????");
+        Map<String, Object> tradeHeatmap = buildSliceHeatmap(
+                response,
+                "avgValidateTradeCount",
+                "交易覆盖热图（Validate）");
         if (tradeHeatmap != null) {
             heatmaps.add(tradeHeatmap);
         }
-        Map<String, Object> forwardHeatmap = buildSliceHeatmap(response, "avgForwardPnl", "Forward ?????????");
+        Map<String, Object> forwardHeatmap = buildSliceHeatmap(
+                response,
+                "avgForwardPnl",
+                "参数结果热图（Forward）");
         if (forwardHeatmap != null) {
             heatmaps.add(forwardHeatmap);
         }
-        Map<String, Object> fitHeatmap = buildTrialHeatmap(response, candidate, "avgFitPnl", "Fit ?????????");
+        Map<String, Object> fitHeatmap = buildTrialHeatmap(
+                response,
+                candidate,
+                "avgFitPnl",
+                "参数试验热图（Fit）");
         if (fitHeatmap != null) {
             heatmaps.add(fitHeatmap);
         }
@@ -533,7 +546,8 @@ public class BacktestReportService {
                 if (entry.getValue() == null) {
                     continue;
                 }
-                distinct.computeIfAbsent(entry.getKey(), k -> new LinkedHashSet<String>()).add(String.valueOf(entry.getValue()));
+                distinct.computeIfAbsent(entry.getKey(), k -> new LinkedHashSet<String>())
+                        .add(String.valueOf(entry.getValue()));
             }
         }
         List<String> varying = new ArrayList<String>();
@@ -554,13 +568,17 @@ public class BacktestReportService {
         }
         String xParam = varying.get(0);
         String yParam = varying.get(1);
-        List<String> aggregatedParams = varying.size() <= 2 ? Collections.<String>emptyList() : varying.subList(2, varying.size());
+        List<String> aggregatedParams = varying.size() <= 2
+                ? Collections.<String>emptyList()
+                : varying.subList(2, varying.size());
         Set<String> xValueSet = new LinkedHashSet<String>();
         Set<String> yValueSet = new LinkedHashSet<String>();
         List<HeatmapPoint> points = new ArrayList<HeatmapPoint>();
         for (int i = 0; i < response.trials.size(); i++) {
             BacktestModels.OptimizationTrial trial = response.trials.get(i);
-            Map<String, Object> params = i < trialParamMaps.size() ? trialParamMaps.get(i) : Collections.<String, Object>emptyMap();
+            Map<String, Object> params = i < trialParamMaps.size()
+                    ? trialParamMaps.get(i)
+                    : Collections.<String, Object>emptyMap();
             String xValue = String.valueOf(params.get(xParam));
             String yValue = String.valueOf(params.get(yParam));
             xValueSet.add(xValue);
@@ -569,10 +587,11 @@ public class BacktestReportService {
             points.add(new HeatmapPoint(xValue, yValue, value));
         }
         String note = aggregatedParams.isEmpty()
-                ? "当前展示的是本次实际参与回测的参数组合落点；空白格表示该参数组合本次未被搜索到。"
-                : "当前仅展示参与回测次数最多的两个参数维度，其余变化参数已按实际 trial 结果做聚合平均；空白格表示该参数组合本次未被搜索到。";
+                ? "当前展示的是本次实际 trial 试过的参数组合落点；空白格表示该参数组合本次未被搜索到。"
+                : "当前只展示 trial 中变化次数最多的两个参数维度，其余变化参数已按实际 trial 结果聚合平均；空白格表示该参数组合本次未被搜索到。";
         Map<String, Object> heatmap = finalizeHeatmap(title, metric, xParam, yParam, xValueSet, yValueSet, aggregatedParams, points, note);
         heatmap.put("searchMode", defaultIfBlank(response == null ? null : response.optimizationMode, "UNKNOWN"));
+        heatmap.put("viewType", "TRIAL_SEARCH");
         return heatmap;
     }
 
@@ -594,7 +613,8 @@ public class BacktestReportService {
                     if (entry.getValue() == null) {
                         continue;
                     }
-                    distinct.computeIfAbsent(entry.getKey(), k -> new LinkedHashSet<String>()).add(String.valueOf(entry.getValue()));
+                    distinct.computeIfAbsent(entry.getKey(), k -> new LinkedHashSet<String>())
+                            .add(String.valueOf(entry.getValue()));
                 }
             }
         }
@@ -612,11 +632,13 @@ public class BacktestReportService {
             return a.compareTo(b);
         });
         if (varying.size() < 2) {
-            return buildDisabledHeatmap("最佳参数在各个 slice 中变化维度不足，无法生成二维热力图。");
+            return buildDisabledHeatmap("最优参数在各个 slice 中变化维度不足，无法生成二维热力图。");
         }
         String xParam = varying.get(0);
         String yParam = varying.get(1);
-        List<String> aggregatedParams = varying.size() <= 2 ? Collections.<String>emptyList() : varying.subList(2, varying.size());
+        List<String> aggregatedParams = varying.size() <= 2
+                ? Collections.<String>emptyList()
+                : varying.subList(2, varying.size());
         for (BacktestResult result : response.results) {
             if (result == null || result.sliceResults == null) {
                 continue;
@@ -645,9 +667,9 @@ public class BacktestReportService {
         }
         String note;
         if ("avgValidateTradeCount".equals(metric)) {
-            note = "当前展示的是各 slice 最佳参数组合在 Validate 阶段的平均交易覆盖情况；空白格表示该参数组合没有成为任何 slice 的最佳参数。";
+            note = "当前展示的是各 slice 最优参数组合在 Validate 阶段的平均交易覆盖情况；空白格表示该参数组合没有成为任何 slice 的最优参数。";
         } else {
-            note = "当前展示的是各 slice 最佳参数组合在样本外阶段的平均结果；空白格表示该参数组合没有成为任何 slice 的最佳参数。";
+            note = "当前展示的是各 slice 最优参数组合在样本外阶段的平均结果；空白格表示该参数组合没有成为任何 slice 的最优参数。";
         }
         if (!aggregatedParams.isEmpty()) {
             note += " 其余变化参数已按实际 slice 最优结果做聚合平均。";
@@ -655,6 +677,7 @@ public class BacktestReportService {
         Map<String, Object> heatmap = finalizeHeatmap(title, metric, xParam, yParam, xValueSet, yValueSet, aggregatedParams, points, note);
         heatmap.put("searchMode", "SLICE_BEST_AGGREGATION");
         heatmap.put("gridComplete", 0);
+        heatmap.put("viewType", "SLICE_BEST_AGGREGATION");
         return heatmap;
     }
 
@@ -671,7 +694,7 @@ public class BacktestReportService {
         Map<String, BigDecimal> sumByCell = new LinkedHashMap<String, BigDecimal>();
         Map<String, Integer> countByCell = new LinkedHashMap<String, Integer>();
         for (HeatmapPoint point : points) {
-            String key = point.xValue + "\u0001" + point.yValue;
+            String key = point.xValue + "" + point.yValue;
             sumByCell.put(key, nz(sumByCell.get(key)).add(nz(point.value)));
             countByCell.put(key, nzInt(countByCell.get(key)) + 1);
         }
@@ -682,7 +705,7 @@ public class BacktestReportService {
         List<Map<String, Object>> cells = new ArrayList<Map<String, Object>>();
         for (String yValue : yValues) {
             for (String xValue : xValues) {
-                String key = xValue + "\u0001" + yValue;
+                String key = xValue + "" + yValue;
                 Integer count = countByCell.get(key);
                 if (count == null || count.intValue() <= 0) {
                     continue;
@@ -722,6 +745,7 @@ public class BacktestReportService {
         heatmap.put("aggregatedParams", Collections.emptyList());
         heatmap.put("cells", Collections.emptyList());
         heatmap.put("searchMode", "UNKNOWN");
+        heatmap.put("viewType", "DISABLED");
         heatmap.put("gridComplete", 0);
         heatmap.put("note", note);
         return heatmap;
@@ -2007,6 +2031,7 @@ public class BacktestReportService {
                 }
                 md.append("### ").append(s(heatmap.get("title"))).append("\\n\\n");
                 md.append("- \u542f\u7528\uff1a").append(isTrue(heatmap.get("enabled")) ? "Y" : "N").append("\\n");
+                md.append("- 图层：").append(heatmapViewTypeLabel(s(heatmap.get("viewType")))).append("\n");
                 md.append("- \u6307\u6807\uff1a").append(s(heatmap.get("metric"))).append("\\n");
                 md.append("- X \u8f74\uff1a").append(s(heatmap.get("xParam"))).append("\\n");
                 md.append("- Y \\u8f74\\uff1a").append(s(heatmap.get("yParam"))).append("\\n");
@@ -2772,6 +2797,19 @@ public class BacktestReportService {
 
     private String s(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private String heatmapViewTypeLabel(String viewType) {
+        if ("TRIAL_SEARCH".equalsIgnoreCase(viewType)) {
+            return "trial 搜索落点";
+        }
+        if ("SLICE_BEST_AGGREGATION".equalsIgnoreCase(viewType)) {
+            return "slice 最优参数投影";
+        }
+        if ("DISABLED".equalsIgnoreCase(viewType)) {
+            return "不可用";
+        }
+        return "未标注";
     }
 
     private String defaultIfBlank(String value, String fallback) {

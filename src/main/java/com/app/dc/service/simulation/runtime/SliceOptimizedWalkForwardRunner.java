@@ -29,6 +29,7 @@ import java.util.Set;
 public class SliceOptimizedWalkForwardRunner {
 
     private static final String WINDOW_MODE = "WALK_FORWARD";
+    private static final String MODE_FULL_GRID_2D = "FULL_GRID_2D";
 
     @Autowired
     private VersionedBacktestRunner versionedBacktestRunner;
@@ -180,7 +181,8 @@ public class SliceOptimizedWalkForwardRunner {
         List<Map<String, Object>> coarseSets = plan == null || !plan.optimizationSupported
                 ? backtestOptimizationService.buildDefaultOnly(plan)
                 : backtestOptimizationService.buildCoarseParamSets(plan);
-        int coarseBudget = Math.max(1, sliceBudget / 2);
+        boolean fullGrid2d = isFullGrid2d(plan);
+        int coarseBudget = fullGrid2d ? coarseSets.size() : Math.max(1, sliceBudget / 2);
         coarseSets = limit(coarseSets, coarseBudget);
         List<SliceFitTrial> coarseTrials = executeFitTrials(candidate, baseParam, fitRows, slice, coarseSets, "COARSE", selection.nextTrialNo);
         selection.nextTrialNo += coarseTrials.size();
@@ -188,7 +190,7 @@ public class SliceOptimizedWalkForwardRunner {
                 toOptimizationTrials(candidate, baseParam, plan, sliceNo, coarseTrials);
         backtestOptimizationService.rankFitTrials(plan, rankedCoarseTrials);
 
-        List<Map<String, Object>> fineSets = plan == null || !plan.optimizationSupported
+        List<Map<String, Object>> fineSets = fullGrid2d || plan == null || !plan.optimizationSupported
                 ? Collections.<Map<String, Object>>emptyList()
                 : backtestOptimizationService.buildFineParamSets(plan, rankedCoarseTrials);
         fineSets = limit(fineSets, Math.max(0, sliceBudget - coarseTrials.size()));
@@ -269,6 +271,10 @@ public class SliceOptimizedWalkForwardRunner {
         int safeSlices = Math.max(1, sliceCount);
         int average = (int) Math.ceil((double) safeBudget / (double) safeSlices);
         return Math.max(4, average);
+    }
+
+    private boolean isFullGrid2d(BacktestOptimizationService.OptimizationPlan plan) {
+        return plan != null && MODE_FULL_GRID_2D.equalsIgnoreCase(plan.optimizationMode);
     }
 
     private GateDecision evaluateOosGate(BigDecimal fitPnl,

@@ -37,6 +37,7 @@ public class BacktestOptimizationService {
     private static final BigDecimal DEFAULT_MIN_FORWARD_CONTRIBUTION = new BigDecimal("0.20");
     private static final String MODE_LAYERED_GRID = "LAYERED_GRID";
     private static final String MODE_RANDOM_LOCAL = "RANDOM_LOCAL";
+    private static final String MODE_FULL_GRID_2D = "FULL_GRID_2D";
     private static final String OBJECTIVE_PROFIT_FIRST = "PROFIT_FIRST";
 
     public OptimizationPlan buildPlan(String parametersJson) {
@@ -67,16 +68,24 @@ public class BacktestOptimizationService {
         plan.priorityParams.addAll(stringSet(parsed.optimizationProfile.get("priorityParams")));
         plan.coarseOnlyParams.addAll(stringSet(parsed.optimizationProfile.get("coarseOnlyParams")));
         plan.fineOnlyParams.addAll(stringSet(parsed.optimizationProfile.get("fineOnlyParams")));
+        plan.fullGridParams.addAll(stringSet(parsed.optimizationProfile.get("fullGridParams")));
+        if (plan.fullGridParams.isEmpty()) {
+            plan.fullGridParams.addAll(stringSet(parsed.optimizationProfile.get("heatmapParams")));
+        }
         plan.defaultParams.putAll(StrategyParametersSupport.extractDefaultParams(parametersJson));
         plan.dimensions.addAll(parseDimensions(parsed.parameterSchema, plan.defaultParams, plan));
+        if (MODE_FULL_GRID_2D.equals(plan.optimizationMode)) {
+            autoSelectFullGridParams(plan);
+        }
         if (plan.dimensions.isEmpty()) {
             plan.optimizationSupported = false;
         }
-        log.info("BacktestOptimizationService buildPlan, optimizationSupported:{}, mode:{}, objective:{}, dimensions:{}, topN:{}, maxCoarseCandidates:{}, maxFineCandidates:{}, window:{}/{}/{}, minSliceCount:{}, minForwardContribution:{}",
+        log.info("BacktestOptimizationService buildPlan, optimizationSupported:{}, mode:{}, objective:{}, dimensions:{}, fullGridParams:{}, topN:{}, maxCoarseCandidates:{}, maxFineCandidates:{}, window:{}/{}/{}, minSliceCount:{}, minForwardContribution:{}",
                 plan.optimizationSupported,
                 plan.optimizationMode,
                 plan.objective,
                 plan.dimensions.size(),
+                plan.fullGridParams,
                 plan.topN,
                 plan.maxCoarseCandidates,
                 plan.maxFineCandidates,
@@ -101,6 +110,18 @@ public class BacktestOptimizationService {
         if (plan == null || !plan.optimizationSupported || activeDimensions(plan, true).isEmpty()) {
             return buildDefaultOnly(plan);
         }
+        if (MODE_FULL_GRID_2D.equalsIgnoreCase(plan.optimizationMode)) {
+            List<ParameterDimension> fullGridDimensions = fullGridDimensions(plan);
+            if (fullGridDimensions.isEmpty()) {
+                return buildDefaultOnly(plan);
+            }
+            List<Map<String, Object>> result = uniqueParamSets(
+                    cartesian(fullGridDimensions, false, Math.max(1, plan.maxFullGrid)),
+                    plan.defaultParams);
+            log.info("BacktestOptimizationService buildCoarseParamSets, mode:{}, fullGridParams:{}, dimensions:{}, paramSetCount:{}, fullGrid:{}",
+                    plan.optimizationMode, plan.fullGridParams, fullGridDimensions.size(), result.size(), true);
+            return result;
+        }
         List<ParameterDimension> coarseDimensions = activeDimensions(plan, true);
         if (MODE_RANDOM_LOCAL.equalsIgnoreCase(plan.optimizationMode)) {
             List<Map<String, Object>> result = uniqueParamSets(randomSample(coarseDimensions, plan.defaultParams, plan.maxCoarseCandidates, plan.randomSeed),
@@ -123,6 +144,9 @@ public class BacktestOptimizationService {
 
     public List<Map<String, Object>> buildFineParamSets(OptimizationPlan plan, List<OptimizationTrial> rankedTrials) {
         if (plan == null || !plan.optimizationSupported || activeDimensions(plan, false).isEmpty()) {
+            return Collections.emptyList();
+        }
+        if (MODE_FULL_GRID_2D.equalsIgnoreCase(plan.optimizationMode)) {
             return Collections.emptyList();
         }
         List<OptimizationTrial> topTrials = topRanked(rankedTrials, plan.topN);
@@ -569,6 +593,12 @@ public class BacktestOptimizationService {
         if (plan == null || plan.dimensions == null) {
             return result;
         }
+        if (MODE_FULL_GRID_2D.equalsIgnoreCase(plan.optimizationMode)) {
+            if (!coarse) {
+                return result;
+            }
+            return fullGridDimensions(plan);
+        }
         for (ParameterDimension dimension : plan.dimensions) {
             if (dimension == null) {
                 continue;
@@ -580,6 +610,62 @@ public class BacktestOptimizationService {
             }
         }
         return result;
+    }
+
+    private List<ParameterDimension> fullGridDimensions(OptimizationPlan plan) {
+        List<ParameterDimension> result = new ArrayList<ParameterDimension>();
+        if (plan == null || plan.dimensions == null || plan.fullGridParams == null || plan.fullGridParams.isEmpty()) {
+            return result;
+        }
+        for (ParameterDimension dimension : plan.dimensions) {
+            if (dimension == null || isBlank(dimension.name) || plan.lockedParams.contains(dimension.name)) {
+                continue;
+            }
+            if (plan.fullGridParams.contains(dimension.name)) {
+                result.add(dimension);
+            }
+        }
+        return result;
+    }
+
+    private void autoSelectFullGridParams(OptimizationPlan plan) {
+        if (plan == null || plan.dimensions == null || plan.dimensions.isEmpty()) {
+            return;
+        }
+        LinkedHashSet<String> selected = new LinkedHashSet<String>();
+        for (String name : plan.fullGridParams) {
+            if (!isBlank(name)) {
+                selected.add(name);
+            }
+            if (selected.size() >= 2) {
+                break;
+            }
+        }
+        if (selected.size() < 2) {
+            for (String name : plan.priorityParams) {
+                if (!isBlank(name) && !plan.lockedParams.contains(name)) {
+                    selected.add(name);
+                }
+                if (selected.size() >= 2) {
+                    break;
+                }
+            }
+        }
+        if (selected.size() < 2) {
+            for (ParameterDimension dimension : plan.dimensions) {
+                if (dimension == null || isBlank(dimension.name) || plan.lockedParams.contains(dimension.name)) {
+                    continue;
+                }
+                if (dimension.candidates != null && dimension.candidates.size() > 1) {
+                    selected.add(dimension.name);
+                }
+                if (selected.size() >= 2) {
+                    break;
+                }
+            }
+        }
+        plan.fullGridParams.clear();
+        plan.fullGridParams.addAll(selected);
     }
 
     private List<Object> resolveCandidates(String type, Map<String, Object> row, Object defaultValue) {
@@ -857,6 +943,9 @@ public class BacktestOptimizationService {
         if (MODE_RANDOM_LOCAL.equals(mode)) {
             return MODE_RANDOM_LOCAL;
         }
+        if (MODE_FULL_GRID_2D.equals(mode)) {
+            return MODE_FULL_GRID_2D;
+        }
         return MODE_LAYERED_GRID;
     }
 
@@ -953,6 +1042,7 @@ public class BacktestOptimizationService {
         public Set<String> priorityParams = new LinkedHashSet<String>();
         public Set<String> coarseOnlyParams = new LinkedHashSet<String>();
         public Set<String> fineOnlyParams = new LinkedHashSet<String>();
+        public Set<String> fullGridParams = new LinkedHashSet<String>();
         public Map<String, Object> defaultParams = new LinkedHashMap<String, Object>();
         public List<ParameterDimension> dimensions = new ArrayList<ParameterDimension>();
     }

@@ -110,6 +110,7 @@ public class BacktestReportService {
         report.put("summary", buildSummary(response));
         report.put("gates", buildGates(response, candidate, activeRows, release, decision));
         report.put("audit", buildAudit(response, candidate));
+        report.put("publish", buildPublish(decision));
         report.put("optimization", buildOptimization(response, candidate));
         report.put("results", buildResults(response));
         return report;
@@ -231,6 +232,36 @@ public class BacktestReportService {
         summary.put("exitFeeTotal", scale(exitFeeTotal));
         summary.put("totalFee", scale(totalFee));
         return summary;
+    }
+
+    private Map<String, Object> buildPublish(StrategyAutoPublishDecision decision) {
+        Map<String, Object> publish = new LinkedHashMap<String, Object>();
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        List<StrategyAutoPublishDecision.SymbolDecision> decisions = decision == null || decision.symbolDecisions == null
+                ? Collections.<StrategyAutoPublishDecision.SymbolDecision>emptyList()
+                : new ArrayList<StrategyAutoPublishDecision.SymbolDecision>(decision.symbolDecisions);
+        decisions.sort(Comparator.comparing(x -> s(x.symbol)));
+        for (StrategyAutoPublishDecision.SymbolDecision item : decisions) {
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            row.put("symbol", s(item.symbol));
+            row.put("publishStatus", item.published ? "已发布" : "跳过");
+            row.put("publishStatusClass", item.published ? "pass" : "warn");
+            row.put("reason", translateReason(defaultIfBlank(item.reason, item.published ? "已满足单 Symbol 发布门槛" : "未满足单 Symbol 发布门槛")));
+            row.put("validatePnl", scale(item.validatePnl));
+            row.put("forwardPnl", scale(item.forwardPnl));
+            row.put("validatePrimaryScore", scale(item.validatePrimaryScore));
+            row.put("validateTradeCount", nzInt(item.validateTradeCount));
+            row.put("validateMaxDrawdownPct", scale(item.validateMaxDrawdownPct));
+            row.put("validateProfitFactor", scale(item.validateProfitFactor));
+            row.put("bestParamSetJson", defaultIfBlank(item.bestParamSetJson, "{}"));
+            rows.add(row);
+        }
+        publish.put("rows", rows);
+        publish.put("publishedSymbols", decision == null ? "" : joinStrings(decision.publishedSymbols));
+        publish.put("skippedSymbols", decision == null ? "" : joinStrings(decision.skippedSymbols));
+        publish.put("publishedCount", decision == null ? 0 : nzInt(decision.publishedCount));
+        publish.put("skippedCount", decision == null ? 0 : nzInt(decision.skippedCount));
+        return publish;
     }
 
     private Map<String, Object> buildOptimization(BacktestResponse response, StrategyCandidateRow candidate) {
@@ -850,7 +881,7 @@ public class BacktestReportService {
                 ? (decision.publishedCount != null ? decision.publishedCount.intValue() > 0 : decision.published)
                 : isPublishEligible(response, candidate);
         String publishReason = decision != null && StringUtils.isNotBlank(decision.reason)
-                ? translateReason(decision.reason)
+                ? publishReasonDetail(decision, translateReason(decision.reason))
                 : publishReason(response, candidate);
 
         gates.put("overfitPass", overfitPass ? 1 : 0);
@@ -868,6 +899,7 @@ public class BacktestReportService {
             gates.put("liveStatus", s(active.status));
             gates.put("liveCount", activeRows == null ? 0 : activeRows.size());
             gates.put("liveSymbols", joinActiveSymbols(activeRows));
+            gates.put("liveRegistryDetail", buildLiveRegistryDetail(activeRows));
             return gates;
         }
 
@@ -889,7 +921,38 @@ public class BacktestReportService {
             liveReason = "尚未执行自动发布";
         }
         gates.put("liveRegistryReason", liveReason);
+        gates.put("liveRegistryDetail", liveReason);
         return gates;
+    }
+
+    private String publishReasonDetail(StrategyAutoPublishDecision decision, String fallback) {
+        if (decision == null) {
+            return fallback;
+        }
+        List<String> parts = new ArrayList<String>();
+        if (StringUtils.isNotBlank(fallback)) {
+            parts.add(fallback);
+        }
+        if (decision.publishedSymbols != null && !decision.publishedSymbols.isEmpty()) {
+            parts.add("已发布 Symbol: " + joinStrings(decision.publishedSymbols));
+        }
+        if (decision.skippedSymbols != null && !decision.skippedSymbols.isEmpty()) {
+            parts.add("已跳过 Symbol: " + joinStrings(decision.skippedSymbols));
+        }
+        return parts.isEmpty() ? fallback : StringUtils.join(parts, " / ");
+    }
+
+    private String buildLiveRegistryDetail(List<StrategyLiveRegistryPublishRow> activeRows) {
+        if (activeRows == null || activeRows.isEmpty()) {
+            return "";
+        }
+        StrategyLiveRegistryPublishRow active = activeRows.get(0);
+        StringJoiner joiner = new StringJoiner(" / ");
+        joiner.add("写入版本：" + strategyLabel(active.strategyName, active.strategyVersion));
+        joiner.add("生效时间：" + s(active.effectiveTime));
+        joiner.add("状态：" + s(active.status));
+        joiner.add("已写入 Symbol：" + joinActiveSymbols(activeRows));
+        return joiner.toString();
     }
 
     private List<Map<String, Object>> buildResults(BacktestResponse response) {
@@ -1226,6 +1289,8 @@ public class BacktestReportService {
         @SuppressWarnings("unchecked")
         Map<String, Object> audit = (Map<String, Object>) report.get("audit");
         @SuppressWarnings("unchecked")
+        Map<String, Object> publish = (Map<String, Object>) report.get("publish");
+        @SuppressWarnings("unchecked")
         Map<String, Object> optimization = (Map<String, Object>) report.get("optimization");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> results = (List<Map<String, Object>>) report.get("results");
@@ -1316,7 +1381,7 @@ public class BacktestReportService {
         html.append("<div class=\"section\"><h2>\u7ed3\u8bba\u603b\u89c8</h2><div class=\"grid\">")
                 .append(statusCard("\u8fc7\u62df\u5408\u68c0\u67e5", isTrue(gates.get("overfitPass")) ? "\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5" : "\u672a\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5", s(gates.get("overfitReason")), isTrue(gates.get("overfitPass")) ? "pass" : "fail"))
                 .append(statusCard("\u76c8\u5229\u53d1\u5e03\u95e8\u69db", isTrue(gates.get("publishEligible")) ? "\u6ee1\u8db3\u4e0a\u7ebf\u524d\u76c8\u5229\u95e8\u69db" : "\u4e0d\u6ee1\u8db3\u4e0a\u7ebf\u524d\u76c8\u5229\u95e8\u69db", s(gates.get("publishReason")), isTrue(gates.get("publishEligible")) ? "pass" : "warn"))
-                .append(statusCard("\u5b9e\u76d8\u51c6\u5165\u7ed3\u679c", isTrue(gates.get("liveRegistryEntered")) ? "\u5df2\u8fdb\u5165\u5b9e\u76d8" : "\u672a\u8fdb\u5165\u5b9e\u76d8", isTrue(gates.get("liveRegistryEntered")) ? "\u5199\u5165\u7248\u672c\uff1a" + safeCell(gates.get("liveStrategyLabel")) + " / \u751f\u6548\u65f6\u95f4\uff1a" + safeCell(gates.get("liveEffectiveTime")) + " / \u72b6\u6001\uff1a" + safeCell(gates.get("liveStatus")) : s(gates.get("liveRegistryReason")), isTrue(gates.get("liveRegistryEntered")) ? "pass" : "fail"))
+                .append(statusCard("\u5b9e\u76d8\u51c6\u5165\u7ed3\u679c", isTrue(gates.get("liveRegistryEntered")) ? "\u5df2\u8fdb\u5165\u5b9e\u76d8" : "\u672a\u8fdb\u5165\u5b9e\u76d8", s(gates.get("liveRegistryDetail")), isTrue(gates.get("liveRegistryEntered")) ? "pass" : "fail"))
                 .append("</div></div>");
 
         html.append("<div class=\"section\"><h2>\u5ba1\u6838\u68c0\u67e5</h2>")
@@ -1324,8 +1389,11 @@ public class BacktestReportService {
                 .append(statusCard("\u5ba1\u6838\u7ed3\u8bba", s(audit.get("finalDecisionLabel")), s(audit.get("summary")), auditDecisionClass(s(audit.get("finalDecision")))))
                 .append(statusCard("\u53c2\u6570\u8d28\u91cf", s(((Map<String, Object>) optimization.get("quality")).get("statusLabel")), s(((Map<String, Object>) optimization.get("quality")).get("message")), optimizationQualityClass(s(((Map<String, Object>) optimization.get("quality")).get("status")))))
                 .append("</div>")
+                .append("<div class=\"tips\">\u8bf4\u660e\uff1a\u5ba1\u6838\u7ed3\u8bba\u6309\u7ec4\u5408/\u6574\u4f53\u56de\u6d4b\u4efb\u52a1\u7ed9\u51fa\uff1b\u5b9e\u76d8\u53d1\u5e03\u5219\u6309 Symbol \u72ec\u7acb\u5224\u5b9a\uff0c\u56e0\u6b64\u53ef\u80fd\u51fa\u73b0\u201c\u5ba1\u6838\u5931\u8d25\u6216\u89c2\u5bdf\uff0c\u4f46\u5df2\u53d1\u5e03\u90e8\u5206 Symbol\u201d\u7684\u60c5\u51b5\u3002</div>")
                 .append(renderAuditTable(audit))
                 .append("</div>");
+
+        html.append(renderPublishDecisionTable(publish));
 
         html.append("<div class=\"section\"><h2>\u6c47\u603b\u6307\u6807</h2><div class=\"grid\">")
                 .append(metric("Fit \u6536\u76ca", summary.get("fitPnl")))
@@ -1669,6 +1737,66 @@ public class BacktestReportService {
         return html.toString();
     }
 
+    @SuppressWarnings("unchecked")
+    private String renderPublishDecisionTable(Map<String, Object> publish) {
+        if (publish == null) {
+            return "";
+        }
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) publish.get("rows");
+        if (rows == null || rows.isEmpty()) {
+            return "";
+        }
+        StringBuilder html = new StringBuilder();
+        html.append("<div class=\"section\"><h2>按 Symbol 发布结果</h2>")
+                .append("<div class=\"muted\" style=\"margin-bottom:10px;\">这里展示每个 Symbol 的独立发布判定结果。组合级审核失败或观察，并不妨碍其中部分 Symbol 满足门槛并进入实盘。</div>")
+                .append("<div class=\"table-wrap\"><table><thead><tr>")
+                .append("<th>Symbol</th><th>发布结果</th><th>原因</th><th>Validate收益</th><th>Forward收益</th><th>Validate主分</th><th>交易数</th><th>最大回撤</th><th>ProfitFactor</th><th>最佳参数集</th>")
+                .append("</tr></thead><tbody>");
+        for (Map<String, Object> row : rows) {
+            html.append("<tr>")
+                    .append("<td>").append(safeCell(row.get("symbol"))).append("</td>")
+                    .append("<td><span class=\"").append(escape(s(row.get("publishStatusClass")))).append("\">").append(safeCell(row.get("publishStatus"))).append("</span></td>")
+                    .append("<td>").append(safeCell(row.get("reason"))).append("</td>")
+                    .append("<td>").append(safeCell(row.get("validatePnl"))).append("</td>")
+                    .append("<td>").append(safeCell(row.get("forwardPnl"))).append("</td>")
+                    .append("<td>").append(safeCell(row.get("validatePrimaryScore"))).append("</td>")
+                    .append("<td>").append(safeCell(row.get("validateTradeCount"))).append("</td>")
+                    .append("<td>").append(safeCell(row.get("validateMaxDrawdownPct"))).append("</td>")
+                    .append("<td>").append(safeCell(row.get("validateProfitFactor"))).append("</td>")
+                    .append("<td>").append(safeCell(compactJsonValue(row.get("bestParamSetJson")))).append("</td>")
+                    .append("</tr>");
+        }
+        html.append("</tbody></table></div></div>");
+        return html.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void appendPublishDecisionMarkdown(StringBuilder md, Map<String, Object> publish) {
+        if (publish == null) {
+            return;
+        }
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) publish.get("rows");
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        md.append("\\n## \u6309 Symbol \u53d1\u5e03\u7ed3\u679c\\n\\n");
+        md.append("> \u8bf4\u660e\uff1a\u7ec4\u5408\u7ea7\u5ba1\u6838\u4e0e Symbol \u7ea7\u53d1\u5e03\u662f\u4e24\u5c42\u53e3\u5f84\uff0c\u6240\u4ee5\u53ef\u80fd\u51fa\u73b0\u201c\u5ba1\u6838\u5931\u8d25/\u89c2\u5bdf\uff0c\u4f46\u5df2\u53d1\u5e03\u90e8\u5206 Symbol\u201d\u3002\\n\\n");
+        md.append("| Symbol | 发布结果 | 原因 | Validate收益 | Forward收益 | Validate主分 | 交易数 | 最大回撤 | ProfitFactor | 最佳参数集 |\\n");
+        md.append("|---|---|---|---:|---:|---:|---:|---:|---:|---|\\n");
+        for (Map<String, Object> row : rows) {
+            md.append("| ").append(s(row.get("symbol")))
+                    .append(" | ").append(s(row.get("publishStatus")))
+                    .append(" | ").append(s(row.get("reason")))
+                    .append(" | ").append(s(row.get("validatePnl")))
+                    .append(" | ").append(s(row.get("forwardPnl")))
+                    .append(" | ").append(s(row.get("validatePrimaryScore")))
+                    .append(" | ").append(s(row.get("validateTradeCount")))
+                    .append(" | ").append(s(row.get("validateMaxDrawdownPct")))
+                    .append(" | ").append(s(row.get("validateProfitFactor")))
+                    .append(" | `").append(s(row.get("bestParamSetJson"))).append("` |\\n");
+        }
+    }
+
     private String renderEquitySvg(List<Map<String, Object>> points, Map<String, Object> phaseWindow) {
         if (points == null || points.isEmpty()) {
             return "<div class=\"muted\">\u6682\u65e0\u6743\u76ca\u66f2\u7ebf\u6570\u636e</div>";
@@ -1959,6 +2087,8 @@ public class BacktestReportService {
         @SuppressWarnings("unchecked")
         Map<String, Object> audit = (Map<String, Object>) report.get("audit");
         @SuppressWarnings("unchecked")
+        Map<String, Object> publish = (Map<String, Object>) report.get("publish");
+        @SuppressWarnings("unchecked")
         Map<String, Object> optimization = (Map<String, Object>) report.get("optimization");
 
         StringBuilder md = new StringBuilder();
@@ -1982,7 +2112,8 @@ public class BacktestReportService {
         md.append("- \u76c8\u5229\u53d1\u5e03\u95e8\u69db\uff1a").append(isTrue(gates.get("publishEligible")) ? "\u6ee1\u8db3" : "\u4e0d\u6ee1\u8db3")
                 .append("\uff1b\u539f\u56e0\uff1a").append(s(gates.get("publishReason"))).append("\\n");
         md.append("- \u5b9e\u76d8\u51c6\u5165\u7ed3\u679c\uff1a").append(isTrue(gates.get("liveRegistryEntered")) ? "\u5df2\u8fdb\u5165\u5b9e\u76d8" : "\u672a\u8fdb\u5165\u5b9e\u76d8")
-                .append("\uff1b\u539f\u56e0\uff1a").append(s(gates.get("liveRegistryReason"))).append("\\n\\n");
+                .append("\uff1b\u539f\u56e0\uff1a").append(s(gates.get("liveRegistryDetail"))).append("\\n");
+        md.append("- \u8bf4\u660e\uff1a\u5ba1\u6838\u7ed3\u8bba\u6309\u7ec4\u5408/\u6574\u4f53\u56de\u6d4b\u4efb\u52a1\u7ed9\u51fa\uff1b\u5b9e\u76d8\u53d1\u5e03\u6309 Symbol \u72ec\u7acb\u5224\u5b9a\uff0c\u56e0\u6b64\u53ef\u80fd\u51fa\u73b0\u201c\u5ba1\u6838\u5931\u8d25\u6216\u89c2\u5bdf\uff0c\u4f46\u5df2\u53d1\u5e03\u90e8\u5206 Symbol\u201d\u3002\\n\\n");
         md.append("## \u6c47\u603b\u6307\u6807\\n\\n");
         md.append("| \u6307\u6807 | \u6570\u503c |\\n|---|---|\\n");
         md.append("| Fit \u6536\u76ca | ").append(s(summary.get("fitPnl"))).append(" |\\n");
@@ -2018,6 +2149,7 @@ public class BacktestReportService {
                         .append(" |\\n");
             }
         }
+        appendPublishDecisionMarkdown(md, publish);
         @SuppressWarnings("unchecked")
         Map<String, Object> quality = (Map<String, Object>) optimization.get("quality");
         if (quality != null) {

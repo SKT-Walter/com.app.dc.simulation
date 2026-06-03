@@ -162,6 +162,10 @@ public class BacktestReportService {
         tracking.put("releaseEventTime", release == null ? "" : s(release.eventTime));
         tracking.put("releaseEventReason", release == null ? "" : translateReason(s(release.reason)));
         tracking.put("publishDecisionReason", decision == null ? "" : translateReason(s(decision.reason)));
+        tracking.put("publishedCount", decision == null ? 0 : nzInt(decision.publishedCount));
+        tracking.put("skippedCount", decision == null ? 0 : nzInt(decision.skippedCount));
+        tracking.put("publishedSymbols", decision == null ? "" : joinStrings(decision.publishedSymbols));
+        tracking.put("skippedSymbols", decision == null ? "" : joinStrings(decision.skippedSymbols));
         return tracking;
     }
 
@@ -1287,6 +1291,10 @@ public class BacktestReportService {
                 .append(trackingRow("\u6700\u65b0\u53d1\u5e03\u4e8b\u4ef6", tracking.get("releaseEventType")))
                 .append(trackingRow("\u53d1\u5e03\u4e8b\u4ef6\u539f\u56e0", tracking.get("releaseEventReason")))
                 .append(trackingRow("\u81ea\u52a8\u53d1\u5e03\u5224\u5b9a", tracking.get("publishDecisionReason")))
+                .append(trackingRow("\u5df2\u53d1\u5e03 Symbol \u6570", tracking.get("publishedCount")))
+                .append(trackingRow("\u5df2\u53d1\u5e03 Symbol", tracking.get("publishedSymbols")))
+                .append(trackingRow("\u8df3\u8fc7 Symbol \u6570", tracking.get("skippedCount")))
+                .append(trackingRow("\u8df3\u8fc7 Symbol", tracking.get("skippedSymbols")))
                 .append("</tbody></table></div></div>");
 
         html.append("<div class=\"section\"><h2>\u7ed3\u8bba\u603b\u89c8</h2><div class=\"grid\">")
@@ -1951,6 +1959,8 @@ public class BacktestReportService {
         md.append("- \u8fd0\u884c\u7c7b\u578b\uff1a").append(s(tracking.get("runtimeType"))).append("\\n");
         md.append("- \u5f53\u524d Live \u7248\u672c\uff1a").append(s(tracking.get("currentLiveVersion"))).append("\\n");
         md.append("- \u6700\u65b0\u53d1\u5e03\u4e8b\u4ef6\uff1a").append(s(tracking.get("releaseEventType"))).append("\\n");
+        md.append("- \u5df2\u53d1\u5e03 Symbol\uff1a").append(s(tracking.get("publishedSymbols"))).append(" (").append(s(tracking.get("publishedCount"))).append(")\\n");
+        md.append("- \u8df3\u8fc7 Symbol\uff1a").append(s(tracking.get("skippedSymbols"))).append(" (").append(s(tracking.get("skippedCount"))).append(")\\n");
         md.append("- \u8fc7\u62df\u5408\u68c0\u67e5\uff1a").append(isTrue(gates.get("overfitPass")) ? "\u901a\u8fc7" : "\u672a\u901a\u8fc7")
                 .append("\uff1b\u539f\u56e0\uff1a").append(s(gates.get("overfitReason"))).append("\\n");
         md.append("- \u76c8\u5229\u53d1\u5e03\u95e8\u69db\uff1a").append(isTrue(gates.get("publishEligible")) ? "\u6ee1\u8db3" : "\u4e0d\u6ee1\u8db3")
@@ -2610,6 +2620,19 @@ public class BacktestReportService {
             return joiner.toString();
         }
         return s(symbolsObj);
+    }
+
+    private String joinStrings(List<String> items) {
+        if (items == null || items.isEmpty()) {
+            return "";
+        }
+        StringJoiner joiner = new StringJoiner(", ");
+        for (String item : items) {
+            if (StringUtils.isNotBlank(item)) {
+                joiner.add(item.trim());
+            }
+        }
+        return joiner.toString();
     }
 
     private String displayTime(String value) {

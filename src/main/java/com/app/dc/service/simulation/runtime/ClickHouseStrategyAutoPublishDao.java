@@ -28,16 +28,27 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
 
     @Override
     public StrategyLiveRegistryPublishRow loadCurrentActive(String strategyName) {
+        return loadCurrentActive(strategyName, "");
+    }
+
+    @Override
+    public StrategyLiveRegistryPublishRow loadCurrentActive(String strategyName, String symbolScope) {
         if (!ready() || StringUtils.isBlank(strategyName)) {
             return null;
         }
         String sql = registryQuery()
                 + " where lower(strategy_name)=lower(?) and status='ACTIVE'"
-                + " and (retire_time is null or retire_time > now())"
-                + " order by effective_time desc limit 1";
+                + " and (retire_time is null or retire_time > now())";
+        List<Object> params = new java.util.ArrayList<Object>();
+        params.add(strategyName);
+        if (StringUtils.isNotBlank(symbolScope)) {
+            sql += " and lower(symbol_scope)=lower(?)";
+            params.add(symbolScope);
+        }
+        sql += " order by effective_time desc limit 1";
         try {
             List<StrategyLiveRegistryPublishRow> rows = ClickHouseDBUtils.queryList(sql,
-                    new Object[]{strategyName}, StrategyLiveRegistryPublishRow.class);
+                    params.toArray(new Object[0]), StrategyLiveRegistryPublishRow.class);
             if (rows == null || rows.isEmpty()) {
                 return null;
             }
@@ -50,15 +61,26 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
 
     @Override
     public StrategyLiveRegistryPublishRow loadLatestLiveBaseline(String strategyName) {
+        return loadLatestLiveBaseline(strategyName, "");
+    }
+
+    @Override
+    public StrategyLiveRegistryPublishRow loadLatestLiveBaseline(String strategyName, String symbolScope) {
         if (!ready() || StringUtils.isBlank(strategyName)) {
             return null;
         }
         String sql = registryQuery()
-                + " where lower(strategy_name)=lower(?)"
-                + " order by effective_time desc limit 1";
+                + " where lower(strategy_name)=lower(?)";
+        List<Object> params = new java.util.ArrayList<Object>();
+        params.add(strategyName);
+        if (StringUtils.isNotBlank(symbolScope)) {
+            sql += " and lower(symbol_scope)=lower(?)";
+            params.add(symbolScope);
+        }
+        sql += " order by effective_time desc limit 1";
         try {
             List<StrategyLiveRegistryPublishRow> rows = ClickHouseDBUtils.queryList(sql,
-                    new Object[]{strategyName}, StrategyLiveRegistryPublishRow.class);
+                    params.toArray(new Object[0]), StrategyLiveRegistryPublishRow.class);
             if (rows == null || rows.isEmpty()) {
                 return null;
             }
@@ -71,16 +93,28 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
 
     @Override
     public StrategyLiveRegistryPublishRow loadExactActive(String strategyName, String strategyVersion) {
+        return loadExactActive(strategyName, strategyVersion, "");
+    }
+
+    @Override
+    public StrategyLiveRegistryPublishRow loadExactActive(String strategyName, String strategyVersion, String symbolScope) {
         if (!ready() || StringUtils.isBlank(strategyName) || StringUtils.isBlank(strategyVersion)) {
             return null;
         }
         String sql = registryQuery()
                 + " where lower(strategy_name)=lower(?) and lower(strategy_version)=lower(?) and status='ACTIVE'"
-                + " and (retire_time is null or retire_time > now())"
-                + " order by effective_time desc limit 1";
+                + " and (retire_time is null or retire_time > now())";
+        List<Object> params = new java.util.ArrayList<Object>();
+        params.add(strategyName);
+        params.add(strategyVersion);
+        if (StringUtils.isNotBlank(symbolScope)) {
+            sql += " and lower(symbol_scope)=lower(?)";
+            params.add(symbolScope);
+        }
+        sql += " order by effective_time desc limit 1";
         try {
             List<StrategyLiveRegistryPublishRow> rows = ClickHouseDBUtils.queryList(sql,
-                    new Object[]{strategyName, strategyVersion}, StrategyLiveRegistryPublishRow.class);
+                    params.toArray(new Object[0]), StrategyLiveRegistryPublishRow.class);
             if (rows == null || rows.isEmpty()) {
                 return null;
             }
@@ -93,6 +127,11 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
 
     @Override
     public StrategyBacktestSummary loadLatestSummary(String strategyName, String strategyVersion) {
+        return loadLatestSummary(strategyName, strategyVersion, "");
+    }
+
+    @Override
+    public StrategyBacktestSummary loadLatestSummary(String strategyName, String strategyVersion, String symbolScope) {
         if (!ready() || StringUtils.isBlank(strategyName) || StringUtils.isBlank(strategyVersion)) {
             return null;
         }
@@ -100,6 +139,7 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
                 + "sid as sid,"
                 + "argMax(strategy_name, run_time) as strategyName,"
                 + "argMax(strategy_version, run_time) as strategyVersion,"
+                + "argMax(symbol_scope, run_time) as symbolScope,"
                 + "argMax(runtime_type, run_time) as runtimeType,"
                 + "argMax(scene, run_time) as scene,"
                 + "argMax(window_mode, run_time) as windowMode,"
@@ -127,12 +167,19 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
                 + "argMax(overfit_reason, run_time) as overfitReason,"
                 + "count() as resultCount "
                 + "from " + safe(backtestResultTable, "backtest_result")
-                + " where lower(strategy_name)=lower(?) and lower(strategy_version)=lower(?)"
-                + " group by sid"
+                + " where lower(strategy_name)=lower(?) and lower(strategy_version)=lower(?)";
+        List<Object> params = new java.util.ArrayList<Object>();
+        params.add(strategyName);
+        params.add(strategyVersion);
+        if (StringUtils.isNotBlank(symbolScope)) {
+            sql += " and lower(symbol_scope)=lower(?)";
+            params.add(symbolScope);
+        }
+        sql += " group by sid"
                 + " order by max(run_time) desc limit 1";
         try {
             List<StrategyBacktestSummary> rows = ClickHouseDBUtils.queryList(sql,
-                    new Object[]{strategyName, strategyVersion}, StrategyBacktestSummary.class);
+                    params.toArray(new Object[0]), StrategyBacktestSummary.class);
             if (rows == null || rows.isEmpty()) {
                 return null;
             }
@@ -177,6 +224,11 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
 
     @Override
     public void retireActive(String strategyName, String exceptVersion, String retireTime) {
+        retireActive(strategyName, "", exceptVersion, retireTime);
+    }
+
+    @Override
+    public void retireActive(String strategyName, String symbolScope, String exceptVersion, String retireTime) {
         if (!ready()) {
             throw new IllegalStateException("clickhouse not ready for retireActive");
         }
@@ -190,6 +242,11 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
                 .append("') WHERE lower(strategy_name)=lower('")
                 .append(escape(strategyName))
                 .append("') and status='ACTIVE' and (retire_time is null or retire_time > now())");
+        if (StringUtils.isNotBlank(symbolScope)) {
+            sql.append(" and lower(symbol_scope)=lower('")
+                    .append(escape(symbolScope))
+                    .append("')");
+        }
         if (StringUtils.isNotBlank(exceptVersion)) {
             sql.append(" and lower(strategy_version)!=lower('")
                     .append(escape(exceptVersion))

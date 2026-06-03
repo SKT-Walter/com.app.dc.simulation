@@ -76,124 +76,16 @@ public class StrategyAutoPublishService {
             decision.currentValidatePrimaryScore = current.validatePrimaryScore;
             decision.currentFeeAdjustedValidatePnl = current.feeAdjustedValidatePnl;
 
-            if (!StringUtils.equalsIgnoreCase(current.windowMode, "WALK_FORWARD")) {
-                decision.reason = "window_mode is not WALK_FORWARD";
-                return decision;
-            }
-            if (expectsOptimizationEvidence(candidate) && (current.trialCount == null || current.trialCount.intValue() <= 0)) {
-                decision.reason = "optimization evidence missing";
-                return decision;
-            }
-            if (!gt(current.sliceCount == null ? 0D : current.sliceCount.doubleValue(), 2D)) {
-                decision.reason = "slice_count < 3";
-                return decision;
-            }
-            if (!isTrue(current.overfitPass)) {
-                decision.reason = StringUtils.isBlank(current.overfitReason)
-                        ? "overfit gate not passed"
-                        : current.overfitReason;
-                return decision;
-            }
-            if (!isTrue(current.oosPass)) {
-                decision.reason = "oos gate not passed";
-                return decision;
-            }
-            if (current.resultCount != null && current.resultCount.intValue() > 1
-                    && "{}".equals(StringUtils.trimToEmpty(current.bestParamSetJson))) {
-                decision.reason = "publishable best param set missing for multi-symbol result";
-                return decision;
-            }
-            if (!gt(preferredValidateScore(current), 0D)) {
-                decision.reason = "validate primary score <= 0";
-                return decision;
-            }
-            if (!gte(current.validateTradeCount == null ? 0D : current.validateTradeCount.doubleValue(), (double) Math.max(1, minValidateTrades))) {
-                decision.reason = "validate trade count below threshold";
-                return decision;
-            }
-            if (!lte(current.validateMaxDrawdownPct, maxValidateDrawdownPct)) {
-                decision.reason = "validate drawdown above threshold";
-                return decision;
-            }
-            if (!gte(current.validateProfitFactor, minValidateProfitFactor)) {
-                decision.reason = "validate profit factor below threshold";
-                return decision;
-            }
-            if (!gt(preferredFeeAdjustedValidate(current), 0D)) {
-                decision.reason = "fee adjusted validate pnl <= 0";
-                return decision;
-            }
-            if (!gt(current.forwardScore, 0D)) {
-                decision.reason = "forward_score <= 0";
-                return decision;
-            }
-            if (!gte(current.forwardPnl, 0D)) {
-                decision.reason = "forward_pnl < 0";
-                return decision;
-            }
-            if (!gte(forwardContribution(current.forwardPnl, current.totalPnl), current.minForwardContribution)) {
-                decision.reason = "forward contribution below threshold";
-                return decision;
-            }
-            if (isTrue(current.fragileBest)) {
-                decision.reason = "fragile best param";
+            String globalBlock = validateGlobalPreconditions(current, candidate);
+            if (StringUtils.isNotBlank(globalBlock)) {
+                decision.reason = globalBlock;
                 return decision;
             }
 
-            StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadCurrentActive(candidate.strategyName);
-            StrategyLiveRegistryPublishRow baselineRow = active;
-            boolean baselineMigration = StringUtils.equalsIgnoreCase(candidate.generationType, "LIVE_BASELINE_MIGRATION");
-            boolean reviewEvolution = StringUtils.equalsIgnoreCase(candidate.generationType, "REVIEW_EVOLUTION");
-            if (baselineRow == null && (reviewEvolution || baselineMigration)) {
-                baselineRow = strategyAutoPublishDao.loadLatestLiveBaseline(candidate.strategyName);
+            if (current.resultCount != null && current.resultCount.intValue() > 1) {
+                return maybePublishMultiSymbol(decision, task, candidate, response, current);
             }
-
-            if (baselineRow == null) {
-                publish(decision, task, candidate, null, current, "PROMOTE",
-                        "promote profitable walk-forward first version");
-                return decision;
-            }
-
-            decision.baselineVersion = baselineRow.strategyVersion;
-            if (StringUtils.equalsIgnoreCase(baselineRow.strategyVersion, candidate.strategyVersion)) {
-                decision.reason = active == null
-                        ? "same version already latest live baseline"
-                        : "same version already active";
-                return decision;
-            }
-
-            StrategyBacktestSummary baseline = strategyAutoPublishDao
-                    .loadLatestSummary(candidate.strategyName, baselineRow.strategyVersion);
-            if (baseline == null) {
-                decision.reason = active == null
-                        ? "historical live baseline backtest summary missing"
-                        : "baseline backtest summary missing";
-                return decision;
-            }
-            decision.baselineTotalPnl = baseline.totalPnl;
-            decision.baselineValidatePnl = baseline.validatePnl;
-            decision.baselineForwardPnl = baseline.forwardPnl;
-            decision.baselineForwardScore = baseline.forwardScore;
-            decision.baselineValidatePrimaryScore = baseline.validatePrimaryScore;
-
-            if (!gt(current.forwardScore, baseline.forwardScore)) {
-                decision.reason = active == null
-                        ? "forward_score not better than latest live baseline"
-                        : "forward_score not better than active baseline";
-                return decision;
-            }
-            if (!gt(preferredValidateScore(current), preferredValidateScore(baseline))) {
-                decision.reason = active == null
-                        ? "validate score not better than latest live baseline"
-                        : "validate score not better than active baseline";
-                return decision;
-            }
-
-            publish(decision, task, candidate, baselineRow, current, "REPLACE",
-                    active == null
-                            ? "replace latest live baseline after review evolution"
-                            : "replace active version with stronger backtest result");
-            return decision;
+            return maybePublishSingleSymbol(decision, task, candidate, current, resolveSingleSymbol(response));
         } catch (Exception e) {
             log.error("StrategyAutoPublishService maybePublish error, strategy:{}@{}",
                     candidate.strategyName, candidate.strategyVersion, e);
@@ -202,26 +94,241 @@ public class StrategyAutoPublishService {
         }
     }
 
-    private void publish(StrategyAutoPublishDecision decision,
-                         StrategyBacktestTaskRow task,
-                         StrategyCandidateRow candidate,
-                         StrategyLiveRegistryPublishRow active,
-                         StrategyBacktestSummary current,
-                         String eventType,
-                         String reason) {
+    private StrategyAutoPublishDecision maybePublishSingleSymbol(StrategyAutoPublishDecision decision,
+                                                                 StrategyBacktestTaskRow task,
+                                                                 StrategyCandidateRow candidate,
+                                                                 StrategyBacktestSummary current,
+                                                                 String symbolScope) {
+        String gateReason = validatePublishThresholds(current);
+        if (StringUtils.isNotBlank(gateReason)) {
+            decision.reason = gateReason;
+            return decision;
+        }
+        StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadCurrentActive(candidate.strategyName, symbolScope);
+        StrategyLiveRegistryPublishRow baselineRow = resolveBaselineRow(candidate, active, symbolScope);
+        if (baselineRow == null) {
+            publishOne(decision, task, candidate, null, current, symbolScope, "PROMOTE",
+                    "promote profitable walk-forward first version");
+            return decision;
+        }
+        decision.baselineVersion = baselineRow.strategyVersion;
+        if (StringUtils.equalsIgnoreCase(baselineRow.strategyVersion, candidate.strategyVersion)) {
+            decision.reason = active == null
+                    ? "same version already latest live baseline"
+                    : "same version already active";
+            return decision;
+        }
+        StrategyBacktestSummary baseline = strategyAutoPublishDao
+                .loadLatestSummary(candidate.strategyName, baselineRow.strategyVersion, symbolScope);
+        if (baseline == null) {
+            decision.reason = active == null
+                    ? "historical live baseline backtest summary missing"
+                    : "baseline backtest summary missing";
+            return decision;
+        }
+        decision.baselineTotalPnl = baseline.totalPnl;
+        decision.baselineValidatePnl = baseline.validatePnl;
+        decision.baselineForwardPnl = baseline.forwardPnl;
+        decision.baselineForwardScore = baseline.forwardScore;
+        decision.baselineValidatePrimaryScore = baseline.validatePrimaryScore;
+        String baselineReason = validateAgainstBaseline(current, baseline, active == null);
+        if (StringUtils.isNotBlank(baselineReason)) {
+            decision.reason = baselineReason;
+            return decision;
+        }
+        publishOne(decision, task, candidate, baselineRow, current, symbolScope, "REPLACE",
+                active == null
+                        ? "replace latest live baseline after review evolution"
+                        : "replace active version with stronger backtest result");
+        return decision;
+    }
+
+    private StrategyAutoPublishDecision maybePublishMultiSymbol(StrategyAutoPublishDecision decision,
+                                                                StrategyBacktestTaskRow task,
+                                                                StrategyCandidateRow candidate,
+                                                                BacktestModels.BacktestResponse response,
+                                                                StrategyBacktestSummary aggregate) {
+        List<BacktestModels.BacktestResult> results = response == null || response.results == null
+                ? Collections.<BacktestModels.BacktestResult>emptyList()
+                : response.results;
+        if (results.isEmpty()) {
+            decision.reason = "multi-symbol result missing";
+            return decision;
+        }
         String now = nowString();
-        strategyAutoPublishDao.retireActive(candidate.strategyName, candidate.strategyVersion, now);
-        strategyAutoPublishDao.insertRegistry(buildRegistryRow(task, candidate, current, now));
-        strategyAutoPublishDao.insertReleaseEvent(buildReleaseEvent(task, candidate, active, current, eventType, reason, now));
+        int published = 0;
+        int skipped = 0;
+        String action = "";
+        for (BacktestModels.BacktestResult result : results) {
+            if (result == null) {
+                continue;
+            }
+            StrategyBacktestSummary current = summarizeCurrent(task, candidate, wrapResultAsResponse(response, result));
+            current.bestParamSetJson = blankTo(result.bestParamSetJson, "{}");
+            current.resultCount = 1;
+            current.validateTradeCount = result.tradeCount == null ? 0 : result.tradeCount;
+            current.validateMaxDrawdownPct = scale(toDouble(result.maxDrawdownPct));
+            current.validateProfitFactor = scale(toDouble(result.profitFactor));
+            current.fragileBest = result.fragileBest == null ? 0 : result.fragileBest;
+            current.overfitPass = result.overfitPass == null ? 0 : result.overfitPass;
+            current.overfitReason = blankTo(result.overfitReason, "");
+            current.oosPass = result.oosPass == null ? 0 : result.oosPass;
+            current.symbolScope = normalizeSymbolScope(result.symbol);
+
+            StrategyAutoPublishDecision.SymbolDecision symbolDecision =
+                    buildSymbolDecision(candidate, current, now, task);
+            decision.symbolDecisions.add(symbolDecision);
+            if (symbolDecision.published) {
+                published++;
+                decision.publishedSymbols.add(symbolDecision.symbol);
+                if (StringUtils.isBlank(decision.baselineVersion) && StringUtils.isNotBlank(symbolDecision.baselineVersion)) {
+                    decision.baselineVersion = symbolDecision.baselineVersion;
+                }
+                if ("REPLACE".equals(symbolDecision.action)) {
+                    action = "REPLACE";
+                } else if (StringUtils.isBlank(action)) {
+                    action = "PROMOTE";
+                }
+            } else {
+                skipped++;
+                decision.skippedSymbols.add(symbolDecision.symbol);
+            }
+        }
+        decision.publishedCount = published;
+        decision.skippedCount = skipped;
+        decision.published = published > 0;
+        decision.action = published <= 0 ? "SKIP"
+                : (published == decision.symbolDecisions.size() ? action : ("REPLACE".equals(action) ? "PARTIAL_REPLACE" : "PARTIAL_PROMOTE"));
+        if (published > 0 && skipped > 0) {
+            decision.reason = "published " + published + " symbol(s), skipped " + skipped + " symbol(s)";
+        } else if (published > 0) {
+            decision.reason = "published " + published + " symbol(s)";
+        } else {
+            decision.reason = firstSkippedReason(decision.symbolDecisions, "no symbol passed publish gate");
+        }
+        decision.currentTotalPnl = aggregate.totalPnl;
+        decision.currentValidatePnl = aggregate.validatePnl;
+        decision.currentForwardPnl = aggregate.forwardPnl;
+        decision.currentForwardScore = aggregate.forwardScore;
+        decision.currentValidatePrimaryScore = aggregate.validatePrimaryScore;
+        decision.currentFeeAdjustedValidatePnl = aggregate.feeAdjustedValidatePnl;
+        return decision;
+    }
+
+    private StrategyAutoPublishDecision.SymbolDecision buildSymbolDecision(StrategyCandidateRow candidate,
+                                                                           StrategyBacktestSummary current,
+                                                                           String effectiveTime,
+                                                                           StrategyBacktestTaskRow task) {
+        StrategyAutoPublishDecision.SymbolDecision decision = new StrategyAutoPublishDecision.SymbolDecision();
+        decision.symbol = current.symbolScope;
+        decision.bestParamSetJson = current.bestParamSetJson;
+        decision.validatePnl = current.validatePnl;
+        decision.forwardPnl = current.forwardPnl;
+        decision.totalPnl = current.totalPnl;
+        decision.validatePrimaryScore = current.validatePrimaryScore;
+        decision.forwardScore = current.forwardScore;
+        decision.feeAdjustedValidatePnl = current.feeAdjustedValidatePnl;
+        decision.validateTradeCount = current.validateTradeCount;
+        decision.validateMaxDrawdownPct = current.validateMaxDrawdownPct;
+        decision.validateProfitFactor = current.validateProfitFactor;
+        decision.oosPass = current.oosPass;
+        decision.overfitPass = current.overfitPass;
+
+        String gateReason = validatePublishThresholds(current);
+        if (StringUtils.isNotBlank(gateReason)) {
+            decision.published = false;
+            decision.action = "SKIP";
+            decision.reason = gateReason;
+            return decision;
+        }
+
+        StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadCurrentActive(candidate.strategyName, current.symbolScope);
+        StrategyLiveRegistryPublishRow baselineRow = resolveBaselineRow(candidate, active, current.symbolScope);
+        if (baselineRow == null) {
+            insertPublishRow(task, candidate, null, current, current.symbolScope, "PROMOTE",
+                    "promote profitable walk-forward first version", effectiveTime);
+            decision.published = true;
+            decision.action = "PROMOTE";
+            decision.reason = "promote profitable walk-forward first version";
+            return decision;
+        }
+        decision.baselineVersion = baselineRow.strategyVersion;
+        if (StringUtils.equalsIgnoreCase(baselineRow.strategyVersion, candidate.strategyVersion)) {
+            decision.published = false;
+            decision.action = "SKIP";
+            decision.reason = active == null
+                    ? "same version already latest live baseline"
+                    : "same version already active";
+            return decision;
+        }
+        StrategyBacktestSummary baseline = strategyAutoPublishDao
+                .loadLatestSummary(candidate.strategyName, baselineRow.strategyVersion, current.symbolScope);
+        if (baseline == null) {
+            decision.published = false;
+            decision.action = "SKIP";
+            decision.reason = active == null
+                    ? "historical live baseline backtest summary missing"
+                    : "baseline backtest summary missing";
+            return decision;
+        }
+        String baselineReason = validateAgainstBaseline(current, baseline, active == null);
+        if (StringUtils.isNotBlank(baselineReason)) {
+            decision.published = false;
+            decision.action = "SKIP";
+            decision.reason = baselineReason;
+            return decision;
+        }
+        insertPublishRow(task, candidate, baselineRow, current, current.symbolScope, "REPLACE",
+                active == null
+                        ? "replace latest live baseline after review evolution"
+                        : "replace active version with stronger backtest result",
+                effectiveTime);
+        decision.published = true;
+        decision.action = "REPLACE";
+        decision.reason = active == null
+                ? "replace latest live baseline after review evolution"
+                : "replace active version with stronger backtest result";
+        return decision;
+    }
+
+    private void publishOne(StrategyAutoPublishDecision decision,
+                            StrategyBacktestTaskRow task,
+                            StrategyCandidateRow candidate,
+                            StrategyLiveRegistryPublishRow active,
+                            StrategyBacktestSummary current,
+                            String symbolScope,
+                            String eventType,
+                            String reason) {
+        String now = nowString();
+        insertPublishRow(task, candidate, active, current, symbolScope, eventType, reason, now);
         decision.published = true;
         decision.action = eventType;
         decision.reason = reason;
         decision.baselineVersion = active == null ? "" : active.strategyVersion;
+        decision.publishedCount = 1;
+        decision.skippedCount = 0;
+        if (StringUtils.isNotBlank(symbolScope)) {
+            decision.publishedSymbols.add(symbolScope);
+        }
+    }
+
+    private void insertPublishRow(StrategyBacktestTaskRow task,
+                                  StrategyCandidateRow candidate,
+                                  StrategyLiveRegistryPublishRow active,
+                                  StrategyBacktestSummary current,
+                                  String symbolScope,
+                                  String eventType,
+                                  String reason,
+                                  String effectiveTime) {
+        strategyAutoPublishDao.retireActive(candidate.strategyName, symbolScope, candidate.strategyVersion, effectiveTime);
+        strategyAutoPublishDao.insertRegistry(buildRegistryRow(task, candidate, current, symbolScope, effectiveTime));
+        strategyAutoPublishDao.insertReleaseEvent(buildReleaseEvent(task, candidate, active, current, symbolScope, eventType, reason, effectiveTime));
     }
 
     private StrategyLiveRegistryPublishRow buildRegistryRow(StrategyBacktestTaskRow task,
                                                             StrategyCandidateRow candidate,
                                                             StrategyBacktestSummary current,
+                                                            String symbolScope,
                                                             String effectiveTime) {
         BacktestParam param = parseTaskPayload(task);
         StrategyLiveRegistryPublishRow row = new StrategyLiveRegistryPublishRow();
@@ -231,7 +338,7 @@ public class StrategyAutoPublishService {
         row.category = blankTo(candidate.category, "generated");
         row.scene = candidate.scene;
         row.runtimeType = blankTo(candidate.runtimeType, "CLASSPATH");
-        row.symbolScope = resolveSymbolScope(param);
+        row.symbolScope = StringUtils.isBlank(symbolScope) ? resolveSymbolScope(param) : symbolScope;
         row.textScope = resolveTextScope(param);
         row.artifactUri = blankTo(candidate.artifactUri, "classpath://builtin");
         row.entryClass = candidate.entryClass;
@@ -266,13 +373,10 @@ public class StrategyAutoPublishService {
     }
 
     private String resolveRuntimeParametersJson(StrategyCandidateRow candidate,
-                                               StrategyBacktestSummary current) {
+                                                StrategyBacktestSummary current) {
         if (current != null && StringUtils.isNotBlank(current.bestParamSetJson)
                 && !"{}".equals(current.bestParamSetJson.trim())) {
             return current.bestParamSetJson;
-        }
-        if (current != null && current.resultCount != null && current.resultCount.intValue() > 1) {
-            throw new IllegalStateException("multi-symbol publish requires a concrete bestParamSetJson");
         }
         Map<String, Object> defaults = candidate == null
                 ? Collections.<String, Object>emptyMap()
@@ -287,6 +391,7 @@ public class StrategyAutoPublishService {
                                                          StrategyCandidateRow candidate,
                                                          StrategyLiveRegistryPublishRow active,
                                                          StrategyBacktestSummary current,
+                                                         String symbolScope,
                                                          String eventType,
                                                          String reason,
                                                          String eventTime) {
@@ -294,6 +399,7 @@ public class StrategyAutoPublishService {
         payload.put("taskId", task == null ? "" : task.id);
         payload.put("strategyName", candidate.strategyName);
         payload.put("strategyVersion", candidate.strategyVersion);
+        payload.put("symbolScope", blankTo(symbolScope, ""));
         payload.put("windowMode", current.windowMode);
         payload.put("sliceCount", current.sliceCount);
         payload.put("currentValidatePnl", current.validatePnl);
@@ -328,6 +434,7 @@ public class StrategyAutoPublishService {
         summary.sid = task == null ? "" : task.id;
         summary.strategyName = candidate.strategyName;
         summary.strategyVersion = candidate.strategyVersion;
+        summary.symbolScope = resolveSingleSymbol(response);
         summary.runtimeType = candidate.runtimeType;
         summary.scene = candidate.scene;
         summary.runTime = nowString();
@@ -396,6 +503,191 @@ public class StrategyAutoPublishService {
         summary.overfitReason = overfitReason;
         summary.resultCount = count;
         return summary;
+    }
+
+    private StrategyBacktestSummary summarizeCurrent(StrategyBacktestTaskRow task,
+                                                     StrategyCandidateRow candidate,
+                                                     BacktestModels.BacktestResult result) {
+        BacktestModels.BacktestResponse response = wrapResultAsResponse(null, result);
+        StrategyBacktestSummary summary = summarizeCurrent(task, candidate, response);
+        summary.symbolScope = result == null ? "" : normalizeSymbolScope(result.symbol);
+        return summary;
+    }
+
+    private BacktestModels.BacktestResponse wrapResultAsResponse(BacktestModels.BacktestResponse template,
+                                                                 BacktestModels.BacktestResult result) {
+        BacktestModels.BacktestResponse response = new BacktestModels.BacktestResponse();
+        if (template != null) {
+            response.strategyName = template.strategyName;
+            response.strategyVersion = template.strategyVersion;
+            response.baselineVersion = template.baselineVersion;
+            response.runtimeType = template.runtimeType;
+            response.scene = template.scene;
+            response.symbol = result == null ? "" : result.symbol;
+            response.symbols = result == null || StringUtils.isBlank(result.symbol)
+                    ? Collections.<String>emptyList()
+                    : Collections.singletonList(result.symbol);
+            response.text = result == null ? template.text : result.text;
+            response.beginDate = result == null ? template.beginDate : result.beginDate;
+            response.endDate = result == null ? template.endDate : result.endDate;
+            response.windowMode = template.windowMode;
+            response.sliceCount = result != null && result.sliceCount != null ? result.sliceCount : template.sliceCount;
+            response.symbolCount = 1;
+            response.fitWindowDays = result != null && result.fitWindowDays != null ? result.fitWindowDays : template.fitWindowDays;
+            response.validateWindowDays = result != null && result.validateWindowDays != null ? result.validateWindowDays : template.validateWindowDays;
+            response.forwardWindowDays = result != null && result.forwardWindowDays != null ? result.forwardWindowDays : template.forwardWindowDays;
+            response.minSliceCount = result != null && result.minSliceCount != null ? result.minSliceCount : template.minSliceCount;
+            response.optimizationMode = template.optimizationMode;
+            response.optimizationObjective = template.optimizationObjective;
+            response.minForwardContribution = template.minForwardContribution;
+            response.trialCount = result != null && result.trialCount != null ? result.trialCount : template.trialCount;
+            response.trialBudget = result != null && result.trialBudget != null ? result.trialBudget : template.trialBudget;
+            response.trialBudgetUsed = result != null && result.trialBudgetUsed != null ? result.trialBudgetUsed : template.trialBudgetUsed;
+            response.trialBudgetHit = result != null && result.trialBudgetHit != null ? result.trialBudgetHit : template.trialBudgetHit;
+            response.coarseCandidateCount = result != null && result.coarseCandidateCount != null ? result.coarseCandidateCount : template.coarseCandidateCount;
+            response.fineCandidateCount = result != null && result.fineCandidateCount != null ? result.fineCandidateCount : template.fineCandidateCount;
+            response.bestRank = result != null && result.bestRank != null ? result.bestRank : template.bestRank;
+            response.elapsedMs = result != null && result.elapsedMs != null ? result.elapsedMs : template.elapsedMs;
+            response.results = result == null
+                    ? Collections.<BacktestModels.BacktestResult>emptyList()
+                    : Collections.singletonList(result);
+        } else {
+            response.symbol = result == null ? "" : result.symbol;
+            response.symbols = result == null || StringUtils.isBlank(result.symbol)
+                    ? Collections.<String>emptyList()
+                    : Collections.singletonList(result.symbol);
+            response.results = result == null
+                    ? Collections.<BacktestModels.BacktestResult>emptyList()
+                    : Collections.singletonList(result);
+        }
+        if (result != null) {
+            response.fitPnl = result.fitPnl;
+            response.validatePnl = result.validatePnl;
+            response.forwardPnl = result.forwardPnl;
+            response.totalPnl = result.totalPnl;
+            response.forwardScore = result.forwardScore;
+            response.validatePrimaryScore = result.validatePrimaryScore;
+            response.forwardAuxScore = result.forwardAuxScore;
+            response.feeAdjustedValidatePnl = result.feeAdjustedValidatePnl;
+            response.sliceParamDriftScore = result.sliceParamDriftScore;
+            response.oosPass = result.oosPass;
+            response.overfitPass = result.overfitPass;
+            response.overfitReason = result.overfitReason;
+            response.bestParamSetJson = result.bestParamSetJson;
+            response.fragileBest = result.fragileBest;
+            response.stableParamRangeJson = result.stableParamRangeJson;
+            response.neighborAvgPnl = result.neighborAvgPnl;
+            response.neighborWorstPnl = result.neighborWorstPnl;
+        }
+        return response;
+    }
+
+    private String resolveSingleSymbol(BacktestModels.BacktestResponse response) {
+        if (response == null) {
+            return "";
+        }
+        if (StringUtils.isNotBlank(response.symbol)) {
+            return normalizeSymbolScope(response.symbol);
+        }
+        if (response.symbols != null && response.symbols.size() == 1) {
+            return normalizeSymbolScope(response.symbols.get(0));
+        }
+        return "";
+    }
+
+    private StrategyLiveRegistryPublishRow resolveBaselineRow(StrategyCandidateRow candidate,
+                                                              StrategyLiveRegistryPublishRow active,
+                                                              String symbolScope) {
+        StrategyLiveRegistryPublishRow baselineRow = active;
+        boolean baselineMigration = StringUtils.equalsIgnoreCase(candidate.generationType, "LIVE_BASELINE_MIGRATION");
+        boolean reviewEvolution = StringUtils.equalsIgnoreCase(candidate.generationType, "REVIEW_EVOLUTION");
+        if (baselineRow == null && (reviewEvolution || baselineMigration)) {
+            baselineRow = strategyAutoPublishDao.loadLatestLiveBaseline(candidate.strategyName, symbolScope);
+        }
+        return baselineRow;
+    }
+
+    private String validateGlobalPreconditions(StrategyBacktestSummary current, StrategyCandidateRow candidate) {
+        if (!StringUtils.equalsIgnoreCase(current.windowMode, "WALK_FORWARD")) {
+            return "window_mode is not WALK_FORWARD";
+        }
+        if (expectsOptimizationEvidence(candidate) && (current.trialCount == null || current.trialCount.intValue() <= 0)) {
+            return "optimization evidence missing";
+        }
+        if (!gt(current.sliceCount == null ? 0D : current.sliceCount.doubleValue(), 2D)) {
+            return "slice_count < 3";
+        }
+        return "";
+    }
+
+    private String validatePublishThresholds(StrategyBacktestSummary current) {
+        if (!isTrue(current.overfitPass)) {
+            return StringUtils.isBlank(current.overfitReason)
+                    ? "overfit gate not passed"
+                    : current.overfitReason;
+        }
+        if (!isTrue(current.oosPass)) {
+            return "oos gate not passed";
+        }
+        if (!gt(preferredValidateScore(current), 0D)) {
+            return "validate primary score <= 0";
+        }
+        if (!gte(current.validateTradeCount == null ? 0D : current.validateTradeCount.doubleValue(), (double) Math.max(1, minValidateTrades))) {
+            return "validate trade count below threshold";
+        }
+        if (!lte(current.validateMaxDrawdownPct, maxValidateDrawdownPct)) {
+            return "validate drawdown above threshold";
+        }
+        if (!gte(current.validateProfitFactor, minValidateProfitFactor)) {
+            return "validate profit factor below threshold";
+        }
+        if (!gt(preferredFeeAdjustedValidate(current), 0D)) {
+            return "fee adjusted validate pnl <= 0";
+        }
+        if (!gt(current.forwardScore, 0D)) {
+            return "forward_score <= 0";
+        }
+        if (!gte(current.forwardPnl, 0D)) {
+            return "forward_pnl < 0";
+        }
+        if (!gte(forwardContribution(current.forwardPnl, current.totalPnl), current.minForwardContribution)) {
+            return "forward contribution below threshold";
+        }
+        if (isTrue(current.fragileBest)) {
+            return "fragile best param";
+        }
+        if ("{}".equals(StringUtils.trimToEmpty(current.bestParamSetJson))) {
+            return "best param set missing";
+        }
+        return "";
+    }
+
+    private String validateAgainstBaseline(StrategyBacktestSummary current,
+                                           StrategyBacktestSummary baseline,
+                                           boolean latestBaselineMode) {
+        if (!gt(current.forwardScore, baseline.forwardScore)) {
+            return latestBaselineMode
+                    ? "forward_score not better than latest live baseline"
+                    : "forward_score not better than active baseline";
+        }
+        if (!gt(preferredValidateScore(current), preferredValidateScore(baseline))) {
+            return latestBaselineMode
+                    ? "validate score not better than latest live baseline"
+                    : "validate score not better than active baseline";
+        }
+        return "";
+    }
+
+    private String firstSkippedReason(List<StrategyAutoPublishDecision.SymbolDecision> items, String fallback) {
+        if (items == null) {
+            return fallback;
+        }
+        for (StrategyAutoPublishDecision.SymbolDecision item : items) {
+            if (item != null && !item.published && StringUtils.isNotBlank(item.reason)) {
+                return item.reason;
+            }
+        }
+        return fallback;
     }
 
     private Double preferredValidateScore(StrategyBacktestSummary summary) {

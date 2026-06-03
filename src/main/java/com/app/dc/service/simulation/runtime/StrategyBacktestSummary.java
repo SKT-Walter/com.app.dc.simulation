@@ -4,6 +4,7 @@ public class StrategyBacktestSummary {
     public String sid;
     public String strategyName;
     public String strategyVersion;
+    public String symbolScope;
     public String runtimeType;
     public String scene;
     public String runTime;

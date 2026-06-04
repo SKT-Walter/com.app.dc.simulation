@@ -3,8 +3,8 @@ name: Publish SIMSvr image
 on:
   workflow_dispatch:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - latest
 
 env:
   REGISTRY: ghcr.io
@@ -65,8 +65,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=tag
             type=raw,value=latest
+            type=sha,format=short,prefix=sha-
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

@@ -158,7 +158,7 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
                 + "sid as sid,"
                 + "argMax(strategy_name, run_time) as strategyName,"
                 + "argMax(strategy_version, run_time) as strategyVersion,"
-                + "argMax(symbol_scope, run_time) as symbolScope,"
+                + "argMax(symbol, run_time) as symbolScope,"
                 + "argMax(runtime_type, run_time) as runtimeType,"
                 + "argMax(scene, run_time) as scene,"
                 + "argMax(window_mode, run_time) as windowMode,"
@@ -191,7 +191,7 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
         params.add(strategyName);
         params.add(strategyVersion);
         if (StringUtils.isNotBlank(symbolScope)) {
-            sql += " and lower(symbol_scope)=lower(?)";
+            sql += " and lower(symbol)=lower(?)";
             params.add(symbolScope);
         }
         sql += " group by sid"

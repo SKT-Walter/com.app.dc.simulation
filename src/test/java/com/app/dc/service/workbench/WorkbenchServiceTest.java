@@ -76,7 +76,8 @@ public class WorkbenchServiceTest {
         Map<String, Object> record = new LinkedHashMap<String, Object>();
         record.put("strategyName", "docx_c6");
         record.put("toVersion", "v2");
-        record.put("eventType", "PROMOTE");
+        record.put("eventType", "发布实盘记录");
+        record.put("rawEventType", "PROMOTE");
         record.put("active", Boolean.TRUE);
         record.put("effectiveTime", "2026-05-13 10:00:00");
         service.publishRecords.add(record);
@@ -88,7 +89,39 @@ public class WorkbenchServiceTest {
         List<Map<String, Object>> items = (List<Map<String, Object>>) data.get("items");
         Assert.assertEquals(1, items.size());
         Assert.assertEquals("docx_c6", items.get(0).get("strategyName"));
+        Assert.assertEquals("发布实盘记录", items.get(0).get("eventType"));
         Assert.assertEquals(Boolean.TRUE, items.get(0).get("active"));
+    }
+
+    @Test
+    public void loadPublishRecordsShouldDescribeEvolutionAndOfflineEvents() {
+        FakeWorkbenchService service = new FakeWorkbenchService();
+
+        StrategyReleaseEventRecord evolution = new StrategyReleaseEventRecord();
+        evolution.id = "ev-1";
+        evolution.eventTime = "2026-06-08 00:10:35";
+        evolution.strategyName = "wb15_trend_t104";
+        evolution.toVersion = "v2";
+        evolution.eventType = "EVOLUTION_TRIGGERED";
+        evolution.source = "review_evolution";
+
+        StrategyReleaseEventRecord offline = new StrategyReleaseEventRecord();
+        offline.id = "ev-2";
+        offline.eventTime = "2026-06-08 00:11:35";
+        offline.strategyName = "wb15_trend_t104";
+        offline.toVersion = "v1";
+        offline.eventType = "OFFLINE";
+        offline.source = "manual";
+
+        service.publishEventRows.add(evolution);
+        service.publishEventRows.add(offline);
+
+        List<Map<String, Object>> items = service.loadPublishRecords("2026-06-08", "2026-06-08", 20, 0);
+        Assert.assertEquals(2, items.size());
+        Assert.assertEquals("日末复盘记录", items.get(0).get("eventType"));
+        Assert.assertEquals("EVOLUTION_TRIGGERED", items.get(0).get("rawEventType"));
+        Assert.assertEquals("下线实盘记录", items.get(1).get("eventType"));
+        Assert.assertEquals("OFFLINE", items.get(1).get("rawEventType"));
     }
 
     @Test
@@ -234,6 +267,7 @@ public class WorkbenchServiceTest {
         final Map<String, StrategyReleaseEventRecord> releaseEvents = new LinkedHashMap<String, StrategyReleaseEventRecord>();
         final Map<String, List<StrategyLiveRegistryPublishRow>> liveRegistryRows = new LinkedHashMap<String, List<StrategyLiveRegistryPublishRow>>();
         final List<String> insertedTasks = new ArrayList<String>();
+        final List<StrategyReleaseEventRecord> publishEventRows = new ArrayList<StrategyReleaseEventRecord>();
 
         FakeWorkbenchService() {
             injectBacktestSupportService();
@@ -293,12 +327,39 @@ public class WorkbenchServiceTest {
 
         @Override
         protected List<Map<String, Object>> loadPublishRecords(String dateFrom, String dateTo, int limit, int offset) {
-            return publishRecords;
+            if (!publishRecords.isEmpty()) {
+                return publishRecords;
+            }
+            if (publishEventRows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<Map<String, Object>> items = new ArrayList<Map<String, Object>>();
+            for (StrategyReleaseEventRecord row : publishEventRows) {
+                Map<String, Object> item = new LinkedHashMap<String, Object>();
+                item.put("id", row.id);
+                item.put("eventTime", row.eventTime);
+                item.put("strategyName", row.strategyName);
+                item.put("fromVersion", row.fromVersion == null ? "" : row.fromVersion);
+                item.put("toVersion", row.toVersion);
+                item.put("runtimeType", row.runtimeType);
+                item.put("eventType", describeReleaseEventTypeForTest(row.eventType, row.source));
+                item.put("rawEventType", row.eventType == null ? "" : row.eventType);
+                item.put("reason", row.reason);
+                item.put("source", row.source);
+                item.put("payload", row.payload == null ? "" : row.payload);
+                item.put("summary", Collections.emptyMap());
+                item.put("symbol", "");
+                item.put("text", "");
+                item.put("active", Boolean.FALSE);
+                item.put("effectiveTime", "");
+                items.add(item);
+            }
+            return items;
         }
 
         @Override
         protected int countPublishRecords(String dateFrom, String dateTo) {
-            return publishRecords.size();
+            return !publishRecords.isEmpty() ? publishRecords.size() : publishEventRows.size();
         }
 
         @Override
@@ -307,6 +368,29 @@ public class WorkbenchServiceTest {
                                           int fitWindowDays, int validateWindowDays, int forwardWindowDays, int priority,
                                           String status, String now, String payloadJson) {
             insertedTasks.add(payloadJson);
+        }
+
+        private String describeReleaseEventTypeForTest(String eventType, String source) {
+            String normalized = eventType == null ? "" : eventType.trim().toUpperCase();
+            if ("EVOLUTION_TRIGGERED".equals(normalized)
+                    || "REVIEW_EVOLUTION".equalsIgnoreCase(source == null ? "" : source.trim())) {
+                return "日末复盘记录";
+            }
+            if ("PROMOTE".equals(normalized)
+                    || normalized.endsWith("_PROMOTE")
+                    || "REPLACE".equals(normalized)
+                    || normalized.endsWith("_REPLACE")) {
+                return "发布实盘记录";
+            }
+            if ("OFFLINE".equals(normalized)
+                    || normalized.endsWith("_OFFLINE")
+                    || "SEED_OFFLINE".equals(normalized)
+                    || "OFFLINED".equals(normalized)
+                    || "RETIRE".equals(normalized)
+                    || normalized.endsWith("_RETIRE")) {
+                return "下线实盘记录";
+            }
+            return eventType == null ? "" : eventType;
         }
     }
 }

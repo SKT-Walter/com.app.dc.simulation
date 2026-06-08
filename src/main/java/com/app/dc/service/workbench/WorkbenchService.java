@@ -467,7 +467,8 @@ public class WorkbenchService {
                 item.put("fromVersion", blankTo(row.fromVersion, ""));
                 item.put("toVersion", row.toVersion);
                 item.put("runtimeType", row.runtimeType);
-                item.put("eventType", row.eventType);
+                item.put("eventType", describeReleaseEventType(row.eventType, row.source));
+                item.put("rawEventType", blankTo(row.eventType, ""));
                 item.put("reason", row.reason);
                 item.put("source", row.source);
                 item.put("payload", blankTo(row.payload, ""));
@@ -1128,6 +1129,31 @@ public class WorkbenchService {
 
     private boolean isEvolutionTriggeredEvent(String eventType) {
         return "EVOLUTION_TRIGGERED".equalsIgnoreCase(blankTo(eventType, "").trim());
+    }
+
+    private String describeReleaseEventType(String eventType, String source) {
+        String normalized = blankTo(eventType, "").trim().toUpperCase();
+        if (isEvolutionTriggeredEvent(normalized)
+                || "REVIEW_EVOLUTION".equalsIgnoreCase(blankTo(source, "").trim())) {
+            return "日末复盘记录";
+        }
+        if (isPublishedEventType(normalized)) {
+            return "发布实盘记录";
+        }
+        if (isOfflineEventType(normalized)) {
+            return "下线实盘记录";
+        }
+        return blankTo(eventType, "");
+    }
+
+    private boolean isOfflineEventType(String eventType) {
+        String normalized = blankTo(eventType, "").trim().toUpperCase();
+        return "OFFLINE".equals(normalized)
+                || normalized.endsWith("_OFFLINE")
+                || "SEED_OFFLINE".equals(normalized)
+                || "OFFLINED".equals(normalized)
+                || "RETIRE".equals(normalized)
+                || normalized.endsWith("_RETIRE");
     }
 
     private String joinActiveSymbols(List<StrategyLiveRegistryPublishRow> rows) {

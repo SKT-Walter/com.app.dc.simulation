@@ -1,8 +1,11 @@
 package com.app.dc.service.workbench;
 
+import com.app.dc.service.simulation.BacktestSupportService;
 import com.app.dc.service.simulation.runtime.StrategyBacktestSummary;
 import com.app.dc.service.simulation.runtime.StrategyBacktestTaskRow;
 import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
+import com.app.dc.service.simulation.runtime.StrategyLiveRegistryPublishRow;
+import com.app.dc.service.simulation.runtime.StrategyReleaseEventRecord;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -14,6 +17,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.lang.reflect.Field;
 
 public class WorkbenchServiceTest {
 
@@ -85,6 +89,38 @@ public class WorkbenchServiceTest {
         Assert.assertEquals(1, items.size());
         Assert.assertEquals("docx_c6", items.get(0).get("strategyName"));
         Assert.assertEquals(Boolean.TRUE, items.get(0).get("active"));
+    }
+
+    @Test
+    public void queryBacktestListShouldSeparateEvolutionTriggeredFromPublished() {
+        FakeWorkbenchService service = new FakeWorkbenchService();
+
+        StrategyBacktestTaskRow row = new StrategyBacktestTaskRow();
+        row.id = "bt-ev-1";
+        row.strategyName = "wb15_trend_t104";
+        row.strategyVersion = "v2";
+        row.status = "SUCCESS";
+        row.createTime = "2026-06-08 00:10:35";
+        row.updateTime = "2026-06-08 00:12:10";
+        row.payload = "{\"backtestParam\":{\"symbol\":\"BTCUSDT\",\"text\":\"15m\",\"beginDate\":\"2026-06-01\",\"endDate\":\"2026-06-07\"}}";
+        service.rows.add(row);
+
+        StrategyReleaseEventRecord event = new StrategyReleaseEventRecord();
+        event.eventType = "EVOLUTION_TRIGGERED";
+        event.eventTime = "2026-06-08 00:10:35";
+        event.reason = "active version offlined after review evolution triggered";
+        event.source = "review_evolution";
+        service.releaseEvents.put("wb15_trend_t104@v2", event);
+
+        Map<String, Object> data = service.queryBacktestList(Collections.singletonMap("date", "2026-06-08"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) data.get("items");
+        Assert.assertEquals(1, items.size());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> publish = (Map<String, Object>) items.get(0).get("publish");
+        Assert.assertEquals("", publish.get("releaseEventType"));
+        Assert.assertEquals("EVOLUTION_TRIGGERED", publish.get("evolutionEventType"));
+        Assert.assertEquals(Boolean.TRUE, publish.get("evolutionTriggered"));
     }
 
     @Test
@@ -195,7 +231,23 @@ public class WorkbenchServiceTest {
         final Map<String, Map<String, Object>> reports = new LinkedHashMap<String, Map<String, Object>>();
         final List<Map<String, Object>> publishRecords = new ArrayList<Map<String, Object>>();
         final Map<String, StrategyCandidateRow> candidates = new LinkedHashMap<String, StrategyCandidateRow>();
+        final Map<String, StrategyReleaseEventRecord> releaseEvents = new LinkedHashMap<String, StrategyReleaseEventRecord>();
+        final Map<String, List<StrategyLiveRegistryPublishRow>> liveRegistryRows = new LinkedHashMap<String, List<StrategyLiveRegistryPublishRow>>();
         final List<String> insertedTasks = new ArrayList<String>();
+
+        FakeWorkbenchService() {
+            injectBacktestSupportService();
+        }
+
+        private void injectBacktestSupportService() {
+            try {
+                Field field = WorkbenchService.class.getDeclaredField("backtestSupportService");
+                field.setAccessible(true);
+                field.set(this, new BacktestSupportService());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
 
         @Override
         protected List<StrategyBacktestTaskRow> loadBacktestTasksByRange(String dateFrom, String dateTo, String strategyName, String strategyVersion, String status, int limit, int offset) {
@@ -221,6 +273,22 @@ public class WorkbenchServiceTest {
         protected Map<String, Object> loadLatestReportMeta(String taskId, String strategyName, String strategyVersion) {
             Map<String, Object> report = reports.get(taskId);
             return report == null ? super.loadLatestReportMeta(taskId, strategyName, strategyVersion) : report;
+        }
+
+        @Override
+        protected StrategyBacktestSummary loadLatestSummary(String strategyName, String strategyVersion, String symbolScope) {
+            return summaries.get(strategyName + "@" + strategyVersion);
+        }
+
+        @Override
+        protected List<StrategyLiveRegistryPublishRow> loadExactActiveRows(String strategyName, String strategyVersion) {
+            List<StrategyLiveRegistryPublishRow> rows = liveRegistryRows.get(strategyName + "@" + strategyVersion);
+            return rows == null ? Collections.<StrategyLiveRegistryPublishRow>emptyList() : rows;
+        }
+
+        @Override
+        protected StrategyReleaseEventRecord loadLatestReleaseEvent(String strategyName, String strategyVersion) {
+            return releaseEvents.get(strategyName + "@" + strategyVersion);
         }
 
         @Override

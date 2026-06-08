@@ -1079,20 +1079,55 @@ public class WorkbenchService {
 
     private Map<String, Object> buildPublishState(String strategyName, String strategyVersion) {
         Map<String, Object> publish = new LinkedHashMap<String, Object>();
-        List<StrategyLiveRegistryPublishRow> activeRows = strategyAutoPublishDao.listExactActiveRows(strategyName, strategyVersion);
+        List<StrategyLiveRegistryPublishRow> activeRows = loadExactActiveRows(strategyName, strategyVersion);
         StrategyLiveRegistryPublishRow active = activeRows == null || activeRows.isEmpty() ? null : activeRows.get(0);
-        StrategyReleaseEventRecord event = strategyAutoPublishDao.loadLatestReleaseEvent(strategyName, strategyVersion);
+        StrategyReleaseEventRecord event = loadLatestReleaseEvent(strategyName, strategyVersion);
+        String latestEventType = event == null ? "" : blankTo(event.eventType, "");
+        String latestEventTime = event == null ? "" : blankTo(event.eventTime, "");
+        String latestEventReason = event == null ? "" : blankTo(event.reason, "");
+        String latestEventSource = event == null ? "" : blankTo(event.source, "");
+        boolean evolutionTriggered = isEvolutionTriggeredEvent(latestEventType);
+        boolean publishedEvent = isPublishedEventType(latestEventType);
         publish.put("active", active != null);
         publish.put("activeCount", activeRows == null ? 0 : activeRows.size());
         publish.put("activeSymbols", joinActiveSymbols(activeRows));
         publish.put("effectiveTime", active == null ? "" : blankTo(active.effectiveTime, ""));
         publish.put("currentLiveVersion", active == null ? "" : blankTo(active.strategyVersion, ""));
         publish.put("currentLiveStatus", active == null ? "" : blankTo(active.status, ""));
-        publish.put("releaseEventType", event == null ? "" : blankTo(event.eventType, ""));
-        publish.put("releaseEventTime", event == null ? "" : blankTo(event.eventTime, ""));
-        publish.put("releaseEventReason", event == null ? "" : blankTo(event.reason, ""));
-        publish.put("releaseEventSource", event == null ? "" : blankTo(event.source, ""));
+        publish.put("latestEventType", latestEventType);
+        publish.put("latestEventTime", latestEventTime);
+        publish.put("latestEventReason", latestEventReason);
+        publish.put("latestEventSource", latestEventSource);
+        publish.put("releaseEventType", publishedEvent ? latestEventType : "");
+        publish.put("releaseEventTime", publishedEvent ? latestEventTime : "");
+        publish.put("releaseEventReason", publishedEvent ? latestEventReason : "");
+        publish.put("releaseEventSource", publishedEvent ? latestEventSource : "");
+        publish.put("evolutionTriggered", evolutionTriggered);
+        publish.put("evolutionEventType", evolutionTriggered ? latestEventType : "");
+        publish.put("evolutionEventTime", evolutionTriggered ? latestEventTime : "");
+        publish.put("evolutionEventReason", evolutionTriggered ? latestEventReason : "");
+        publish.put("evolutionEventSource", evolutionTriggered ? latestEventSource : "");
         return publish;
+    }
+
+    protected List<StrategyLiveRegistryPublishRow> loadExactActiveRows(String strategyName, String strategyVersion) {
+        return strategyAutoPublishDao.listExactActiveRows(strategyName, strategyVersion);
+    }
+
+    protected StrategyReleaseEventRecord loadLatestReleaseEvent(String strategyName, String strategyVersion) {
+        return strategyAutoPublishDao.loadLatestReleaseEvent(strategyName, strategyVersion);
+    }
+
+    private boolean isPublishedEventType(String eventType) {
+        String normalized = blankTo(eventType, "").trim().toUpperCase();
+        return "PROMOTE".equals(normalized)
+                || normalized.endsWith("_PROMOTE")
+                || "REPLACE".equals(normalized)
+                || normalized.endsWith("_REPLACE");
+    }
+
+    private boolean isEvolutionTriggeredEvent(String eventType) {
+        return "EVOLUTION_TRIGGERED".equalsIgnoreCase(blankTo(eventType, "").trim());
     }
 
     private String joinActiveSymbols(List<StrategyLiveRegistryPublishRow> rows) {

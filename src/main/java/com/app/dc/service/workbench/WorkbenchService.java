@@ -897,6 +897,16 @@ public class WorkbenchService {
         if (target.equals(itemSymbol)) {
             return true;
         }
+        Object payloadSummary = item.get("payloadSummary");
+        if (payloadSummary instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> summaryMap = (Map<String, Object>) payloadSummary;
+            String single = blankTo(summaryMap.get("symbol") == null ? "" : String.valueOf(summaryMap.get("symbol")), "").trim().toUpperCase();
+            String many = blankTo(summaryMap.get("symbols") == null ? "" : String.valueOf(summaryMap.get("symbols")), "").trim().toUpperCase();
+            if (target.equals(single) || containsCsv(many, target)) {
+                return true;
+            }
+        }
         String summarySymbol = summary == null ? "" : blankTo(summary.symbolScope, "").trim().toUpperCase();
         return target.equals(summarySymbol);
     }

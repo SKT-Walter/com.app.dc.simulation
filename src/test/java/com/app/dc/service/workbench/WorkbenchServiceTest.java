@@ -284,7 +284,7 @@ public class WorkbenchServiceTest {
         }
 
         @Override
-        protected List<StrategyBacktestTaskRow> loadBacktestTasksByRange(String dateFrom, String dateTo, String strategyName, String strategyVersion, String status, int limit, int offset) {
+        protected List<StrategyBacktestTaskRow> loadBacktestTasksByRange(String dateFrom, String dateTo, String strategyName, String strategyVersion, String status, Integer limit, Integer offset) {
             return rows;
         }
 

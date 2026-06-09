@@ -86,23 +86,24 @@ public class WorkbenchService {
         int pageSize = boundedInt(request, request != null && request.containsKey("pageSize") ? "pageSize" : "limit", history ? 20 : 50, 1, 200);
         int offset = Math.max(0, (page - 1) * pageSize);
 
-        List<StrategyBacktestTaskRow> rows = loadBacktestTasksByRange(dateFrom, dateTo, strategyName, strategyVersion, status, pageSize, offset);
-        List<Map<String, Object>> items = new ArrayList<Map<String, Object>>();
-        for (StrategyBacktestTaskRow row : rows) {
+        List<StrategyBacktestTaskRow> allRows = loadBacktestTasksByRange(dateFrom, dateTo, strategyName, strategyVersion, status, null, null);
+        List<Map<String, Object>> filteredItems = new ArrayList<Map<String, Object>>();
+        for (StrategyBacktestTaskRow row : allRows) {
             Map<String, Object> item = toTaskView(row);
-            if (!matchesSymbol(item, symbol)) {
-                continue;
-            }
             StrategyCandidateRow candidate = loadCandidate(row.strategyName, row.strategyVersion);
             StrategyBacktestSummary summary = loadLatestSummary(row.strategyName, row.strategyVersion);
+            if (!matchesSymbol(item, symbol, summary)) {
+                continue;
+            }
             Map<String, Object> report = loadLatestReportMeta(row.id, row.strategyName, row.strategyVersion);
             Map<String, Object> publish = buildPublishState(row.strategyName, row.strategyVersion);
             item.put("strategyDescription", candidate == null ? "" : blankTo(candidate.description, ""));
             item.put("summary", summaryView(summary));
             item.put("report", report);
             item.put("publish", publish);
-            items.add(item);
+            filteredItems.add(item);
         }
+        List<Map<String, Object>> items = paginate(filteredItems, offset, pageSize);
         Map<String, Object> data = new LinkedHashMap<String, Object>();
         data.put("date", date);
         data.put("status", status);
@@ -116,8 +117,8 @@ public class WorkbenchService {
         data.put("history", history);
         data.put("serverTime", CLICKHOUSE_TIME.format(LocalDateTime.now()));
         data.put("items", items);
-        data.put("total", countBacktestTasksByRange(dateFrom, dateTo, strategyName, strategyVersion, status));
-        data.put("summary", buildTaskSummary(items));
+        data.put("total", filteredItems.size());
+        data.put("summary", buildTaskSummary(filteredItems));
         return data;
     }
 
@@ -270,8 +271,8 @@ public class WorkbenchService {
                                                                      String strategyName,
                                                                      String strategyVersion,
                                                                      String status,
-                                                                     int limit,
-                                                                     int offset) {
+                                                                     Integer limit,
+                                                                     Integer offset) {
         if (!ready()) {
             return Collections.emptyList();
         }
@@ -293,10 +294,13 @@ public class WorkbenchService {
         if (StringUtils.isNotBlank(status)) {
             sql.append(" and latest.status='").append(escape(status.trim())).append("'");
         }
-        sql.append(" order by parseDateTimeBestEffortOrNull(latest.updateTime) desc limit ")
-                .append(Math.max(1, Math.min(limit, 200)))
-                .append(" offset ")
-                .append(Math.max(0, offset));
+        sql.append(" order by parseDateTimeBestEffortOrNull(latest.updateTime) desc");
+        if (limit != null) {
+            sql.append(" limit ")
+                    .append(Math.max(1, Math.min(limit.intValue(), 200)))
+                    .append(" offset ")
+                    .append(Math.max(0, offset == null ? 0 : offset.intValue()));
+        }
         try {
             List<StrategyBacktestTaskRow> rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{},
                     StrategyBacktestTaskRow.class);
@@ -870,6 +874,31 @@ public class WorkbenchService {
         summary.put("suspended", suspended);
         summary.put("failed", failed);
         return summary;
+    }
+
+    private <T> List<T> paginate(List<T> items, int offset, int pageSize) {
+        if (items == null || items.isEmpty()) {
+            return Collections.emptyList();
+        }
+        int start = Math.max(0, Math.min(offset, items.size()));
+        int end = Math.max(start, Math.min(start + Math.max(1, pageSize), items.size()));
+        if (start >= end) {
+            return Collections.emptyList();
+        }
+        return new ArrayList<T>(items.subList(start, end));
+    }
+
+    private boolean matchesSymbol(Map<String, Object> item, String wantedSymbol, StrategyBacktestSummary summary) {
+        if (StringUtils.isBlank(wantedSymbol)) {
+            return true;
+        }
+        String target = wantedSymbol.trim().toUpperCase();
+        String itemSymbol = blankTo(item.get("symbol") == null ? "" : String.valueOf(item.get("symbol")), "").trim().toUpperCase();
+        if (target.equals(itemSymbol)) {
+            return true;
+        }
+        String summarySymbol = summary == null ? "" : blankTo(summary.symbolScope, "").trim().toUpperCase();
+        return target.equals(summarySymbol);
     }
 
     private boolean isSuspendedDisplayStatus(String displayStatus) {

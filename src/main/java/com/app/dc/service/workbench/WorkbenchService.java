@@ -88,22 +88,49 @@ public class WorkbenchService {
 
         List<StrategyBacktestTaskRow> allRows = loadBacktestTasksByRange(dateFrom, dateTo, strategyName, strategyVersion, status, null, null);
         List<Map<String, Object>> filteredItems = new ArrayList<Map<String, Object>>();
+        Map<String, StrategyBacktestSummary> summaryCache = new LinkedHashMap<String, StrategyBacktestSummary>();
         for (StrategyBacktestTaskRow row : allRows) {
             Map<String, Object> item = toTaskView(row);
-            StrategyCandidateRow candidate = loadCandidate(row.strategyName, row.strategyVersion);
-            StrategyBacktestSummary summary = loadLatestSummary(row.strategyName, row.strategyVersion);
-            if (!matchesSymbol(item, symbol, summary)) {
-                continue;
+            if (!matchesSymbol(item, symbol)) {
+                StrategyBacktestSummary summary = loadLatestSummaryCached(summaryCache, row.strategyName, row.strategyVersion);
+                if (!matchesSymbol(item, symbol, summary)) {
+                    continue;
+                }
             }
-            Map<String, Object> report = loadLatestReportMeta(row.id, row.strategyName, row.strategyVersion);
-            Map<String, Object> publish = buildPublishState(row.strategyName, row.strategyVersion);
+            filteredItems.add(item);
+        }
+        List<Map<String, Object>> items = paginate(filteredItems, offset, pageSize);
+        Map<String, StrategyCandidateRow> candidateCache = new LinkedHashMap<String, StrategyCandidateRow>();
+        Map<String, Map<String, Object>> reportCache = new LinkedHashMap<String, Map<String, Object>>();
+        Map<String, Map<String, Object>> publishCache = new LinkedHashMap<String, Map<String, Object>>();
+        for (Map<String, Object> item : items) {
+            String itemStrategyName = blankTo(item.get("strategyName") == null ? "" : String.valueOf(item.get("strategyName")), "");
+            String itemStrategyVersion = blankTo(item.get("strategyVersion") == null ? "" : String.valueOf(item.get("strategyVersion")), "");
+            String taskId = blankTo(item.get("backtestTaskId") == null ? "" : String.valueOf(item.get("backtestTaskId")), "");
+            String cacheKey = strategyKey(itemStrategyName, itemStrategyVersion);
+            StrategyCandidateRow candidate = candidateCache.containsKey(cacheKey)
+                    ? candidateCache.get(cacheKey)
+                    : loadCandidate(itemStrategyName, itemStrategyVersion);
+            if (!candidateCache.containsKey(cacheKey)) {
+                candidateCache.put(cacheKey, candidate);
+            }
+            StrategyBacktestSummary summary = loadLatestSummaryCached(summaryCache, itemStrategyName, itemStrategyVersion);
+            String reportCacheKey = taskId + "@" + cacheKey;
+            Map<String, Object> report = reportCache.get(reportCacheKey);
+            if (report == null) {
+                report = loadLatestReportMeta(taskId, itemStrategyName, itemStrategyVersion);
+                reportCache.put(reportCacheKey, report);
+            }
+            Map<String, Object> publish = publishCache.get(cacheKey);
+            if (publish == null) {
+                publish = buildPublishState(itemStrategyName, itemStrategyVersion);
+                publishCache.put(cacheKey, publish);
+            }
             item.put("strategyDescription", candidate == null ? "" : blankTo(candidate.description, ""));
             item.put("summary", summaryView(summary));
             item.put("report", report);
             item.put("publish", publish);
-            filteredItems.add(item);
         }
-        List<Map<String, Object>> items = paginate(filteredItems, offset, pageSize);
         Map<String, Object> data = new LinkedHashMap<String, Object>();
         data.put("date", date);
         data.put("status", status);
@@ -484,6 +511,10 @@ public class WorkbenchService {
                         ? loadLatestSummary(row.strategyName, row.toVersion, releaseSymbolScope)
                         : loadLatestSummary(row.strategyName, row.toVersion);
                 item.put("summary", summaryView(summary));
+                item.put("scene", firstNonBlank(
+                        candidate == null ? "" : candidate.scene,
+                        releasePayload.get("scene"),
+                        summary == null ? "" : summary.scene));
                 Map<String, Object> publishScope = candidate == null
                         ? Collections.<String, Object>emptyMap()
                         : buildPayloadSummaryFromRawMap(parseJsonObject(candidate.payload));
@@ -886,6 +917,22 @@ public class WorkbenchService {
             return Collections.emptyList();
         }
         return new ArrayList<T>(items.subList(start, end));
+    }
+
+    private StrategyBacktestSummary loadLatestSummaryCached(Map<String, StrategyBacktestSummary> cache,
+                                                            String strategyName,
+                                                            String strategyVersion) {
+        String key = strategyKey(strategyName, strategyVersion);
+        if (cache.containsKey(key)) {
+            return cache.get(key);
+        }
+        StrategyBacktestSummary summary = loadLatestSummary(strategyName, strategyVersion);
+        cache.put(key, summary);
+        return summary;
+    }
+
+    private String strategyKey(String strategyName, String strategyVersion) {
+        return blankTo(strategyName, "") + "@" + blankTo(strategyVersion, "");
     }
 
     private boolean matchesSymbol(Map<String, Object> item, String wantedSymbol, StrategyBacktestSummary summary) {

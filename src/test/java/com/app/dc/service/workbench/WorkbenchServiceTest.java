@@ -77,6 +77,7 @@ public class WorkbenchServiceTest {
         record.put("strategyName", "docx_c6");
         record.put("toVersion", "v2");
         record.put("eventType", "发布实盘记录");
+        record.put("scene", "trend");
         record.put("rawEventType", "PROMOTE");
         record.put("active", Boolean.TRUE);
         record.put("effectiveTime", "2026-05-13 10:00:00");
@@ -90,6 +91,7 @@ public class WorkbenchServiceTest {
         Assert.assertEquals(1, items.size());
         Assert.assertEquals("docx_c6", items.get(0).get("strategyName"));
         Assert.assertEquals("发布实盘记录", items.get(0).get("eventType"));
+        Assert.assertEquals("trend", items.get(0).get("scene"));
         Assert.assertEquals(Boolean.TRUE, items.get(0).get("active"));
     }
 

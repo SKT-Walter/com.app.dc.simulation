@@ -540,27 +540,7 @@ public class StrategyBacktestPullJob {
                                        BinanceKlineAutofillService.AutofillTriggerResult autofillResult,
                                        String autofillError) {
         StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
-        if (task != null && task.payload != null && !task.payload.trim().isEmpty()) {
-            try {
-                BacktestParam param = JsonUtils.Deserialize(task.payload, BacktestParam.class);
-                if (param != null && (!isBlank(param.strategyName) || !isBlank(param.symbol) || !isBlank(param.text))) {
-                    envelope.backtestParam = param;
-                }
-            } catch (Exception e) {
-                log.warn("buildSuspendPayload parse payload fallback, task:{}", task.id, e);
-            }
-            if (envelope.backtestParam == null) {
-                try {
-                    StrategyBacktestTaskPayloadEnvelope existing =
-                            JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
-                    if (existing != null && existing.backtestParam != null) {
-                        envelope.backtestParam = existing.backtestParam;
-                    }
-                } catch (Exception e) {
-                    log.warn("buildSuspendPayload parse envelope fallback, task:{}", task.id, e);
-                }
-            }
-        }
+        envelope.backtestParam = extractCompactBacktestParam(task);
         envelope.suspendDetail = error.getDetail();
         envelope.recoveryPlan = buildRecoveryPlan(error, nextRetryTime, autofillResult, autofillError);
         return JsonUtils.Serializer(envelope);
@@ -568,17 +548,8 @@ public class StrategyBacktestPullJob {
 
     @SuppressWarnings("unchecked")
     private String buildSuccessPayload(StrategyBacktestTaskRow task, Map<String, Object> taskResult) {
-        Map<String, Object> merged = new LinkedHashMap<String, Object>();
-        if (task != null && !isBlank(task.payload)) {
-            try {
-                Map<String, Object> existing = JsonUtils.Deserialize(task.payload, Map.class);
-                if (existing != null && !existing.isEmpty()) {
-                    merged.putAll(existing);
-                }
-            } catch (Exception e) {
-                log.warn("buildSuccessPayload parse payload fallback, task:{}", task.id, e);
-            }
-        }
+        Map<String, Object> merged = extractCompactPayloadMap(task);
+        merged.remove("runningProgress");
         merged.put("taskResult", taskResult == null ? new LinkedHashMap<String, Object>() : taskResult);
         if (taskResult != null) {
             if (!merged.containsKey("reportPath") && taskResult.get("reportPath") != null) {
@@ -601,26 +572,123 @@ public class StrategyBacktestPullJob {
                 StrategyBacktestTaskPayloadEnvelope existing =
                         JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
                 if (existing != null) {
-                    envelope.backtestParam = existing.backtestParam;
                     envelope.suspendDetail = existing.suspendDetail;
                     envelope.recoveryPlan = existing.recoveryPlan;
                 }
             } catch (Exception ignore) {
             }
-            if (envelope.backtestParam == null) {
-                try {
-                    BacktestParam param = JsonUtils.Deserialize(task.payload, BacktestParam.class);
-                    if (param != null && (!isBlank(param.strategyName) || !isBlank(param.symbol) || !isBlank(param.text))) {
-                        envelope.backtestParam = param;
-                    }
-                } catch (Exception ignore) {
-                }
-            }
         }
+        envelope.backtestParam = extractCompactBacktestParam(task);
         envelope.runningProgress = runningProgress == null
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(runningProgress);
         return JsonUtils.Serializer(envelope);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> extractCompactPayloadMap(StrategyBacktestTaskRow task) {
+        Map<String, Object> merged = new LinkedHashMap<String, Object>();
+        if (task == null || isBlank(task.payload)) {
+            BacktestParam param = compactBacktestParam(null);
+            if (param != null) {
+                merged.put("backtestParam", param);
+            }
+            return merged;
+        }
+        try {
+            StrategyBacktestTaskPayloadEnvelope envelope =
+                    JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
+            if (envelope != null) {
+                if (envelope.backtestParam != null) {
+                    merged.put("backtestParam", compactBacktestParam(envelope.backtestParam));
+                }
+                if (envelope.suspendDetail != null && !envelope.suspendDetail.isEmpty()) {
+                    merged.put("suspendDetail", envelope.suspendDetail);
+                }
+                if (envelope.recoveryPlan != null && !envelope.recoveryPlan.isEmpty()) {
+                    merged.put("recoveryPlan", envelope.recoveryPlan);
+                }
+                if (envelope.runningProgress != null && !envelope.runningProgress.isEmpty()) {
+                    merged.put("runningProgress", envelope.runningProgress);
+                }
+                if (!merged.isEmpty()) {
+                    return merged;
+                }
+            }
+        } catch (Exception ignore) {
+        }
+        try {
+            Map<String, Object> existing = JsonUtils.Deserialize(task.payload, Map.class);
+            if (existing != null && !existing.isEmpty()) {
+                merged.putAll(existing);
+                Object backtestParamObj = merged.get("backtestParam");
+                if (backtestParamObj instanceof Map) {
+                    ((Map<String, Object>) backtestParamObj).remove("strategyPayload");
+                }
+                merged.remove("strategyPayload");
+            }
+        } catch (Exception e) {
+            log.warn("extractCompactPayloadMap parse payload fallback, task:{}", task.id, e);
+        }
+        BacktestParam compact = extractCompactBacktestParam(task);
+        if (compact != null && !merged.containsKey("backtestParam")) {
+            merged.put("backtestParam", compact);
+        }
+        return merged;
+    }
+
+    private BacktestParam extractCompactBacktestParam(StrategyBacktestTaskRow task) {
+        if (task == null || isBlank(task.payload)) {
+            return null;
+        }
+        try {
+            StrategyBacktestTaskPayloadEnvelope existing =
+                    JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
+            if (existing != null && existing.backtestParam != null) {
+                return compactBacktestParam(existing.backtestParam);
+            }
+        } catch (Exception ignore) {
+        }
+        try {
+            BacktestParam param = JsonUtils.Deserialize(task.payload, BacktestParam.class);
+            if (param != null && (!isBlank(param.strategyName) || !isBlank(param.symbol) || !isBlank(param.text))) {
+                return compactBacktestParam(param);
+            }
+        } catch (Exception e) {
+            log.warn("extractCompactBacktestParam parse payload fallback, task:{}", task.id, e);
+        }
+        return null;
+    }
+
+    private BacktestParam compactBacktestParam(BacktestParam source) {
+        if (source == null) {
+            return null;
+        }
+        BacktestParam copy = new BacktestParam();
+        copy.strategyName = source.strategyName;
+        copy.strategyVersion = source.strategyVersion;
+        copy.baselineVersion = source.baselineVersion;
+        copy.runtimeType = source.runtimeType;
+        copy.scene = source.scene;
+        copy.strategyPayload = "";
+        copy.strategyParams = source.strategyParams == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(source.strategyParams);
+        copy.symbol = source.symbol;
+        copy.symbols = source.symbols;
+        copy.text = source.text;
+        copy.beginDate = source.beginDate;
+        copy.endDate = source.endDate;
+        copy.initialCapital = source.initialCapital;
+        copy.feeRatePct = source.feeRatePct;
+        copy.entryMakerFeeRatePct = source.entryMakerFeeRatePct;
+        copy.exitTakerFeeRatePct = source.exitTakerFeeRatePct;
+        copy.fallbackStopLossPct = source.fallbackStopLossPct;
+        copy.fallbackTakeProfitPct = source.fallbackTakeProfitPct;
+        copy.maxHoldBars = source.maxHoldBars;
+        copy.ignoreSentimentGuard = source.ignoreSentimentGuard;
+        copy.allowMissingStageAnalysis = source.allowMissingStageAnalysis;
+        return copy;
     }
 
     private Map<String, Object> buildRecoveryPlan(BacktestTaskSuspendedException error,

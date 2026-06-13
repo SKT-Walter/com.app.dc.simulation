@@ -239,7 +239,13 @@ public class ClickHouseStrategyBacktestTaskDao implements StrategyBacktestTaskDa
         try {
             ClickHouseDBUtils.update(sql, new Object[]{});
         } catch (Exception e) {
-            log.error("updateStatus error, id:{}, status:{}", id, status, e);
+            log.error("updateStatus error, id:{}, status:{}, payloadLength:{}, suspendReasonLength:{}, failureReasonLength:{}",
+                    id,
+                    status,
+                    payload == null ? 0 : payload.length(),
+                    suspendReason == null ? 0 : suspendReason.length(),
+                    failureReason == null ? 0 : failureReason.length(),
+                    e);
         }
     }
 

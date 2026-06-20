@@ -365,13 +365,7 @@ public class WorkbenchService {
         try {
             @SuppressWarnings("rawtypes")
             List rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{}, LinkedHashMap.class);
-            if (rows == null || rows.isEmpty()) {
-                return 0;
-            }
-            @SuppressWarnings("unchecked")
-            Map<String, Object> first = (Map<String, Object>) rows.get(0);
-            Object value = first.get("total");
-            return value == null ? 0 : Integer.parseInt(String.valueOf(value));
+            return extractCountValue(rows);
         } catch (Exception e) {
             log.error("countBacktestTasksByRange error, from:{}, to:{}, strategy:{}@{}, status:{}",
                     dateFrom, dateTo, strategyName, strategyVersion, status, e);
@@ -550,15 +544,58 @@ public class WorkbenchService {
         try {
             @SuppressWarnings("rawtypes")
             List rows = ClickHouseDBUtils.queryList(sql, new Object[]{}, LinkedHashMap.class);
-            if (rows == null || rows.isEmpty()) {
-                return 0;
-            }
-            @SuppressWarnings("unchecked")
-            Map<String, Object> first = (Map<String, Object>) rows.get(0);
-            Object value = first.get("total");
-            return value == null ? 0 : Integer.parseInt(String.valueOf(value));
+            return extractCountValue(rows);
         } catch (Exception e) {
             log.error("countPublishRecords error, from:{}, to:{}", dateFrom, dateTo, e);
+            return 0;
+        }
+    }
+
+    protected int extractCountValue(List<?> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return 0;
+        }
+        Object first = rows.get(0);
+        if (first == null) {
+            return 0;
+        }
+        if (first instanceof Number) {
+            return ((Number) first).intValue();
+        }
+        if (first instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) first;
+            Object value = firstNonNullMapValue(map, "total", "count()", "COUNT()", "count");
+            if (value == null && !map.isEmpty()) {
+                value = map.values().iterator().next();
+            }
+            return toInt(value);
+        }
+        return toInt(first);
+    }
+
+    private Object firstNonNullMapValue(Map<String, Object> map, String... keys) {
+        if (map == null || keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            if (map.containsKey(key)) {
+                return map.get(key);
+            }
+        }
+        return null;
+    }
+
+    private int toInt(Object value) {
+        if (value == null) {
+            return 0;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value).trim());
+        } catch (Exception e) {
             return 0;
         }
     }

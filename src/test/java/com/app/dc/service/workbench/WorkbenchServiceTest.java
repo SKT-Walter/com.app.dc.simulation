@@ -260,6 +260,22 @@ public class WorkbenchServiceTest {
         Assert.assertEquals(5400000L, ((Number) items.get(0).get("elapsedMs")).longValue());
     }
 
+    @Test
+    public void extractCountValueShouldSupportTotalAlias() {
+        FakeWorkbenchService service = new FakeWorkbenchService();
+        Map<String, Object> row = new LinkedHashMap<String, Object>();
+        row.put("total", 5);
+        Assert.assertEquals(5, service.extractCountValue(Collections.singletonList(row)));
+    }
+
+    @Test
+    public void extractCountValueShouldSupportClickHouseCountKey() {
+        FakeWorkbenchService service = new FakeWorkbenchService();
+        Map<String, Object> row = new LinkedHashMap<String, Object>();
+        row.put("count()", 7);
+        Assert.assertEquals(7, service.extractCountValue(Collections.singletonList(row)));
+    }
+
     private static class FakeWorkbenchService extends WorkbenchService {
         final List<StrategyBacktestTaskRow> rows = new ArrayList<StrategyBacktestTaskRow>();
         final Map<String, StrategyBacktestSummary> summaries = new LinkedHashMap<String, StrategyBacktestSummary>();

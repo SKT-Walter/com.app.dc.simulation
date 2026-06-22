@@ -218,6 +218,12 @@ public class WorkbenchService {
         int pageSize = boundedInt(request, request != null && request.containsKey("pageSize") ? "pageSize" : "limit", history ? 20 : 50, 1, 200);
         int offset = Math.max(0, (page - 1) * pageSize);
         List<Map<String, Object>> items = loadPublishRecords(dateFrom, dateTo, pageSize, offset);
+        int total = countPublishRecords(dateFrom, dateTo);
+        if (total <= 0 && items != null && !items.isEmpty()) {
+            total = Math.max(total, items.size());
+            log.warn("publish record count fallback applied, from:{}, to:{}, itemSize:{}",
+                    dateFrom, dateTo, items.size());
+        }
         Map<String, Object> data = new LinkedHashMap<String, Object>();
         data.put("date", date);
         data.put("dateFrom", dateFrom);
@@ -226,7 +232,7 @@ public class WorkbenchService {
         data.put("pageSize", pageSize);
         data.put("history", history);
         data.put("items", items);
-        data.put("total", countPublishRecords(dateFrom, dateTo));
+        data.put("total", total);
         return data;
     }
 
@@ -537,10 +543,12 @@ public class WorkbenchService {
         if (!ready()) {
             return 0;
         }
-        String sql = "select count() as total "
+        String sql = "select count() as total from ("
+                + "select id "
                 + "from " + safe(strategyReleaseEventTable, "dc.strategy_release_event")
                 + " where toDate(event_time) >= toDate('" + escape(dateFrom) + "')"
-                + " and toDate(event_time) <= toDate('" + escape(dateTo) + "')";
+                + " and toDate(event_time) <= toDate('" + escape(dateTo) + "')"
+                + ") counted";
         try {
             @SuppressWarnings("rawtypes")
             List rows = ClickHouseDBUtils.queryList(sql, new Object[]{}, LinkedHashMap.class);

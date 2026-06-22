@@ -140,6 +140,7 @@ public class StrategyBacktestPullJob {
         long startNs = System.nanoTime();
         String threadName = Thread.currentThread().getName();
         LocalDateTime backtestStart = LocalDateTime.now();
+        final BacktestParam[] resolvedParamHolder = new BacktestParam[1];
         try {
             log.info("StrategyBacktestPullJob task start, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, fromStatus:{}, heap:{}",
                     task.id, task.generationTaskId, task.candidateId, task.strategyName, task.strategyVersion,
@@ -160,8 +161,8 @@ public class StrategyBacktestPullJob {
             markPipeline(task, candidate, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.RUNNING,
                     "", backtestStart, pipelinePayload);
 
-            BacktestParam param = buildParam(task, candidate);
-            BacktestModels.BacktestResponse response = backtestService.run(param,
+            resolvedParamHolder[0] = buildParam(task, candidate);
+            BacktestModels.BacktestResponse response = backtestService.run(resolvedParamHolder[0],
                     task.fitWindowDays == null ? 120 : task.fitWindowDays.intValue(),
                     task.validateWindowDays == null ? 30 : task.validateWindowDays.intValue(),
                     task.forwardWindowDays == null ? 14 : task.forwardWindowDays.intValue(),
@@ -169,7 +170,7 @@ public class StrategyBacktestPullJob {
                         @Override
                         public void onProgress(Map<String, Object> progress) {
                             try {
-                                taskDao.refreshRunningProgress(task.id, buildRunningPayload(task, progress));
+                                taskDao.refreshRunningProgress(task.id, buildRunningPayload(task, resolvedParamHolder[0], progress));
                             } catch (Exception e) {
                                 log.warn("StrategyBacktestPullJob refreshRunningProgress ignored, task:{}",
                                         task == null ? null : task.id, e);
@@ -272,7 +273,7 @@ public class StrategyBacktestPullJob {
             taskResult.put("currentForwardScore", publishDecision.currentForwardScore);
             taskResult.put("baselineTotalPnl", publishDecision.baselineTotalPnl);
             taskResult.put("baselineForwardScore", publishDecision.baselineForwardScore);
-            taskDao.markSuccess(task.id, buildSuccessPayload(task, taskResult));
+            taskDao.markSuccess(task.id, buildSuccessPayload(task, resolvedParamHolder[0], taskResult));
             log.info("StrategyBacktestPullJob task state persistence finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}",
                     task.id, task.generationTaskId, firstNotBlank(task.candidateId, candidate.id),
                     candidate.strategyName, candidate.strategyVersion, threadName);
@@ -370,7 +371,7 @@ public class StrategyBacktestPullJob {
             }
             taskDao.markSuspended(task == null ? null : task.id,
                     e.getReason(),
-                    buildSuspendPayload(task, e, nextRetryTime, autofillResult, autofillError),
+                    buildSuspendPayload(task, resolvedParamHolder[0], e, nextRetryTime, autofillResult, autofillError),
                     nextRetryTime);
             log.info("StrategyBacktestPullJob task status -> SUSPENDED, task:{}, generationTaskId:{}, candidateId:{}, thread:{}, nextRetryTime:{}, heap:{}",
                     task == null ? null : task.id,
@@ -535,20 +536,21 @@ public class StrategyBacktestPullJob {
     }
 
     private String buildSuspendPayload(StrategyBacktestTaskRow task,
+                                       BacktestParam resolvedParam,
                                        BacktestTaskSuspendedException error,
                                        String nextRetryTime,
                                        BinanceKlineAutofillService.AutofillTriggerResult autofillResult,
                                        String autofillError) {
         StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
-        envelope.backtestParam = extractCompactBacktestParam(task);
+        envelope.backtestParam = extractCompactBacktestParam(task, resolvedParam);
         envelope.suspendDetail = error.getDetail();
         envelope.recoveryPlan = buildRecoveryPlan(error, nextRetryTime, autofillResult, autofillError);
         return JsonUtils.Serializer(envelope);
     }
 
     @SuppressWarnings("unchecked")
-    private String buildSuccessPayload(StrategyBacktestTaskRow task, Map<String, Object> taskResult) {
-        Map<String, Object> merged = extractCompactPayloadMap(task);
+    private String buildSuccessPayload(StrategyBacktestTaskRow task, BacktestParam resolvedParam, Map<String, Object> taskResult) {
+        Map<String, Object> merged = extractCompactPayloadMap(task, resolvedParam);
         merged.remove("runningProgress");
         merged.put("taskResult", taskResult == null ? new LinkedHashMap<String, Object>() : taskResult);
         if (taskResult != null) {
@@ -565,7 +567,7 @@ public class StrategyBacktestPullJob {
         return JsonUtils.Serializer(merged);
     }
 
-    private String buildRunningPayload(StrategyBacktestTaskRow task, Map<String, Object> runningProgress) {
+    private String buildRunningPayload(StrategyBacktestTaskRow task, BacktestParam resolvedParam, Map<String, Object> runningProgress) {
         StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
         if (task != null && task.payload != null && !task.payload.trim().isEmpty()) {
             try {
@@ -578,7 +580,7 @@ public class StrategyBacktestPullJob {
             } catch (Exception ignore) {
             }
         }
-        envelope.backtestParam = extractCompactBacktestParam(task);
+        envelope.backtestParam = extractCompactBacktestParam(task, resolvedParam);
         envelope.runningProgress = runningProgress == null
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(runningProgress);
@@ -586,10 +588,10 @@ public class StrategyBacktestPullJob {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> extractCompactPayloadMap(StrategyBacktestTaskRow task) {
+    private Map<String, Object> extractCompactPayloadMap(StrategyBacktestTaskRow task, BacktestParam resolvedParam) {
         Map<String, Object> merged = new LinkedHashMap<String, Object>();
         if (task == null || isBlank(task.payload)) {
-            BacktestParam param = compactBacktestParam(null);
+            BacktestParam param = compactBacktestParam(resolvedParam);
             if (param != null) {
                 merged.put("backtestParam", param);
             }
@@ -630,14 +632,17 @@ public class StrategyBacktestPullJob {
         } catch (Exception e) {
             log.warn("extractCompactPayloadMap parse payload fallback, task:{}", task.id, e);
         }
-        BacktestParam compact = extractCompactBacktestParam(task);
+        BacktestParam compact = extractCompactBacktestParam(task, resolvedParam);
         if (compact != null && !merged.containsKey("backtestParam")) {
             merged.put("backtestParam", compact);
         }
         return merged;
     }
 
-    private BacktestParam extractCompactBacktestParam(StrategyBacktestTaskRow task) {
+    private BacktestParam extractCompactBacktestParam(StrategyBacktestTaskRow task, BacktestParam resolvedParam) {
+        if (resolvedParam != null) {
+            return compactBacktestParam(resolvedParam);
+        }
         if (task == null || isBlank(task.payload)) {
             return null;
         }

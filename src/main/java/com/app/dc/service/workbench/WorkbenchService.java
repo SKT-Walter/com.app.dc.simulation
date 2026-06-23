@@ -476,6 +476,22 @@ public class WorkbenchService {
             return Collections.emptyList();
         }
         String publishEventFilter = publishEventFilterSql("event_type");
+        String dedupedEventsSql = "select "
+                + "any(id) as id,"
+                + "event_time,"
+                + "strategy_name,"
+                + "from_version,"
+                + "to_version,"
+                + "runtime_type,"
+                + "event_type,"
+                + "reason,"
+                + "source,"
+                + "payload "
+                + "from " + safe(strategyReleaseEventTable, "dc.strategy_release_event")
+                + " where toDate(event_time) >= toDate('" + escape(dateFrom) + "')"
+                + " and toDate(event_time) <= toDate('" + escape(dateTo) + "')"
+                + " and " + publishEventFilter
+                + " group by event_time, strategy_name, from_version, to_version, runtime_type, event_type, reason, source, payload";
         String sql = "select "
                 + "id as id,"
                 + "toString(event_time) as eventTime,"
@@ -487,10 +503,7 @@ public class WorkbenchService {
                 + "reason as reason,"
                 + "source as source,"
                 + "payload as payload "
-                + "from " + safe(strategyReleaseEventTable, "dc.strategy_release_event")
-                + " where toDate(event_time) >= toDate('" + escape(dateFrom) + "')"
-                + " and toDate(event_time) <= toDate('" + escape(dateTo) + "')"
-                + " and " + publishEventFilter
+                + "from (" + dedupedEventsSql + ") deduped "
                 + " order by event_time desc limit " + Math.max(1, Math.min(limit, 200))
                 + " offset " + Math.max(0, offset);
         try {
@@ -555,11 +568,12 @@ public class WorkbenchService {
         }
         String publishEventFilter = publishEventFilterSql("event_type");
         String sql = "select count() as total from ("
-                + "select id "
+                + "select event_time, strategy_name, from_version, to_version, runtime_type, event_type, reason, source, payload "
                 + "from " + safe(strategyReleaseEventTable, "dc.strategy_release_event")
                 + " where toDate(event_time) >= toDate('" + escape(dateFrom) + "')"
                 + " and toDate(event_time) <= toDate('" + escape(dateTo) + "')"
                 + " and " + publishEventFilter
+                + " group by event_time, strategy_name, from_version, to_version, runtime_type, event_type, reason, source, payload "
                 + ") counted";
         try {
             @SuppressWarnings("rawtypes")

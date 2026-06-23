@@ -22,4 +22,5 @@ public class StrategyBacktestTaskRow {
     public String payload;
     public String initialPayload;
     public String failureReason;
+    public Integer publishedLive;
 }

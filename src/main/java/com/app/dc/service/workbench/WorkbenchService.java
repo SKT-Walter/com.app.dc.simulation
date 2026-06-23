@@ -103,10 +103,18 @@ public class WorkbenchService {
         Map<String, StrategyCandidateRow> candidateCache = new LinkedHashMap<String, StrategyCandidateRow>();
         Map<String, Map<String, Object>> reportCache = new LinkedHashMap<String, Map<String, Object>>();
         Map<String, Map<String, Object>> publishCache = new LinkedHashMap<String, Map<String, Object>>();
+        Map<String, StrategyBacktestTaskRow> taskRowCache = new LinkedHashMap<String, StrategyBacktestTaskRow>();
         for (Map<String, Object> item : items) {
             String itemStrategyName = blankTo(item.get("strategyName") == null ? "" : String.valueOf(item.get("strategyName")), "");
             String itemStrategyVersion = blankTo(item.get("strategyVersion") == null ? "" : String.valueOf(item.get("strategyVersion")), "");
             String taskId = blankTo(item.get("backtestTaskId") == null ? "" : String.valueOf(item.get("backtestTaskId")), "");
+            StrategyBacktestTaskRow taskRow = null;
+            if (!taskRowCache.containsKey(taskId)) {
+                taskRow = loadTaskRow(allRows, taskId, itemStrategyName, itemStrategyVersion);
+                taskRowCache.put(taskId, taskRow);
+            } else {
+                taskRow = taskRowCache.get(taskId);
+            }
             String cacheKey = strategyKey(itemStrategyName, itemStrategyVersion);
             StrategyCandidateRow candidate = candidateCache.containsKey(cacheKey)
                     ? candidateCache.get(cacheKey)
@@ -121,10 +129,10 @@ public class WorkbenchService {
                 report = loadLatestReportMeta(taskId, itemStrategyName, itemStrategyVersion);
                 reportCache.put(reportCacheKey, report);
             }
-            Map<String, Object> publish = publishCache.get(cacheKey);
+            Map<String, Object> publish = publishCache.get(taskId);
             if (publish == null) {
-                publish = buildPublishState(itemStrategyName, itemStrategyVersion);
-                publishCache.put(cacheKey, publish);
+                publish = buildPublishState(taskRow);
+                publishCache.put(taskId, publish);
             }
             item.put("strategyDescription", candidate == null ? "" : blankTo(candidate.description, ""));
             item.put("summary", summaryView(summary));
@@ -170,7 +178,7 @@ public class WorkbenchService {
         StrategyCandidateRow candidate = loadCandidate(row.strategyName, row.strategyVersion);
         StrategyBacktestSummary summary = loadLatestSummary(row.strategyName, row.strategyVersion);
         Map<String, Object> report = loadLatestReportMeta(row.id, row.strategyName, row.strategyVersion);
-        Map<String, Object> publish = buildPublishState(row.strategyName, row.strategyVersion);
+        Map<String, Object> publish = buildPublishState(row);
 
         data.put("task", toTaskView(row));
         data.put("candidate", candidateView(candidate));
@@ -314,7 +322,7 @@ public class WorkbenchService {
                 .append("id, candidateId, generationTaskId, strategyName, strategyVersion, baselineVersion, runtimeType, taskType,")
                 .append("fitWindowDays, validateWindowDays, forwardWindowDays, priority, status,")
                 .append("suspendReason, ifNull(toString(nextRetryTimeRaw), '') as nextRetryTime,")
-                .append("attemptCount, createTime, updateTime, payload, failureReason ")
+                .append("attemptCount, createTime, updateTime, payload, failureReason, publishedLive ")
                 .append("from (").append(latestTaskSql()).append(") latest ")
                 .append("where toDate(parseDateTimeBestEffortOrNull(latest.createTime)) >= toDate('").append(escape(dateFrom)).append("')")
                 .append(" and toDate(parseDateTimeBestEffortOrNull(latest.createTime)) <= toDate('").append(escape(dateTo)).append("')");
@@ -467,6 +475,7 @@ public class WorkbenchService {
         if (!ready()) {
             return Collections.emptyList();
         }
+        String publishEventFilter = publishEventFilterSql("event_type");
         String sql = "select "
                 + "id as id,"
                 + "toString(event_time) as eventTime,"
@@ -481,6 +490,7 @@ public class WorkbenchService {
                 + "from " + safe(strategyReleaseEventTable, "dc.strategy_release_event")
                 + " where toDate(event_time) >= toDate('" + escape(dateFrom) + "')"
                 + " and toDate(event_time) <= toDate('" + escape(dateTo) + "')"
+                + " and " + publishEventFilter
                 + " order by event_time desc limit " + Math.max(1, Math.min(limit, 200))
                 + " offset " + Math.max(0, offset);
         try {
@@ -543,11 +553,13 @@ public class WorkbenchService {
         if (!ready()) {
             return 0;
         }
+        String publishEventFilter = publishEventFilterSql("event_type");
         String sql = "select count() as total from ("
                 + "select id "
                 + "from " + safe(strategyReleaseEventTable, "dc.strategy_release_event")
                 + " where toDate(event_time) >= toDate('" + escape(dateFrom) + "')"
                 + " and toDate(event_time) <= toDate('" + escape(dateTo) + "')"
+                + " and " + publishEventFilter
                 + ") counted";
         try {
             @SuppressWarnings("rawtypes")
@@ -686,6 +698,7 @@ public class WorkbenchService {
         view.put("nextRetryTime", blankTo(row.nextRetryTime, ""));
         view.put("createTime", blankTo(row.createTime, ""));
         view.put("updateTime", blankTo(row.updateTime, ""));
+        view.put("publishedLive", row.publishedLive == null ? 0 : row.publishedLive.intValue());
         view.put("elapsedMs", resolveElapsedMs(row.payload));
         view.put("payloadSummary", payloadSummary);
         view.put("rawPayload", blankTo(row.payload, ""));
@@ -1209,17 +1222,21 @@ public class WorkbenchService {
         return view;
     }
 
-    private Map<String, Object> buildPublishState(String strategyName, String strategyVersion) {
+    private Map<String, Object> buildPublishState(StrategyBacktestTaskRow taskRow) {
         Map<String, Object> publish = new LinkedHashMap<String, Object>();
+        String strategyName = taskRow == null ? "" : blankTo(taskRow.strategyName, "");
+        String strategyVersion = taskRow == null ? "" : blankTo(taskRow.strategyVersion, "");
         List<StrategyLiveRegistryPublishRow> activeRows = loadExactActiveRows(strategyName, strategyVersion);
         StrategyLiveRegistryPublishRow active = activeRows == null || activeRows.isEmpty() ? null : activeRows.get(0);
-        StrategyReleaseEventRecord event = loadLatestReleaseEvent(strategyName, strategyVersion);
-        String latestEventType = event == null ? "" : blankTo(event.eventType, "");
-        String latestEventTime = event == null ? "" : blankTo(event.eventTime, "");
-        String latestEventReason = event == null ? "" : blankTo(event.reason, "");
-        String latestEventSource = event == null ? "" : blankTo(event.source, "");
+        Map<String, Object> payloadMap = taskRow == null ? Collections.<String, Object>emptyMap() : parseJsonObject(taskRow.payload);
+        Map<String, Object> taskResult = mapValue(payloadMap.get("taskResult"));
+        boolean publishedEvent = taskRow != null && taskRow.publishedLive != null && taskRow.publishedLive.intValue() > 0;
+        String latestEventType = publishedEvent ? firstNonBlank(taskResult.get("autoPublishAction")) : "";
+        String latestEventTime = "";
+        String latestEventReason = publishedEvent ? firstNonBlank(taskResult.get("autoPublishReason")) : "";
+        String latestEventSource = "";
         boolean evolutionTriggered = isEvolutionTriggeredEvent(latestEventType);
-        boolean publishedEvent = isPublishedEventType(latestEventType);
+        publish.put("publishedToLive", publishedEvent);
         publish.put("active", active != null);
         publish.put("activeCount", activeRows == null ? 0 : activeRows.size());
         publish.put("activeSymbols", joinActiveSymbols(activeRows));
@@ -1242,12 +1259,35 @@ public class WorkbenchService {
         return publish;
     }
 
-    protected List<StrategyLiveRegistryPublishRow> loadExactActiveRows(String strategyName, String strategyVersion) {
-        return strategyAutoPublishDao.listExactActiveRows(strategyName, strategyVersion);
+    private StrategyBacktestTaskRow loadTaskRow(List<StrategyBacktestTaskRow> rows,
+                                                String taskId,
+                                                String strategyName,
+                                                String strategyVersion) {
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        for (StrategyBacktestTaskRow row : rows) {
+            if (row == null) {
+                continue;
+            }
+            if (StringUtils.equals(blankTo(row.id, ""), taskId)) {
+                return row;
+            }
+        }
+        for (StrategyBacktestTaskRow row : rows) {
+            if (row == null) {
+                continue;
+            }
+            if (StringUtils.equalsIgnoreCase(blankTo(row.strategyName, ""), strategyName)
+                    && StringUtils.equalsIgnoreCase(blankTo(row.strategyVersion, ""), strategyVersion)) {
+                return row;
+            }
+        }
+        return null;
     }
 
-    protected StrategyReleaseEventRecord loadLatestReleaseEvent(String strategyName, String strategyVersion) {
-        return strategyAutoPublishDao.loadLatestReleaseEvent(strategyName, strategyVersion);
+    protected List<StrategyLiveRegistryPublishRow> loadExactActiveRows(String strategyName, String strategyVersion) {
+        return strategyAutoPublishDao.listExactActiveRows(strategyName, strategyVersion);
     }
 
     private boolean isPublishedEventType(String eventType) {
@@ -1256,6 +1296,17 @@ public class WorkbenchService {
                 || normalized.endsWith("_PROMOTE")
                 || "REPLACE".equals(normalized)
                 || normalized.endsWith("_REPLACE");
+    }
+
+    private String publishEventFilterSql(String eventTypeColumn) {
+        String column = StringUtils.isBlank(eventTypeColumn) ? "event_type" : eventTypeColumn.trim();
+        String normalized = "upper(ifNull(" + column + ", ''))";
+        return "("
+                + normalized + "='PROMOTE'"
+                + " or " + normalized + " like '%_PROMOTE'"
+                + " or " + normalized + "='REPLACE'"
+                + " or " + normalized + " like '%_REPLACE'"
+                + ")";
     }
 
     private boolean isEvolutionTriggeredEvent(String eventType) {
@@ -1354,7 +1405,8 @@ public class WorkbenchService {
                 + "toString(argMax(create_time, versionKey)) as createTime,"
                 + "toString(argMax(update_time, versionKey)) as updateTime,"
                 + "argMax(payload, versionKey) as payload,"
-                + "argMax(failure_reason, versionKey) as failureReason "
+                + "argMax(failure_reason, versionKey) as failureReason,"
+                + "argMax(published_live, versionKey) as publishedLive "
                 + "from (" + baseSql + ") group by id";
     }
 

@@ -70,6 +70,7 @@ public class StrategyBacktestTaskQueryService {
         view.put("nextRetryTime", row.nextRetryTime);
         view.put("createTime", row.createTime);
         view.put("updateTime", row.updateTime);
+        view.put("publishedLive", row.publishedLive == null ? 0 : row.publishedLive.intValue());
         view.put("runtimeState", runtimeState(row));
         view.put("payloadSummary", summarizePayload(row.payload));
         view.put("rawPayload", blankToEmpty(row.payload));

@@ -273,7 +273,8 @@ public class StrategyBacktestPullJob {
             taskResult.put("currentForwardScore", publishDecision.currentForwardScore);
             taskResult.put("baselineTotalPnl", publishDecision.baselineTotalPnl);
             taskResult.put("baselineForwardScore", publishDecision.baselineForwardScore);
-            taskDao.markSuccess(task.id, buildSuccessPayload(task, resolvedParamHolder[0], taskResult));
+            taskDao.markSuccess(task.id, buildSuccessPayload(task, resolvedParamHolder[0], taskResult),
+                    publishDecision != null && publishDecision.published);
             log.info("StrategyBacktestPullJob task state persistence finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}",
                     task.id, task.generationTaskId, firstNotBlank(task.candidateId, candidate.id),
                     candidate.strategyName, candidate.strategyVersion, threadName);

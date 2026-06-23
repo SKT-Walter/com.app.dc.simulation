@@ -96,7 +96,7 @@ public class WorkbenchServiceTest {
     }
 
     @Test
-    public void loadPublishRecordsShouldDescribeEvolutionAndOfflineEvents() {
+    public void loadPublishRecordsShouldOnlyKeepRealPublishedEvents() {
         FakeWorkbenchService service = new FakeWorkbenchService();
 
         StrategyReleaseEventRecord evolution = new StrategyReleaseEventRecord();
@@ -115,19 +115,27 @@ public class WorkbenchServiceTest {
         offline.eventType = "OFFLINE";
         offline.source = "manual";
 
+        StrategyReleaseEventRecord promote = new StrategyReleaseEventRecord();
+        promote.id = "ev-3";
+        promote.eventTime = "2026-06-08 00:12:35";
+        promote.strategyName = "wb15_trend_t104";
+        promote.toVersion = "v3";
+        promote.eventType = "PROMOTE";
+        promote.source = "auto_publish";
+
         service.publishEventRows.add(evolution);
         service.publishEventRows.add(offline);
+        service.publishEventRows.add(promote);
 
         List<Map<String, Object>> items = service.loadPublishRecords("2026-06-08", "2026-06-08", 20, 0);
-        Assert.assertEquals(2, items.size());
-        Assert.assertEquals("日末复盘记录", items.get(0).get("eventType"));
-        Assert.assertEquals("EVOLUTION_TRIGGERED", items.get(0).get("rawEventType"));
-        Assert.assertEquals("下线实盘记录", items.get(1).get("eventType"));
-        Assert.assertEquals("OFFLINE", items.get(1).get("rawEventType"));
+        Assert.assertEquals(1, items.size());
+        Assert.assertEquals("PROMOTE", items.get(0).get("rawEventType"));
+        Assert.assertEquals("v3", items.get(0).get("toVersion"));
+        Assert.assertEquals(1, service.countPublishRecords("2026-06-08", "2026-06-08"));
     }
 
     @Test
-    public void queryBacktestListShouldSeparateEvolutionTriggeredFromPublished() {
+    public void queryBacktestListShouldNotMarkEvolutionTriggeredTaskAsPublished() {
         FakeWorkbenchService service = new FakeWorkbenchService();
 
         StrategyBacktestTaskRow row = new StrategyBacktestTaskRow();
@@ -153,9 +161,72 @@ public class WorkbenchServiceTest {
         Assert.assertEquals(1, items.size());
         @SuppressWarnings("unchecked")
         Map<String, Object> publish = (Map<String, Object>) items.get(0).get("publish");
+        Assert.assertEquals(Boolean.FALSE, publish.get("publishedToLive"));
         Assert.assertEquals("", publish.get("releaseEventType"));
-        Assert.assertEquals("EVOLUTION_TRIGGERED", publish.get("evolutionEventType"));
-        Assert.assertEquals(Boolean.TRUE, publish.get("evolutionTriggered"));
+        Assert.assertEquals("", publish.get("evolutionEventType"));
+        Assert.assertEquals(Boolean.FALSE, publish.get("evolutionTriggered"));
+    }
+
+    @Test
+    public void queryBacktestListShouldNotTreatCurrentActiveVersionAsPublishedWithoutTaskPublish() {
+        FakeWorkbenchService service = new FakeWorkbenchService();
+
+        StrategyBacktestTaskRow row = new StrategyBacktestTaskRow();
+        row.id = "bt-live-recheck-1";
+        row.strategyName = "wb15_channel_c504";
+        row.strategyVersion = "v1";
+        row.status = "SUCCESS";
+        row.createTime = "2026-06-23 00:43:04";
+        row.updateTime = "2026-06-23 01:05:19";
+        row.payload = "{\"backtestParam\":{\"symbol\":\"TRXUSDT\",\"text\":\"1m\",\"beginDate\":\"2024-06-23\",\"endDate\":\"2026-06-22\"},"
+                + "\"taskResult\":{\"autoPublished\":false,\"autoPublishAction\":\"SKIP\",\"autoPublishReason\":\"same version already active\"}}";
+        row.publishedLive = 0;
+        service.rows.add(row);
+
+        StrategyLiveRegistryPublishRow live = new StrategyLiveRegistryPublishRow();
+        live.strategyName = "wb15_channel_c504";
+        live.strategyVersion = "v1";
+        live.status = "ACTIVE";
+        live.effectiveTime = "2026-06-09 03:23:51";
+        live.symbolScope = "TRXUSDT";
+        service.liveRegistryRows.put("wb15_channel_c504@v1", Collections.singletonList(live));
+
+        Map<String, Object> data = service.queryBacktestList(Collections.singletonMap("date", "2026-06-23"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) data.get("items");
+        Assert.assertEquals(1, items.size());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> publish = (Map<String, Object>) items.get(0).get("publish");
+        Assert.assertEquals(Boolean.FALSE, publish.get("publishedToLive"));
+        Assert.assertEquals(Boolean.TRUE, publish.get("active"));
+        Assert.assertEquals("", publish.get("releaseEventType"));
+    }
+
+    @Test
+    public void queryBacktestListShouldMarkTaskPublishedWhenPublishedLiveFlagIsSet() {
+        FakeWorkbenchService service = new FakeWorkbenchService();
+
+        StrategyBacktestTaskRow row = new StrategyBacktestTaskRow();
+        row.id = "bt-published-1";
+        row.strategyName = "wb15_channel_c504";
+        row.strategyVersion = "v27";
+        row.status = "SUCCESS";
+        row.createTime = "2026-06-23 00:12:12";
+        row.updateTime = "2026-06-23 00:15:21";
+        row.payload = "{\"backtestParam\":{\"symbol\":\"TRXUSDT\",\"text\":\"15m\",\"beginDate\":\"2025-06-01\",\"endDate\":\"2026-06-22\"},"
+                + "\"taskResult\":{\"autoPublished\":true,\"autoPublishAction\":\"PROMOTE\",\"autoPublishReason\":\"promote profitable walk-forward first version\"}}";
+        row.publishedLive = 1;
+        service.rows.add(row);
+
+        Map<String, Object> data = service.queryBacktestList(Collections.singletonMap("date", "2026-06-23"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) data.get("items");
+        Assert.assertEquals(1, items.size());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> publish = (Map<String, Object>) items.get(0).get("publish");
+        Assert.assertEquals(Boolean.TRUE, publish.get("publishedToLive"));
+        Assert.assertEquals("PROMOTE", publish.get("releaseEventType"));
+        Assert.assertEquals("promote profitable walk-forward first version", publish.get("releaseEventReason"));
     }
 
     @Test
@@ -339,11 +410,6 @@ public class WorkbenchServiceTest {
         }
 
         @Override
-        protected StrategyReleaseEventRecord loadLatestReleaseEvent(String strategyName, String strategyVersion) {
-            return releaseEvents.get(strategyName + "@" + strategyVersion);
-        }
-
-        @Override
         protected List<Map<String, Object>> loadPublishRecords(String dateFrom, String dateTo, int limit, int offset) {
             if (!publishRecords.isEmpty()) {
                 return publishRecords;
@@ -353,6 +419,14 @@ public class WorkbenchServiceTest {
             }
             List<Map<String, Object>> items = new ArrayList<Map<String, Object>>();
             for (StrategyReleaseEventRecord row : publishEventRows) {
+                String rawEventType = row.eventType == null ? "" : row.eventType;
+                String normalized = rawEventType.trim().toUpperCase();
+                if (!("PROMOTE".equals(normalized)
+                        || normalized.endsWith("_PROMOTE")
+                        || "REPLACE".equals(normalized)
+                        || normalized.endsWith("_REPLACE"))) {
+                    continue;
+                }
                 Map<String, Object> item = new LinkedHashMap<String, Object>();
                 item.put("id", row.id);
                 item.put("eventTime", row.eventTime);
@@ -361,7 +435,7 @@ public class WorkbenchServiceTest {
                 item.put("toVersion", row.toVersion);
                 item.put("runtimeType", row.runtimeType);
                 item.put("eventType", describeReleaseEventTypeForTest(row.eventType, row.source));
-                item.put("rawEventType", row.eventType == null ? "" : row.eventType);
+                item.put("rawEventType", rawEventType);
                 item.put("reason", row.reason);
                 item.put("source", row.source);
                 item.put("payload", row.payload == null ? "" : row.payload);
@@ -377,7 +451,20 @@ public class WorkbenchServiceTest {
 
         @Override
         protected int countPublishRecords(String dateFrom, String dateTo) {
-            return !publishRecords.isEmpty() ? publishRecords.size() : publishEventRows.size();
+            if (!publishRecords.isEmpty()) {
+                return publishRecords.size();
+            }
+            int count = 0;
+            for (StrategyReleaseEventRecord row : publishEventRows) {
+                String normalized = row == null || row.eventType == null ? "" : row.eventType.trim().toUpperCase();
+                if ("PROMOTE".equals(normalized)
+                        || normalized.endsWith("_PROMOTE")
+                        || "REPLACE".equals(normalized)
+                        || normalized.endsWith("_REPLACE")) {
+                    count++;
+                }
+            }
+            return count;
         }
 
         @Override

@@ -19,7 +19,7 @@ public interface StrategyBacktestTaskDao {
 
     void refreshRunningProgress(String id, String payload);
 
-    void markSuccess(String id, String payload);
+    void markSuccess(String id, String payload, boolean publishedLive);
 
     void markFailed(String id, String errorMsg);
 

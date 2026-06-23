@@ -17,13 +17,13 @@ public class BacktestTradeService {
     public Position openPosition(Signal signal, int barIndex, Bar bar, BacktestParam param, double currentEquity) {
         Position position = new Position();
         position.side = signal.side;
-        position.entryPrice = signal.price.doubleValue();
-        position.signalPrice = signal.price == null ? position.entryPrice : signal.price.doubleValue();
+        position.entryPrice = resolveEntryPrice(signal, bar);
+        position.signalPrice = resolveSignalPrice(signal, position.entryPrice);
         position.entryTime = bar.getEndTime().toString();
         position.signalTime = bar.getEndTime().toString();
         position.entryIndex = barIndex;
         position.entryCapital = currentEquity;
-        position.qty = position.entryPrice == 0.0 ? 0.0 : currentEquity / position.entryPrice;
+        position.qty = position.entryPrice <= 0.0 ? 0.0 : currentEquity / position.entryPrice;
         position.stopPrice = signal.stopPrice == null || signal.stopPrice.compareTo(BigDecimal.ZERO) <= 0
                 ? null
                 : signal.stopPrice.doubleValue();
@@ -36,6 +36,27 @@ public class BacktestTradeService {
         position.fallbackTakeProfitPct = positiveOrNull(signal.underTakerProfitPrice);
         position.maxHoldBars = param.maxHoldBars == null ? 0 : param.maxHoldBars;
         return position;
+    }
+
+    private double resolveEntryPrice(Signal signal, Bar bar) {
+        double signalPrice = signal == null || signal.price == null ? Double.NaN : signal.price.doubleValue();
+        if (isFinitePositive(signalPrice)) {
+            return signalPrice;
+        }
+        double closePrice = bar == null || bar.getClosePrice() == null ? Double.NaN : bar.getClosePrice().doubleValue();
+        if (isFinitePositive(closePrice)) {
+            return closePrice;
+        }
+        throw new IllegalArgumentException("entry price unavailable: signal/bar close are not positive finite values");
+    }
+
+    private double resolveSignalPrice(Signal signal, double fallbackPrice) {
+        double signalPrice = signal == null || signal.price == null ? Double.NaN : signal.price.doubleValue();
+        return Double.isFinite(signalPrice) ? signalPrice : fallbackPrice;
+    }
+
+    private boolean isFinitePositive(double value) {
+        return Double.isFinite(value) && value > 0.0d;
     }
 
     public TradeRecord tryCloseByRisk(Position position, Bar currentBar, int currentIndex,
@@ -177,6 +198,9 @@ public class BacktestTradeService {
     }
 
     public double calcGrossReturnPct(Side side, double entryPrice, double exitPrice) {
+        if (!isFinitePositive(entryPrice) || !Double.isFinite(exitPrice)) {
+            throw new IllegalArgumentException("invalid trade prices, entryPrice=" + entryPrice + ", exitPrice=" + exitPrice);
+        }
         if (side == Side.SELL) {
             return (entryPrice - exitPrice) / entryPrice;
         }
@@ -191,6 +215,9 @@ public class BacktestTradeService {
     }
 
     public BigDecimal scale(double value) {
+        if (!Double.isFinite(value)) {
+            throw new IllegalArgumentException("non-finite trade value: " + value);
+        }
         return BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP);
     }
 }

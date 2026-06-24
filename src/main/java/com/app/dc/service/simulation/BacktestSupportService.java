@@ -33,6 +33,12 @@ public class BacktestSupportService {
         if ("trend".equalsIgnoreCase(value)) {
             return "binanceTrend";
         }
+        if ("difdealifecycle".equalsIgnoreCase(value)
+                || "dif_dea_lifecycle".equalsIgnoreCase(value)
+                || "lifecycle".equalsIgnoreCase(value)
+                || "ddl".equalsIgnoreCase(value)) {
+            return "difDeaLifecycle";
+        }
         if ("breakoutretestcontinuationtrend".equalsIgnoreCase(value)
                 || "breakout_retest_continuation_trend".equalsIgnoreCase(value)
                 || "breakoutretestcontinuationsignal".equalsIgnoreCase(value)

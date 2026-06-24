@@ -58,6 +58,10 @@ public final class BacktestModels {
         public String side;
         public String entryTime;
         public String exitTime;
+        public String entryBarBeginTime;
+        public String entryBarEndTime;
+        public String exitBarBeginTime;
+        public String exitBarEndTime;
         public BigDecimal entryPrice;
         public BigDecimal exitPrice;
         public BigDecimal stopPrice;
@@ -72,6 +76,8 @@ public final class BacktestModels {
         public Side side;
         public double entryPrice;
         public String entryTime;
+        public String entryBarBeginTime;
+        public String entryBarEndTime;
         public int entryIndex;
         public Double stopPrice;
         public Double takePrice;

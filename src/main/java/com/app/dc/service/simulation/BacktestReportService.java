@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -95,16 +96,16 @@ public class BacktestReportService {
 
     private String buildMarkdown(BacktestResponse response) {
         StringBuilder sb = new StringBuilder();
-        sb.append("# Backtest Report").append("\n\n");
-        sb.append("- strategy: ").append(s(response.strategyName)).append("\n");
-        sb.append("- symbol: ").append(s(response.symbol)).append("\n");
+        sb.append("# 回测报告").append("\n\n");
+        sb.append("- 策略: ").append(s(response.strategyName)).append("\n");
+        sb.append("- 品种: ").append(s(response.symbol)).append("\n");
         if (response.symbols != null && !response.symbols.isEmpty()) {
-            sb.append("- symbols: ").append(joinSymbols(response.symbols)).append("\n");
+            sb.append("- 品种列表: ").append(joinSymbols(response.symbols)).append("\n");
         }
-        sb.append("- timeframe: ").append(s(response.text)).append("\n");
-        sb.append("- beginDate: ").append(s(response.beginDate)).append("\n");
-        sb.append("- endDate: ").append(s(response.endDate)).append("\n");
-        sb.append("- generatedAt: ").append(LocalDateTime.now()).append("\n\n");
+        sb.append("- 周期: ").append(s(response.text)).append("\n");
+        sb.append("- 开始日期: ").append(s(response.beginDate)).append("\n");
+        sb.append("- 结束日期: ").append(s(response.endDate)).append("\n");
+        sb.append("- 生成时间: ").append(LocalDateTime.now()).append("\n\n");
 
         List<BacktestResult> results = response.results == null
                 ? Collections.<BacktestResult>emptyList()
@@ -118,26 +119,26 @@ public class BacktestReportService {
                 .thenComparing(this::safeTotalPnl, Comparator.reverseOrder())
                 .thenComparing(result -> s(result.strategyName)));
 
-        sb.append("## Summary").append("\n\n");
+        sb.append("## 汇总").append("\n\n");
         List<String> summaryHeaders = new ArrayList<>();
-        summaryHeaders.add("strategy/strategy");
-        summaryHeaders.add("symbol/symbol");
-        summaryHeaders.add("totalBars/bars");
-        summaryHeaders.add("trades/trades");
-        summaryHeaders.add("win/win");
-        summaryHeaders.add("loss/loss");
-        summaryHeaders.add("flat/flat");
-        summaryHeaders.add("stopExit/stopExit");
-        summaryHeaders.add("stopExitWin/stopExitWin");
-        summaryHeaders.add("stopExitLoss/stopExitLoss");
-        summaryHeaders.add("takeExit/takeExit");
-        summaryHeaders.add("takeExitWin/takeExitWin");
-        summaryHeaders.add("takeExitLoss/takeExitLoss");
-        summaryHeaders.add("winRate/winRate");
-        summaryHeaders.add("totalReturnPct/totalReturnPct");
-        summaryHeaders.add("totalPnl/totalPnl");
-        summaryHeaders.add("maxDrawdownPct/maxDrawdownPct");
-        summaryHeaders.add("finalCapital/finalCapital");
+        summaryHeaders.add("策略");
+        summaryHeaders.add("品种");
+        summaryHeaders.add("K线数");
+        summaryHeaders.add("交易数");
+        summaryHeaders.add("盈利数");
+        summaryHeaders.add("亏损数");
+        summaryHeaders.add("打平数");
+        summaryHeaders.add("止损出场数");
+        summaryHeaders.add("止损盈利数");
+        summaryHeaders.add("止损亏损数");
+        summaryHeaders.add("止盈出场数");
+        summaryHeaders.add("止盈盈利数");
+        summaryHeaders.add("止盈亏损数");
+        summaryHeaders.add("胜率");
+        summaryHeaders.add("总收益率%");
+        summaryHeaders.add("总盈亏");
+        summaryHeaders.add("最大回撤%");
+        summaryHeaders.add("最终资金");
 
         List<List<String>> summaryRows = new ArrayList<>();
         for (BacktestResult r : sortedResults) {
@@ -165,7 +166,7 @@ public class BacktestReportService {
         appendAlignedTable(sb, summaryHeaders, summaryRows);
         sb.append("\n");
 
-        sb.append("## Profitable Summary").append("\n\n");
+        sb.append("## 盈利策略汇总").append("\n\n");
         List<List<String>> profitableRows = new ArrayList<>();
         for (BacktestResult r : sortedResults) {
             BigDecimal totalPnl = calcTotalPnl(r.initialCapital, r.finalCapital);
@@ -196,7 +197,7 @@ public class BacktestReportService {
         appendAlignedTable(sb, summaryHeaders, profitableRows);
         sb.append("\n");
 
-        sb.append("## Summary By Symbol").append("\n\n");
+        sb.append("## 按品种汇总").append("\n\n");
         List<List<String>> symbolSummaryRows = new ArrayList<>();
         for (BacktestResult r : symbolSortedResults) {
             List<String> row = new ArrayList<>();
@@ -224,21 +225,23 @@ public class BacktestReportService {
         sb.append("\n");
 
         for (BacktestResult r : sortedResults) {
-            sb.append("## Trades - ").append(s(r.strategyName)).append(" - ").append(s(r.symbol)).append("\n\n");
+            sb.append("## 交易明细 - ").append(s(r.strategyName)).append(" - ").append(s(r.symbol)).append("\n\n");
             List<String> tradeHeaders = new ArrayList<>();
-            tradeHeaders.add("#/index");
-            tradeHeaders.add("symbol/symbol");
-            tradeHeaders.add("side/side");
-            tradeHeaders.add("entryTime/entryTime");
-            tradeHeaders.add("exitTime/exitTime");
-            tradeHeaders.add("entryPrice/entryPrice");
-            tradeHeaders.add("exitPrice/exitPrice");
-            tradeHeaders.add("stopPrice/stopPrice");
-            tradeHeaders.add("takePrice/takePrice");
-            tradeHeaders.add("holdBars/holdBars");
-            tradeHeaders.add("returnPct/returnPct");
-            tradeHeaders.add("pnl/pnl");
-            tradeHeaders.add("exitReason/exitReason");
+            tradeHeaders.add("序号");
+            tradeHeaders.add("品种");
+            tradeHeaders.add("方向");
+            tradeHeaders.add("开仓时间");
+            tradeHeaders.add("平仓时间");
+            tradeHeaders.add("开仓K线结束");
+            tradeHeaders.add("平仓K线结束");
+            tradeHeaders.add("开仓价");
+            tradeHeaders.add("平仓价");
+            tradeHeaders.add("止损价");
+            tradeHeaders.add("止盈价");
+            tradeHeaders.add("持仓K线数");
+            tradeHeaders.add("收益率%");
+            tradeHeaders.add("盈亏");
+            tradeHeaders.add("出场原因");
 
             List<List<String>> tradeRows = new ArrayList<>();
             List<TradeRecord> tradeList = r.tradeList == null ? Collections.<TradeRecord>emptyList() : r.tradeList;
@@ -248,9 +251,11 @@ public class BacktestReportService {
                 List<String> row = new ArrayList<>();
                 row.add(String.valueOf(idx + 1));
                 row.add(s(r.symbol));
-                row.add(s(t.side));
-                row.add(s(t.entryTime));
-                row.add(s(t.exitTime));
+                row.add(translateSide(t.side));
+                row.add(formatDisplayTime(t.entryTime));
+                row.add(formatDisplayTime(t.exitTime));
+                row.add(formatDisplayTime(t.entryBarEndTime));
+                row.add(formatDisplayTime(t.exitBarEndTime));
                 row.add(n(t.entryPrice));
                 row.add(n(t.exitPrice));
                 row.add(n(t.stopPrice));
@@ -258,26 +263,26 @@ public class BacktestReportService {
                 row.add(i(t.holdBars));
                 row.add(n(t.returnPct));
                 row.add(n(t.pnl));
-                row.add(s(t.exitReason));
+                row.add(translateExitReason(t.exitReason));
                 tradeRows.add(row);
             }
             appendAlignedTable(sb, tradeHeaders, tradeRows);
             if (tradeList.size() > max) {
                 sb.append("\n");
-                sb.append("> trade rows truncated: ").append(tradeList.size() - max)
-                        .append(" not shown (limit=").append(max).append(")\n");
+                sb.append("> 交易明细已截断：还有 ").append(tradeList.size() - max)
+                        .append(" 条未展示（限制=").append(max).append("）\n");
             }
             sb.append("\n");
 
             if (r.rejectReasonCounts != null && !r.rejectReasonCounts.isEmpty()) {
-                sb.append("### Reject Reasons").append("\n\n");
+                sb.append("### 信号过滤原因").append("\n\n");
                 List<String> rejectHeaders = new ArrayList<>();
-                rejectHeaders.add("reason/reason");
-                rejectHeaders.add("count/count");
+                rejectHeaders.add("原因");
+                rejectHeaders.add("次数");
                 List<List<String>> rejectRows = new ArrayList<>();
                 for (Entry<String, Integer> entry : r.rejectReasonCounts.entrySet()) {
                     List<String> row = new ArrayList<>();
-                    row.add(s(entry.getKey()));
+                    row.add(translateRejectReason(entry.getKey()));
                     row.add(i(entry.getValue()));
                     rejectRows.add(row);
                 }
@@ -316,45 +321,45 @@ public class BacktestReportService {
         compareRows.sort(Comparator.comparing(row -> row.symbol));
 
         StringBuilder sb = new StringBuilder();
-        sb.append("# Backtest Compare Report").append("\n\n");
-        sb.append("- baseStrategy: ").append("binanceRange").append("\n");
-        sb.append("- candidateStrategy: ").append("binanceRangeGuarded").append("\n");
-        sb.append("- symbol: ").append(s(response.symbol)).append("\n");
+        sb.append("# 回测对比报告").append("\n\n");
+        sb.append("- 基准策略: ").append("binanceRange").append("\n");
+        sb.append("- 候选策略: ").append("binanceRangeGuarded").append("\n");
+        sb.append("- 品种: ").append(s(response.symbol)).append("\n");
         if (response.symbols != null && !response.symbols.isEmpty()) {
-            sb.append("- symbols: ").append(joinSymbols(response.symbols)).append("\n");
+            sb.append("- 品种列表: ").append(joinSymbols(response.symbols)).append("\n");
         }
-        sb.append("- timeframe: ").append(s(response.text)).append("\n");
-        sb.append("- beginDate: ").append(s(response.beginDate)).append("\n");
-        sb.append("- endDate: ").append(s(response.endDate)).append("\n");
-        sb.append("- generatedAt: ").append(LocalDateTime.now()).append("\n\n");
+        sb.append("- 周期: ").append(s(response.text)).append("\n");
+        sb.append("- 开始日期: ").append(s(response.beginDate)).append("\n");
+        sb.append("- 结束日期: ").append(s(response.endDate)).append("\n");
+        sb.append("- 生成时间: ").append(LocalDateTime.now()).append("\n\n");
 
-        sb.append("## Compare Summary").append("\n\n");
+        sb.append("## 对比汇总").append("\n\n");
         List<String> headers = new ArrayList<>();
-        headers.add("symbol/symbol");
-        headers.add("baseTrades");
-        headers.add("guardedTrades");
-        headers.add("tradesDelta");
-        headers.add("baseStopExit");
-        headers.add("guardedStopExit");
-        headers.add("stopExitDelta");
-        headers.add("baseStopExitLoss");
-        headers.add("guardedStopExitLoss");
-        headers.add("stopExitLossDelta");
-        headers.add("baseTakeExit");
-        headers.add("guardedTakeExit");
-        headers.add("takeExitDelta");
-        headers.add("baseWinRate");
-        headers.add("guardedWinRate");
-        headers.add("winRateDelta");
-        headers.add("baseReturnPct");
-        headers.add("guardedReturnPct");
-        headers.add("returnDelta");
-        headers.add("baseDrawdown");
-        headers.add("guardedDrawdown");
-        headers.add("drawdownDelta");
-        headers.add("basePnl");
-        headers.add("guardedPnl");
-        headers.add("pnlDelta");
+        headers.add("品种");
+        headers.add("基准交易数");
+        headers.add("候选交易数");
+        headers.add("交易数差值");
+        headers.add("基准止损数");
+        headers.add("候选止损数");
+        headers.add("止损差值");
+        headers.add("基准止损亏损数");
+        headers.add("候选止损亏损数");
+        headers.add("止损亏损差值");
+        headers.add("基准止盈数");
+        headers.add("候选止盈数");
+        headers.add("止盈差值");
+        headers.add("基准胜率");
+        headers.add("候选胜率");
+        headers.add("胜率差值");
+        headers.add("基准收益率%");
+        headers.add("候选收益率%");
+        headers.add("收益率差值");
+        headers.add("基准回撤%");
+        headers.add("候选回撤%");
+        headers.add("回撤差值");
+        headers.add("基准盈亏");
+        headers.add("候选盈亏");
+        headers.add("盈亏差值");
 
         List<List<String>> rows = new ArrayList<>();
         for (CompareRow row : compareRows) {
@@ -533,6 +538,124 @@ public class BacktestReportService {
             joiner.add(s(symbol));
         }
         return joiner.toString();
+    }
+
+    /** 将交易方向转换为报告中的中文展示。 */
+    private String translateSide(String side) {
+        if ("BUY".equalsIgnoreCase(side)) {
+            return "做多";
+        }
+        if ("SELL".equalsIgnoreCase(side)) {
+            return "做空";
+        }
+        return s(side);
+    }
+
+    /** 将平仓原因转换为报告中的中文展示。 */
+    private String translateExitReason(String reason) {
+        if ("reverse_signal".equalsIgnoreCase(reason)) {
+            return "反向信号平仓";
+        }
+        if ("strategy_close_signal".equalsIgnoreCase(reason)) {
+            return "策略离场平仓";
+        }
+        if ("stop_loss".equalsIgnoreCase(reason)) {
+            return "止损平仓";
+        }
+        if ("take_profit".equalsIgnoreCase(reason)) {
+            return "止盈平仓";
+        }
+        if ("end_of_test".equalsIgnoreCase(reason)) {
+            return "回测结束平仓";
+        }
+        return s(reason);
+    }
+
+    /** 将信号过滤原因转换为报告中的中文展示。 */
+    private String translateRejectReason(String reason) {
+        if ("unsupported_text".equalsIgnoreCase(reason)) {
+            return "不支持的K线周期";
+        }
+        if ("not_enough_samples".equalsIgnoreCase(reason) || "not_enough_bars".equalsIgnoreCase(reason)) {
+            return "样本数量不足";
+        }
+        if ("duplicate_bar".equalsIgnoreCase(reason)) {
+            return "重复K线";
+        }
+        if ("long_active_no_exit".equalsIgnoreCase(reason)) {
+            return "多头生命周期未满足离场";
+        }
+        if ("short_active_no_exit".equalsIgnoreCase(reason)) {
+            return "空头生命周期未满足离场";
+        }
+        if ("entry_blocked_by_dif_dea_bonding".equalsIgnoreCase(reason)) {
+            return "DIF/DEA粘合过滤";
+        }
+        if ("reverse_cross_blocked_by_dif_dea_bonding".equalsIgnoreCase(reason)) {
+            return "反向交叉被DIF/DEA粘合过滤";
+        }
+        if ("no_cross".equalsIgnoreCase(reason)) {
+            return "未出现有效交叉";
+        }
+        if ("invalid_atr".equalsIgnoreCase(reason)) {
+            return "ATR无效";
+        }
+        if ("slope_filter".equalsIgnoreCase(reason)) {
+            return "斜率过滤";
+        }
+        if ("no_channel_touch".equalsIgnoreCase(reason)) {
+            return "未触碰通道";
+        }
+        if ("no_pending_state".equalsIgnoreCase(reason)) {
+            return "无待确认状态";
+        }
+        if ("confirm_failed".equalsIgnoreCase(reason)) {
+            return "确认失败";
+        }
+        if ("virtual_position_active".equalsIgnoreCase(reason)) {
+            return "虚拟持仓中";
+        }
+        if ("cooldown".equalsIgnoreCase(reason)) {
+            return "冷却中";
+        }
+        if ("range_filter".equalsIgnoreCase(reason)) {
+            return "震荡区间过滤";
+        }
+        if ("invalid_range".equalsIgnoreCase(reason)) {
+            return "区间无效";
+        }
+        if ("drift_block_buy".equalsIgnoreCase(reason)) {
+            return "漂移过滤做多";
+        }
+        if ("drift_block_sell".equalsIgnoreCase(reason)) {
+            return "漂移过滤做空";
+        }
+        if ("no_reversal_confirm".equalsIgnoreCase(reason)) {
+            return "未反转确认";
+        }
+        if ("invalid_std".equalsIgnoreCase(reason)) {
+            return "标准差无效";
+        }
+        if ("width_filter".equalsIgnoreCase(reason)) {
+            return "带宽过滤";
+        }
+        if ("no_pullback_trigger".equalsIgnoreCase(reason)) {
+            return "未触发回踩";
+        }
+        return s(reason);
+    }
+
+    /** 灏嗗甫鏃跺尯鐨勬椂闂存牸寮忓帇缂╀负鎶ュ憡涓殑鏈湴鏃堕棿瀛楃涓层€?*/
+    private String formatDisplayTime(String value) {
+        String text = s(value);
+        if (text.isEmpty()) {
+            return text;
+        }
+        try {
+            return ZonedDateTime.parse(text).toLocalDateTime().toString();
+        } catch (Exception ignore) {
+            return text;
+        }
     }
 
     private static class CompareRow {

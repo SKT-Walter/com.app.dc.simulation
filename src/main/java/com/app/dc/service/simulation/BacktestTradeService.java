@@ -19,6 +19,8 @@ public class BacktestTradeService {
         position.side = signal.side;
         position.entryPrice = signal.price.doubleValue();
         position.entryTime = bar.getEndTime().toString();
+        position.entryBarBeginTime = bar.getBeginTime().toString();
+        position.entryBarEndTime = bar.getEndTime().toString();
         position.entryIndex = barIndex;
         position.stopPrice = resolveRiskPrice(signal.stopPrice, signal.side, position.entryPrice,
                 param.fallbackStopLossPct.doubleValue(), true);
@@ -37,47 +39,54 @@ public class BacktestTradeService {
             boolean hitStop = position.stopPrice != null && low <= position.stopPrice;
             boolean hitTake = position.takePrice != null && high >= position.takePrice;
             if (hitStop && hitTake) {
-                return closePosition(position, position.stopPrice, currentBar.getEndTime().toString(),
-                        "stop_first_same_bar", currentIndex, feeRatePct);
+                return closePosition(position, position.stopPrice, currentBar, "stop_first_same_bar",
+                        currentIndex, feeRatePct);
             }
             if (hitStop) {
-                return closePosition(position, position.stopPrice, currentBar.getEndTime().toString(),
-                        "stop_loss", currentIndex, feeRatePct);
+                return closePosition(position, position.stopPrice, currentBar, "stop_loss",
+                        currentIndex, feeRatePct);
             }
             if (hitTake) {
-                return closePosition(position, position.takePrice, currentBar.getEndTime().toString(),
-                        "take_profit", currentIndex, feeRatePct);
+                return closePosition(position, position.takePrice, currentBar, "take_profit",
+                        currentIndex, feeRatePct);
             }
         } else if (position.side == Side.SELL) {
             boolean hitStop = position.stopPrice != null && high >= position.stopPrice;
             boolean hitTake = position.takePrice != null && low <= position.takePrice;
             if (hitStop && hitTake) {
-                return closePosition(position, position.stopPrice, currentBar.getEndTime().toString(),
-                        "stop_first_same_bar", currentIndex, feeRatePct);
+                return closePosition(position, position.stopPrice, currentBar, "stop_first_same_bar",
+                        currentIndex, feeRatePct);
             }
             if (hitStop) {
-                return closePosition(position, position.stopPrice, currentBar.getEndTime().toString(),
-                        "stop_loss", currentIndex, feeRatePct);
+                return closePosition(position, position.stopPrice, currentBar, "stop_loss",
+                        currentIndex, feeRatePct);
             }
             if (hitTake) {
-                return closePosition(position, position.takePrice, currentBar.getEndTime().toString(),
-                        "take_profit", currentIndex, feeRatePct);
+                return closePosition(position, position.takePrice, currentBar, "take_profit",
+                        currentIndex, feeRatePct);
             }
         }
 
         if (position.maxHoldBars > 0 && position.currentHoldBars >= position.maxHoldBars) {
-            return closePosition(position, currentBar.getClosePrice().doubleValue(), currentBar.getEndTime().toString(),
-                    "max_hold_bars", currentIndex, feeRatePct);
+            return closePosition(position, currentBar.getClosePrice().doubleValue(), currentBar, "max_hold_bars",
+                    currentIndex, feeRatePct);
         }
         return null;
     }
 
-    public TradeRecord closePosition(Position position, double exitPrice, String exitTime, String exitReason,
+    /**
+     * 按指定平仓K线生成一条完整交易记录。
+     */
+    public TradeRecord closePosition(Position position, double exitPrice, Bar exitBar, String exitReason,
                                      int exitIndex, double feeRatePct) {
         TradeRecord record = new TradeRecord();
         record.side = position.side == null ? "" : position.side.name();
         record.entryTime = position.entryTime;
-        record.exitTime = exitTime;
+        record.exitTime = exitBar.getEndTime().toString();
+        record.entryBarBeginTime = position.entryBarBeginTime;
+        record.entryBarEndTime = position.entryBarEndTime;
+        record.exitBarBeginTime = exitBar.getBeginTime().toString();
+        record.exitBarEndTime = exitBar.getEndTime().toString();
         record.entryPrice = scale(position.entryPrice);
         record.exitPrice = scale(exitPrice);
         record.stopPrice = position.stopPrice == null ? null : scale(position.stopPrice);

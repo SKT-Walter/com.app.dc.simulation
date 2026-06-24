@@ -1,5 +1,6 @@
 package com.app.dc.service.simulation;
 
+import com.app.dc.po.OCType;
 import com.app.dc.po.Signal;
 import com.app.dc.po.Side;
 import com.app.dc.po.TTbookOhlc;
@@ -28,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.TimeZone;
 
 @Service
 public class BacktestService {
@@ -75,6 +77,7 @@ public class BacktestService {
                 results.add(runSingleStrategy("binanceRangeMacd", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceChannel", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceTrend", symbolParam, ohlcList));
+                results.add(runSingleStrategy("difDeaLifecycle", symbolParam, ohlcList));
                 results.add(runSingleStrategy("breakoutRetestContinuationTrend", symbolParam, ohlcList));
                 results.add(runSingleStrategy("emaPullbackBuy", symbolParam, ohlcList));
                 results.add(runSingleStrategy("trendRestart", symbolParam, ohlcList));
@@ -157,6 +160,19 @@ public class BacktestService {
                 continue;
             }
 
+            if (isCloseSignal(signal)) {
+                if (position != null && tradeService.isOpposite(position.side, signal.side)) {
+                    String exitReason = isReverseCloseSignal(signal) ? "reverse_signal" : "strategy_close_signal";
+                    TradeRecord closed = tradeService.closePosition(position, bar.getClosePrice().doubleValue(),
+                            bar, exitReason, replaySeries.getEndIndex(), param.feeRatePct.doubleValue());
+                    metricService.applyTrade(result, closed, equityContext);
+                    position = isReverseCloseSignal(signal)
+                            ? tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param)
+                            : null;
+                }
+                continue;
+            }
+
             if (position == null) {
                 position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param);
                 continue;
@@ -164,8 +180,7 @@ public class BacktestService {
 
             if (tradeService.isOpposite(position.side, signal.side)) {
                 TradeRecord reversed = tradeService.closePosition(position, bar.getClosePrice().doubleValue(),
-                        bar.getEndTime().toString(), "reverse_signal", replaySeries.getEndIndex(),
-                        param.feeRatePct.doubleValue());
+                        bar, "reverse_signal", replaySeries.getEndIndex(), param.feeRatePct.doubleValue());
                 metricService.applyTrade(result, reversed, equityContext);
                 position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param);
             }
@@ -174,8 +189,7 @@ public class BacktestService {
         if (position != null) {
             Bar lastBar = replaySeries.getLastBar();
             TradeRecord ended = tradeService.closePosition(position, lastBar.getClosePrice().doubleValue(),
-                    lastBar.getEndTime().toString(), "end_of_test", replaySeries.getEndIndex(),
-                    param.feeRatePct.doubleValue());
+                    lastBar, "end_of_test", replaySeries.getEndIndex(), param.feeRatePct.doubleValue());
             metricService.applyTrade(result, ended, equityContext);
         }
 
@@ -240,9 +254,31 @@ public class BacktestService {
 
     public Bar toBar(TTbookOhlc ohlc, Duration duration) throws Exception {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
-        ZonedDateTime time = ZonedDateTime.ofInstant(
-                Instant.ofEpochMilli(sdf.parse(ohlc.starttime).getTime()), ZoneId.systemDefault());
-        return new BaseBar(duration, time, ohlc.open, ohlc.high, ohlc.low, ohlc.close, ohlc.volume);
+        sdf.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+        String barEndTime = resolveBarEndTime(ohlc);
+        ZonedDateTime endTime = ZonedDateTime.ofInstant(
+                Instant.ofEpochMilli(sdf.parse(barEndTime).getTime()), ZoneId.of("Asia/Shanghai"));
+        return new BaseBar(duration, endTime, ohlc.open, ohlc.high, ohlc.low, ohlc.close, ohlc.volume);
+    }
+
+    /**
+     * 优先使用K线结束时间构造BaseBar，缺失时回退到starttime。
+     */
+    private String resolveBarEndTime(TTbookOhlc ohlc) {
+        if (ohlc == null) {
+            return null;
+        }
+        try {
+            java.lang.reflect.Field endField = ohlc.getClass().getDeclaredField("endtime");
+            endField.setAccessible(true);
+            Object endValue = endField.get(ohlc);
+            if (endValue != null && endValue.toString().trim().length() > 0) {
+                return endValue.toString().trim();
+            }
+        } catch (Exception ignore) {
+            // ignore TTbookOhlc field differences across environments
+        }
+        return ohlc.starttime;
     }
 
     public void addBar(BarSeries series, Bar newBar) {
@@ -256,6 +292,24 @@ public class BacktestService {
             }
         }
         series.addBar(newBar, replace);
+    }
+
+    /**
+     * 判断当前信号是否为仅用于平仓的离场信号。
+     */
+    private boolean isCloseSignal(Signal signal) {
+        return signal != null && signal.ocType == OCType.ClOSE;
+    }
+
+    /**
+     * 判断离场信号是否由反向交叉触发，若是则允许执行层平仓后反手。
+     */
+    private boolean isReverseCloseSignal(Signal signal) {
+        if (signal == null || signal.remark == null) {
+            return false;
+        }
+        return signal.remark.contains("reason=dif_dea_cross_down")
+                || signal.remark.contains("reason=dif_dea_cross_up");
     }
 
     public BigDecimal scale(double value) {

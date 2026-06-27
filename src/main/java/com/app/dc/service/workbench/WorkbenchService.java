@@ -85,8 +85,10 @@ public class WorkbenchService {
         int page = boundedInt(request, "page", 1, 1, 100000);
         int pageSize = boundedInt(request, request != null && request.containsKey("pageSize") ? "pageSize" : "limit", history ? 20 : 50, 1, 200);
         int offset = Math.max(0, (page - 1) * pageSize);
-
-        List<StrategyBacktestTaskRow> allRows = loadBacktestTasksByRange(dateFrom, dateTo, strategyName, strategyVersion, status, null, null);
+        boolean noSymbolFilter = StringUtils.isBlank(symbol);
+        List<StrategyBacktestTaskRow> allRows = noSymbolFilter
+                ? loadBacktestTasksByRange(dateFrom, dateTo, strategyName, strategyVersion, status, pageSize, offset)
+                : loadBacktestTasksByRange(dateFrom, dateTo, strategyName, strategyVersion, status, null, null);
         List<Map<String, Object>> filteredItems = new ArrayList<Map<String, Object>>();
         Map<String, StrategyBacktestSummary> summaryCache = new LinkedHashMap<String, StrategyBacktestSummary>();
         for (StrategyBacktestTaskRow row : allRows) {
@@ -99,7 +101,7 @@ public class WorkbenchService {
             }
             filteredItems.add(item);
         }
-        List<Map<String, Object>> items = paginate(filteredItems, offset, pageSize);
+        List<Map<String, Object>> items = noSymbolFilter ? filteredItems : paginate(filteredItems, offset, pageSize);
         Map<String, StrategyCandidateRow> candidateCache = new LinkedHashMap<String, StrategyCandidateRow>();
         Map<String, Map<String, Object>> reportCache = new LinkedHashMap<String, Map<String, Object>>();
         Map<String, Map<String, Object>> publishCache = new LinkedHashMap<String, Map<String, Object>>();
@@ -152,8 +154,12 @@ public class WorkbenchService {
         data.put("history", history);
         data.put("serverTime", CLICKHOUSE_TIME.format(LocalDateTime.now()));
         data.put("items", items);
-        data.put("total", filteredItems.size());
-        data.put("summary", buildTaskSummary(filteredItems));
+        data.put("total", noSymbolFilter
+                ? countBacktestTasksByRange(dateFrom, dateTo, strategyName, strategyVersion, status)
+                : filteredItems.size());
+        data.put("summary", noSymbolFilter
+                ? buildTaskSummaryByRange(dateFrom, dateTo, strategyName, strategyVersion, status)
+                : buildTaskSummary(filteredItems));
         return data;
     }
 
@@ -582,6 +588,62 @@ public class WorkbenchService {
         } catch (Exception e) {
             log.error("countPublishRecords error, from:{}, to:{}", dateFrom, dateTo, e);
             return 0;
+        }
+    }
+
+    protected Map<String, Object> buildTaskSummaryByRange(String dateFrom,
+                                                          String dateTo,
+                                                          String strategyName,
+                                                          String strategyVersion,
+                                                          String status) {
+        Map<String, Object> summary = new LinkedHashMap<String, Object>();
+        summary.put("total", 0);
+        summary.put("success", 0);
+        summary.put("running", 0);
+        summary.put("suspended", 0);
+        summary.put("failed", 0);
+        if (!ready()) {
+            return summary;
+        }
+        StringBuilder sql = new StringBuilder();
+        sql.append("select ")
+                .append("count() as total,")
+                .append("countIf(positionCaseInsensitive(status,'SUCCESS') > 0) as success,")
+                .append("countIf(positionCaseInsensitive(status,'FAIL') > 0) as failed,")
+                .append("countIf(positionCaseInsensitive(status,'SUSPEND') > 0) as suspended,")
+                .append("countIf(positionCaseInsensitive(status,'RUN') > 0 and positionCaseInsensitive(status,'SUSPEND') = 0) as running ")
+                .append("from (")
+                .append("select status from (").append(latestTaskSql()).append(") latest ")
+                .append("where toDate(parseDateTimeBestEffortOrNull(latest.createTime)) >= toDate('").append(escape(dateFrom)).append("')")
+                .append(" and toDate(parseDateTimeBestEffortOrNull(latest.createTime)) <= toDate('").append(escape(dateTo)).append("')");
+        if (StringUtils.isNotBlank(strategyName)) {
+            sql.append(" and lower(latest.strategyName)=lower('").append(escape(strategyName.trim())).append("')");
+        }
+        if (StringUtils.isNotBlank(strategyVersion)) {
+            sql.append(" and lower(latest.strategyVersion)=lower('").append(escape(strategyVersion.trim())).append("')");
+        }
+        if (StringUtils.isNotBlank(status)) {
+            sql.append(" and latest.status='").append(escape(status.trim())).append("'");
+        }
+        sql.append(") counted");
+        try {
+            @SuppressWarnings("rawtypes")
+            List rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{}, LinkedHashMap.class);
+            if (rows == null || rows.isEmpty() || !(rows.get(0) instanceof Map)) {
+                return summary;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> row = (Map<String, Object>) rows.get(0);
+            summary.put("total", toInt(firstNonNullMapValue(row, "total", "TOTAL", "Total")));
+            summary.put("success", toInt(firstNonNullMapValue(row, "success", "SUCCESS", "Success")));
+            summary.put("failed", toInt(firstNonNullMapValue(row, "failed", "FAILED", "Failed")));
+            summary.put("suspended", toInt(firstNonNullMapValue(row, "suspended", "SUSPENDED", "Suspended")));
+            summary.put("running", toInt(firstNonNullMapValue(row, "running", "RUNNING", "Running")));
+            return summary;
+        } catch (Exception e) {
+            log.error("buildTaskSummaryByRange error, from:{}, to:{}, strategy:{}@{}, status:{}",
+                    dateFrom, dateTo, strategyName, strategyVersion, status, e);
+            return summary;
         }
     }
 

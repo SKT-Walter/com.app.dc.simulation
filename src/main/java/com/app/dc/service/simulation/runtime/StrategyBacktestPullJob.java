@@ -383,11 +383,20 @@ public class StrategyBacktestPullJob {
                     memorySummary());
         } catch (Exception e) {
             String failureReason = summarizeThrowable(e);
-            log.error("StrategyBacktestPullJob handleTask error, task:{}, generationTaskId:{}, candidateId:{}, heap:{}",
-                    task == null ? null : task.id,
-                    task == null ? null : task.generationTaskId,
-                    task == null ? null : task.candidateId,
-                    memorySummary(), e);
+            if (isGeneratedStrategyRuntimeFailure(e)) {
+                log.info("StrategyBacktestPullJob generated strategy runtime failure, task:{}, generationTaskId:{}, candidateId:{}, error:{}, heap:{}",
+                        task == null ? null : task.id,
+                        task == null ? null : task.generationTaskId,
+                        task == null ? null : task.candidateId,
+                        failureReason,
+                        memorySummary());
+            } else {
+                log.error("StrategyBacktestPullJob handleTask error, task:{}, generationTaskId:{}, candidateId:{}, heap:{}",
+                        task == null ? null : task.id,
+                        task == null ? null : task.generationTaskId,
+                        task == null ? null : task.candidateId,
+                        memorySummary(), e);
+            }
             Map<String, Object> pipelinePayload = resolvePipelinePayload(task, null);
             pipelinePayload.put("error", failureReason);
             markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.FAILED,
@@ -865,5 +874,37 @@ public class StrategyBacktestPullJob {
             builder.append(throwable.getClass().getSimpleName());
         }
         return builder.toString();
+    }
+
+    private boolean isGeneratedStrategyRuntimeFailure(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (containsGeneratedStrategyFrame(current) || isNegativeIndexMessage(current.getMessage())) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean containsGeneratedStrategyFrame(Throwable throwable) {
+        StackTraceElement[] stack = throwable == null ? null : throwable.getStackTrace();
+        if (stack == null) {
+            return false;
+        }
+        for (StackTraceElement element : stack) {
+            if (element == null) {
+                continue;
+            }
+            String className = element.getClassName();
+            if (className != null && className.startsWith("com.app.dc.generated.autogen.")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isNegativeIndexMessage(String message) {
+        return !isBlank(message) && message.contains("index = -");
     }
 }

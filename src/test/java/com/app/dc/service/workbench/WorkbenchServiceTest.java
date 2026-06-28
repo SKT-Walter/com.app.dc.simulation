@@ -383,6 +383,40 @@ public class WorkbenchServiceTest {
         }
 
         @Override
+        protected Map<String, Object> buildTaskSummaryByRange(String dateFrom, String dateTo, String strategyName,
+                                                              String strategyVersion, String status) {
+            Map<String, Object> summary = new LinkedHashMap<String, Object>();
+            int success = 0;
+            int failed = 0;
+            int suspended = 0;
+            int running = 0;
+            for (StrategyBacktestTaskRow row : rows) {
+                String value = row == null || row.status == null ? "" : row.status.trim().toUpperCase();
+                if (value.contains("SUCCESS")) {
+                    success++;
+                    continue;
+                }
+                if (value.contains("FAIL")) {
+                    failed++;
+                    continue;
+                }
+                if (value.contains("SUSPEND")) {
+                    suspended++;
+                    continue;
+                }
+                if (value.contains("RUN")) {
+                    running++;
+                }
+            }
+            summary.put("total", rows.size());
+            summary.put("success", success);
+            summary.put("failed", failed);
+            summary.put("suspended", suspended);
+            summary.put("running", running);
+            return summary;
+        }
+
+        @Override
         protected StrategyCandidateRow loadCandidate(String strategyName, String strategyVersion) {
             return candidates.get(strategyName + "@" + strategyVersion);
         }

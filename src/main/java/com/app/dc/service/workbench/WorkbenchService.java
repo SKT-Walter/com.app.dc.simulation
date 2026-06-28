@@ -383,9 +383,8 @@ public class WorkbenchService {
         }
         sql.append(") counted");
         try {
-            @SuppressWarnings("rawtypes")
-            List rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{}, LinkedHashMap.class);
-            return extractCountValue(rows);
+            List<CountRow> rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{}, CountRow.class);
+            return countValue(rows);
         } catch (Exception e) {
             log.error("countBacktestTasksByRange error, from:{}, to:{}, strategy:{}@{}, status:{}",
                     dateFrom, dateTo, strategyName, strategyVersion, status, e);
@@ -582,9 +581,8 @@ public class WorkbenchService {
                 + " group by event_time, strategy_name, from_version, to_version, runtime_type, event_type, reason, source, payload "
                 + ") counted";
         try {
-            @SuppressWarnings("rawtypes")
-            List rows = ClickHouseDBUtils.queryList(sql, new Object[]{}, LinkedHashMap.class);
-            return extractCountValue(rows);
+            List<CountRow> rows = ClickHouseDBUtils.queryList(sql, new Object[]{}, CountRow.class);
+            return countValue(rows);
         } catch (Exception e) {
             log.error("countPublishRecords error, from:{}, to:{}", dateFrom, dateTo, e);
             return 0;
@@ -627,24 +625,30 @@ public class WorkbenchService {
         }
         sql.append(") counted");
         try {
-            @SuppressWarnings("rawtypes")
-            List rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{}, LinkedHashMap.class);
-            if (rows == null || rows.isEmpty() || !(rows.get(0) instanceof Map)) {
+            List<TaskSummaryCountRow> rows = ClickHouseDBUtils.queryList(sql.toString(), new Object[]{},
+                    TaskSummaryCountRow.class);
+            if (rows == null || rows.isEmpty()) {
                 return summary;
             }
-            @SuppressWarnings("unchecked")
-            Map<String, Object> row = (Map<String, Object>) rows.get(0);
-            summary.put("total", toInt(firstNonNullMapValue(row, "total", "TOTAL", "Total")));
-            summary.put("success", toInt(firstNonNullMapValue(row, "success", "SUCCESS", "Success")));
-            summary.put("failed", toInt(firstNonNullMapValue(row, "failed", "FAILED", "Failed")));
-            summary.put("suspended", toInt(firstNonNullMapValue(row, "suspended", "SUSPENDED", "Suspended")));
-            summary.put("running", toInt(firstNonNullMapValue(row, "running", "RUNNING", "Running")));
+            TaskSummaryCountRow row = rows.get(0);
+            summary.put("total", toInt(row.total));
+            summary.put("success", toInt(row.success));
+            summary.put("failed", toInt(row.failed));
+            summary.put("suspended", toInt(row.suspended));
+            summary.put("running", toInt(row.running));
             return summary;
         } catch (Exception e) {
             log.error("buildTaskSummaryByRange error, from:{}, to:{}, strategy:{}@{}, status:{}",
                     dateFrom, dateTo, strategyName, strategyVersion, status, e);
             return summary;
         }
+    }
+
+    private int countValue(List<CountRow> rows) {
+        if (rows == null || rows.isEmpty() || rows.get(0) == null) {
+            return 0;
+        }
+        return toInt(rows.get(0).total);
     }
 
     protected int extractCountValue(List<?> rows) {
@@ -1594,5 +1598,17 @@ public class WorkbenchService {
         public Double validateMaxDrawdownPct;
         public Double validateProfitFactor;
         public Integer oosPass;
+    }
+
+    public static class CountRow {
+        public Long total;
+    }
+
+    public static class TaskSummaryCountRow {
+        public Long total;
+        public Long success;
+        public Long failed;
+        public Long suspended;
+        public Long running;
     }
 }

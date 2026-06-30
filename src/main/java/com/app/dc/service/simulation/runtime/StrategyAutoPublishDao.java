@@ -21,6 +21,8 @@ public interface StrategyAutoPublishDao {
 
     StrategyBacktestSummary loadLatestSummary(String strategyName, String strategyVersion, String symbolScope);
 
+    StrategyLiveTradeStatsRow loadTodayTradeStats(String strategyName, String strategyVersion, String symbolScope);
+
     StrategyReleaseEventRecord loadLatestReleaseEvent(String strategyName, String strategyVersion);
 
     void retireActive(String strategyName, String exceptVersion, String retireTime);

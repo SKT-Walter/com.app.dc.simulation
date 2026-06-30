@@ -26,6 +26,9 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
     @Value("${binanceBacktestResultTable:backtest_result}")
     private String backtestResultTable;
 
+    @Value("${quant.trade.latest.view.table:dc.quant_trade_latest_view}")
+    private String quantTradeLatestViewTable;
+
     @Override
     public StrategyLiveRegistryPublishRow loadCurrentActive(String strategyName) {
         return loadCurrentActive(strategyName, "");
@@ -205,6 +208,40 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
             return rows.get(0);
         } catch (Exception e) {
             log.error("loadLatestSummary error, strategy:{}, version:{}", strategyName, strategyVersion, e);
+            return null;
+        }
+    }
+
+    @Override
+    public StrategyLiveTradeStatsRow loadTodayTradeStats(String strategyName, String strategyVersion, String symbolScope) {
+        if (!ready() || StringUtils.isBlank(strategyName) || StringUtils.isBlank(strategyVersion)) {
+            return null;
+        }
+        String sql = "select "
+                + "count() as todayTradeCount,"
+                + "round(sum(ifNull(realizedPnl, 0)), 6) as todayPnl "
+                + "from " + safe(quantTradeLatestViewTable, "dc.quant_trade_latest_view")
+                + " where tradeDate = toDate(?)"
+                + " and lower(strategyName)=lower(?)"
+                + " and lower(strategyVersion)=lower(?)";
+        List<Object> params = new java.util.ArrayList<Object>();
+        params.add(java.time.LocalDate.now().toString());
+        params.add(strategyName);
+        params.add(strategyVersion);
+        if (StringUtils.isNotBlank(symbolScope)) {
+            sql += " and lower(symbol)=lower(?)";
+            params.add(symbolScope);
+        }
+        try {
+            List<StrategyLiveTradeStatsRow> rows = ClickHouseDBUtils.queryList(sql,
+                    params.toArray(new Object[0]), StrategyLiveTradeStatsRow.class);
+            if (rows == null || rows.isEmpty()) {
+                return null;
+            }
+            return rows.get(0);
+        } catch (Exception e) {
+            log.error("loadTodayTradeStats error, strategy:{}@{}, symbol:{}",
+                    strategyName, strategyVersion, symbolScope, e);
             return null;
         }
     }

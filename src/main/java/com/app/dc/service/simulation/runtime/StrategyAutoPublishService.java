@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -44,6 +45,12 @@ public class StrategyAutoPublishService {
 
     @Value("${strategy.auto.publish.minValidateProfitFactor:1.05}")
     private double minValidateProfitFactor;
+
+    @Value("${strategy.auto.publish.lossAwareBaselineReplace.enabled:true}")
+    private boolean lossAwareBaselineReplaceEnabled;
+
+    @Value("${strategy.auto.publish.lossAwareBaselineReplace.todayPnlThreshold:3.0}")
+    private double lossAwareBaselineReplaceTodayPnlThreshold;
 
     @Autowired
     private StrategyAutoPublishDao strategyAutoPublishDao;
@@ -131,15 +138,13 @@ public class StrategyAutoPublishService {
         decision.baselineForwardPnl = baseline.forwardPnl;
         decision.baselineForwardScore = baseline.forwardScore;
         decision.baselineValidatePrimaryScore = baseline.validatePrimaryScore;
-        String baselineReason = validateAgainstBaseline(current, baseline, active == null);
-        if (StringUtils.isNotBlank(baselineReason)) {
-            decision.reason = baselineReason;
+        BaselineComparison baselineCheck = compareAgainstBaseline(candidate, current, baseline, active, active == null, symbolScope);
+        if (StringUtils.isNotBlank(baselineCheck.blockReason)) {
+            decision.reason = baselineCheck.blockReason;
             return decision;
         }
         publishOne(decision, task, candidate, baselineRow, current, symbolScope, "REPLACE",
-                active == null
-                        ? "replace latest live baseline after review evolution"
-                        : "replace active version with stronger backtest result");
+                baselineCheck.replaceReason);
         return decision;
     }
 
@@ -271,23 +276,19 @@ public class StrategyAutoPublishService {
                     : "baseline backtest summary missing";
             return decision;
         }
-        String baselineReason = validateAgainstBaseline(current, baseline, active == null);
-        if (StringUtils.isNotBlank(baselineReason)) {
+        BaselineComparison baselineCheck = compareAgainstBaseline(candidate, current, baseline, active, active == null, current.symbolScope);
+        if (StringUtils.isNotBlank(baselineCheck.blockReason)) {
             decision.published = false;
             decision.action = "SKIP";
-            decision.reason = baselineReason;
+            decision.reason = baselineCheck.blockReason;
             return decision;
         }
         insertPublishRow(task, candidate, baselineRow, current, current.symbolScope, "REPLACE",
-                active == null
-                        ? "replace latest live baseline after review evolution"
-                        : "replace active version with stronger backtest result",
+                baselineCheck.replaceReason,
                 effectiveTime);
         decision.published = true;
         decision.action = "REPLACE";
-        decision.reason = active == null
-                ? "replace latest live baseline after review evolution"
-                : "replace active version with stronger backtest result";
+        decision.reason = baselineCheck.replaceReason;
         return decision;
     }
 
@@ -662,20 +663,40 @@ public class StrategyAutoPublishService {
         return "";
     }
 
-    private String validateAgainstBaseline(StrategyBacktestSummary current,
-                                           StrategyBacktestSummary baseline,
-                                           boolean latestBaselineMode) {
+    private BaselineComparison compareAgainstBaseline(StrategyCandidateRow candidate,
+                                                      StrategyBacktestSummary current,
+                                                      StrategyBacktestSummary baseline,
+                                                      StrategyLiveRegistryPublishRow active,
+                                                      boolean latestBaselineMode,
+                                                      String symbolScope) {
+        BaselineComparison decision = new BaselineComparison();
+        decision.replaceReason = latestBaselineMode
+                ? "replace latest live baseline after review evolution"
+                : "replace active version with stronger backtest result";
+        if (shouldAllowLossAwareBaselineReplace(candidate, active, latestBaselineMode, symbolScope)) {
+            StrategyLiveTradeStatsRow stats = loadTodayTradeStats(candidate, active, symbolScope);
+            if (isSevereActiveLoss(stats)) {
+                decision.replaceReason = "replace active losing version after profitable walk-forward review"
+                        + " (tradeDate=" + LocalDate.now()
+                        + ", activeTodayPnl=" + trimDouble(toDouble(stats.todayPnl))
+                        + ", activeTodayTradeCount=" + intValue(stats.todayTradeCount)
+                        + ")";
+                return decision;
+            }
+        }
         if (!gt(current.forwardScore, baseline.forwardScore)) {
-            return latestBaselineMode
+            decision.blockReason = latestBaselineMode
                     ? "forward_score not better than latest live baseline"
                     : "forward_score not better than active baseline";
+            return decision;
         }
         if (!gt(preferredValidateScore(current), preferredValidateScore(baseline))) {
-            return latestBaselineMode
+            decision.blockReason = latestBaselineMode
                     ? "validate score not better than latest live baseline"
                     : "validate score not better than active baseline";
+            return decision;
         }
-        return "";
+        return decision;
     }
 
     private String firstSkippedReason(List<StrategyAutoPublishDecision.SymbolDecision> items, String fallback) {
@@ -796,11 +817,55 @@ public class StrategyAutoPublishService {
         return scale(toDouble(forwardPnl) / total);
     }
 
+    private boolean shouldAllowLossAwareBaselineReplace(StrategyCandidateRow candidate,
+                                                        StrategyLiveRegistryPublishRow active,
+                                                        boolean latestBaselineMode,
+                                                        String symbolScope) {
+        return lossAwareBaselineReplaceEnabled
+                && !latestBaselineMode
+                && candidate != null
+                && active != null
+                && StringUtils.equalsIgnoreCase(active.strategyName, candidate.strategyName)
+                && (StringUtils.isBlank(symbolScope)
+                || StringUtils.isBlank(active.symbolScope)
+                || StringUtils.equalsIgnoreCase(normalizeSymbolScope(active.symbolScope), normalizeSymbolScope(symbolScope)));
+    }
+
+    private StrategyLiveTradeStatsRow loadTodayTradeStats(StrategyCandidateRow candidate,
+                                                          StrategyLiveRegistryPublishRow active,
+                                                          String symbolScope) {
+        if (candidate == null || active == null) {
+            return null;
+        }
+        return strategyAutoPublishDao.loadTodayTradeStats(candidate.strategyName, active.strategyVersion, symbolScope);
+    }
+
+    private boolean isSevereActiveLoss(StrategyLiveTradeStatsRow stats) {
+        return stats != null
+                && intValue(stats.todayTradeCount) > 0
+                && toDouble(stats.todayPnl) <= -Math.abs(lossAwareBaselineReplaceTodayPnlThreshold);
+    }
+
+    private int intValue(Integer value) {
+        return value == null ? 0 : value.intValue();
+    }
+
+    private String trimDouble(double value) {
+        BigDecimal decimal = BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP).stripTrailingZeros();
+        String text = decimal.toPlainString();
+        return text.endsWith(".") ? text.substring(0, text.length() - 1) : text;
+    }
+
     private String blankTo(String value, String fallback) {
         return StringUtils.isBlank(value) ? fallback : value.trim();
     }
 
     private String nowString() {
         return CLICKHOUSE_DATETIME.format(LocalDateTime.now());
+    }
+
+    private static class BaselineComparison {
+        private String blockReason = "";
+        private String replaceReason = "";
     }
 }

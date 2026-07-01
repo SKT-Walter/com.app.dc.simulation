@@ -7,6 +7,8 @@ public interface StrategyAutoPublishDao {
 
     StrategyLiveRegistryPublishRow loadCurrentActive(String strategyName, String symbolScope);
 
+    List<StrategyLiveRegistryPublishRow> listCurrentActiveRows(String strategyName);
+
     StrategyLiveRegistryPublishRow loadLatestLiveBaseline(String strategyName);
 
     StrategyLiveRegistryPublishRow loadLatestLiveBaseline(String strategyName, String symbolScope);

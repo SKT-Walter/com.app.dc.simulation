@@ -111,7 +111,7 @@ public class StrategyAutoPublishService {
             decision.reason = gateReason;
             return decision;
         }
-        StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadCurrentActive(candidate.strategyName, symbolScope);
+        StrategyLiveRegistryPublishRow active = resolveActiveRow(candidate.strategyName, symbolScope);
         StrategyLiveRegistryPublishRow baselineRow = resolveBaselineRow(candidate, active, symbolScope);
         if (baselineRow == null) {
             publishOne(decision, task, candidate, null, current, symbolScope, "PROMOTE",
@@ -247,7 +247,7 @@ public class StrategyAutoPublishService {
             return decision;
         }
 
-        StrategyLiveRegistryPublishRow active = strategyAutoPublishDao.loadCurrentActive(candidate.strategyName, current.symbolScope);
+        StrategyLiveRegistryPublishRow active = resolveActiveRow(candidate.strategyName, current.symbolScope);
         StrategyLiveRegistryPublishRow baselineRow = resolveBaselineRow(candidate, active, current.symbolScope);
         if (baselineRow == null) {
             insertPublishRow(task, candidate, null, current, current.symbolScope, "PROMOTE",
@@ -324,6 +324,7 @@ public class StrategyAutoPublishService {
         strategyAutoPublishDao.retireActive(candidate.strategyName, symbolScope, candidate.strategyVersion, effectiveTime);
         strategyAutoPublishDao.insertRegistry(buildRegistryRow(task, candidate, current, symbolScope, effectiveTime));
         strategyAutoPublishDao.insertReleaseEvent(buildReleaseEvent(task, candidate, active, current, symbolScope, eventType, reason, effectiveTime));
+        rebalanceAggregateActiveScopes(candidate, symbolScope, effectiveTime);
     }
 
     private StrategyLiveRegistryPublishRow buildRegistryRow(StrategyBacktestTaskRow task,
@@ -608,6 +609,114 @@ public class StrategyAutoPublishService {
         return baselineRow;
     }
 
+    private StrategyLiveRegistryPublishRow resolveActiveRow(String strategyName, String symbolScope) {
+        if (StringUtils.isBlank(strategyName)) {
+            return null;
+        }
+        List<StrategyLiveRegistryPublishRow> rows = strategyAutoPublishDao.listCurrentActiveRows(strategyName);
+        if (rows == null || rows.isEmpty()) {
+            return strategyAutoPublishDao.loadCurrentActive(strategyName, symbolScope);
+        }
+        String normalizedTarget = normalizeSymbolScope(symbolScope);
+        if (StringUtils.isBlank(normalizedTarget)) {
+            return rows.get(0);
+        }
+        StrategyLiveRegistryPublishRow broadMatch = null;
+        for (StrategyLiveRegistryPublishRow row : rows) {
+            if (row == null) {
+                continue;
+            }
+            String normalizedScope = normalizeSymbolScope(row.symbolScope);
+            if (StringUtils.equalsIgnoreCase(normalizedScope, normalizedTarget)) {
+                return row;
+            }
+            if (scopeContainsSymbol(normalizedScope, normalizedTarget) && broadMatch == null) {
+                broadMatch = row;
+            }
+        }
+        return broadMatch;
+    }
+
+    private void rebalanceAggregateActiveScopes(StrategyCandidateRow candidate,
+                                                String publishedSymbol,
+                                                String effectiveTime) {
+        if (candidate == null || StringUtils.isBlank(candidate.strategyName) || StringUtils.isBlank(publishedSymbol)) {
+            return;
+        }
+        String normalizedPublished = normalizeSymbolScope(publishedSymbol);
+        if (StringUtils.isBlank(normalizedPublished)) {
+            return;
+        }
+        List<StrategyLiveRegistryPublishRow> activeRows = strategyAutoPublishDao.listCurrentActiveRows(candidate.strategyName);
+        if (activeRows == null || activeRows.isEmpty()) {
+            return;
+        }
+        for (StrategyLiveRegistryPublishRow row : activeRows) {
+            if (row == null || StringUtils.isBlank(row.symbolScope)) {
+                continue;
+            }
+            if (StringUtils.equalsIgnoreCase(row.strategyVersion, candidate.strategyVersion)) {
+                continue;
+            }
+            List<String> tokens = scopeTokens(row.symbolScope);
+            if (tokens.size() <= 1 || !tokens.contains(normalizedPublished)) {
+                continue;
+            }
+            strategyAutoPublishDao.retireActive(candidate.strategyName, row.symbolScope, candidate.strategyVersion, effectiveTime);
+            List<String> remaining = new ArrayList<String>(tokens);
+            remaining.remove(normalizedPublished);
+            if (!remaining.isEmpty()) {
+                strategyAutoPublishDao.insertRegistry(buildCarryForwardRegistryRow(row, remaining, effectiveTime));
+            }
+        }
+    }
+
+    private StrategyLiveRegistryPublishRow buildCarryForwardRegistryRow(StrategyLiveRegistryPublishRow source,
+                                                                        List<String> remainingSymbols,
+                                                                        String effectiveTime) {
+        StrategyLiveRegistryPublishRow row = new StrategyLiveRegistryPublishRow();
+        row.id = IdUtil.getId();
+        row.strategyName = source.strategyName;
+        row.strategyVersion = source.strategyVersion;
+        row.category = source.category;
+        row.scene = source.scene;
+        row.runtimeType = source.runtimeType;
+        row.symbolScope = StringUtils.join(remainingSymbols, ",");
+        row.textScope = source.textScope;
+        row.artifactUri = source.artifactUri;
+        row.entryClass = source.entryClass;
+        row.parametersJson = source.parametersJson;
+        row.status = "ACTIVE";
+        row.effectiveTime = effectiveTime;
+        row.retireTime = null;
+        row.source = source.source;
+        row.payload = rewriteCarryForwardPayload(source.payload, row.symbolScope);
+        row.description = source.description;
+        return row;
+    }
+
+    @SuppressWarnings("unchecked")
+    private String rewriteCarryForwardPayload(String rawPayload, String remainingScope) {
+        if (StringUtils.isBlank(rawPayload) || StringUtils.isBlank(remainingScope)) {
+            return blankTo(rawPayload, "{}");
+        }
+        try {
+            Map<String, Object> payload = JsonUtils.Deserialize(rawPayload, Map.class);
+            if (payload == null) {
+                payload = new LinkedHashMap<String, Object>();
+            } else {
+                payload = new LinkedHashMap<String, Object>(payload);
+            }
+            payload.put("symbols", remainingScope);
+            payload.put("symbolScope", remainingScope);
+            payload.put("symbol", firstScopeToken(remainingScope));
+            return JsonUtils.Serializer(payload);
+        } catch (Exception e) {
+            log.warn("rewriteCarryForwardPayload failed, scope:{}, fallback to raw payload", remainingScope, e);
+            return blankTo(rawPayload, "{}");
+        }
+    }
+
     private String validateGlobalPreconditions(StrategyBacktestSummary current, StrategyCandidateRow candidate) {
         if (!StringUtils.equalsIgnoreCase(current.windowMode, "WALK_FORWARD")) {
             return "window_mode is not WALK_FORWARD";
@@ -783,6 +892,34 @@ public class StrategyAutoPublishService {
             return "";
         }
         return StringUtils.join(new ArrayList<String>(unique), ",");
+    }
+
+    private List<String> scopeTokens(String raw) {
+        String normalized = normalizeSymbolScope(raw);
+        if (StringUtils.isBlank(normalized)) {
+            return Collections.emptyList();
+        }
+        List<String> result = new ArrayList<String>();
+        for (String token : normalized.split(",")) {
+            String value = StringUtils.defaultString(token).trim().toUpperCase(Locale.ENGLISH);
+            if (StringUtils.isNotBlank(value)) {
+                result.add(value);
+            }
+        }
+        return result;
+    }
+
+    private boolean scopeContainsSymbol(String rawScope, String symbol) {
+        String normalizedSymbol = normalizeSymbolScope(symbol);
+        if (StringUtils.isBlank(normalizedSymbol)) {
+            return false;
+        }
+        return scopeTokens(rawScope).contains(normalizedSymbol);
+    }
+
+    private String firstScopeToken(String rawScope) {
+        List<String> tokens = scopeTokens(rawScope);
+        return tokens.isEmpty() ? "" : tokens.get(0);
     }
 
     private boolean gt(Double left, Double right) {

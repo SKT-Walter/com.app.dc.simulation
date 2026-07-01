@@ -8,6 +8,7 @@ import org.junit.Test;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -101,6 +102,29 @@ public class StrategyAutoPublishServiceTest {
         Assert.assertFalse(decision.published);
         Assert.assertEquals("forward_score not better than active baseline", decision.reason);
         Assert.assertEquals(0, dao.insertedRegistryRows.size());
+    }
+
+    @Test
+    public void maybePublishShouldSplitAggregateActiveRowWhenSingleSymbolReplaces() throws Exception {
+        StrategyAutoPublishService service = new StrategyAutoPublishService();
+        StubAutoPublishDao dao = new StubAutoPublishDao();
+        dao.activeRows.add(active("live_acc3", "v12", "BTCUSDT,ETHUSDT,SOLUSDT"));
+        dao.baseline = baseline(0.20d, 100d);
+        wirePublishConfig(service, dao);
+
+        StrategyAutoPublishDecision decision = service.maybePublish(task("bt_102"), candidate("v13"), response("BTCUSDT"));
+
+        Assert.assertTrue(decision.published);
+        Assert.assertEquals("REPLACE", decision.action);
+        Assert.assertEquals(2, dao.insertedRegistryRows.size());
+        Assert.assertEquals("BTCUSDT", dao.insertedRegistryRows.get(0).symbolScope);
+        Assert.assertEquals("v13", dao.insertedRegistryRows.get(0).strategyVersion);
+        Assert.assertEquals("ETHUSDT,SOLUSDT", dao.insertedRegistryRows.get(1).symbolScope);
+        Assert.assertEquals("v12", dao.insertedRegistryRows.get(1).strategyVersion);
+        Assert.assertEquals(1, dao.insertedReleaseEvents.size());
+        Assert.assertEquals(2, dao.retiredScopes.size());
+        Assert.assertTrue(dao.retiredScopes.contains("BTCUSDT"));
+        Assert.assertTrue(dao.retiredScopes.contains("BTCUSDT,ETHUSDT,SOLUSDT"));
     }
 
     private static void wirePublishConfig(StrategyAutoPublishService service, StubAutoPublishDao dao) throws Exception {
@@ -215,17 +239,33 @@ public class StrategyAutoPublishServiceTest {
         private StrategyLiveRegistryPublishRow active;
         private StrategyBacktestSummary baseline;
         private StrategyLiveTradeStatsRow todayStats;
+        private final java.util.ArrayList<StrategyLiveRegistryPublishRow> activeRows = new java.util.ArrayList<StrategyLiveRegistryPublishRow>();
         private final java.util.ArrayList<StrategyLiveRegistryPublishRow> insertedRegistryRows = new java.util.ArrayList<StrategyLiveRegistryPublishRow>();
         private final java.util.ArrayList<StrategyReleaseEventRecord> insertedReleaseEvents = new java.util.ArrayList<StrategyReleaseEventRecord>();
+        private final java.util.ArrayList<String> retiredScopes = new java.util.ArrayList<String>();
 
         @Override
         public StrategyLiveRegistryPublishRow loadCurrentActive(String strategyName) {
+            if (!activeRows.isEmpty()) {
+                return activeRows.get(0);
+            }
             return active;
         }
 
         @Override
         public StrategyLiveRegistryPublishRow loadCurrentActive(String strategyName, String symbolScope) {
             return active;
+        }
+
+        @Override
+        public List<StrategyLiveRegistryPublishRow> listCurrentActiveRows(String strategyName) {
+            if (!activeRows.isEmpty()) {
+                return new ArrayList<StrategyLiveRegistryPublishRow>(activeRows);
+            }
+            if (active == null) {
+                return Collections.emptyList();
+            }
+            return Collections.singletonList(active);
         }
 
         @Override
@@ -279,11 +319,33 @@ public class StrategyAutoPublishServiceTest {
 
         @Override
         public void retireActive(String strategyName, String symbolScope, String exceptVersion, String retireTime) {
+            retiredScopes.add(symbolScope);
+            if (activeRows.isEmpty()) {
+                return;
+            }
+            java.util.Iterator<StrategyLiveRegistryPublishRow> iterator = activeRows.iterator();
+            while (iterator.hasNext()) {
+                StrategyLiveRegistryPublishRow row = iterator.next();
+                if (row == null) {
+                    continue;
+                }
+                if (!strategyName.equalsIgnoreCase(row.strategyName)) {
+                    continue;
+                }
+                if (symbolScope != null && !symbolScope.equalsIgnoreCase(row.symbolScope)) {
+                    continue;
+                }
+                if (exceptVersion != null && exceptVersion.equalsIgnoreCase(row.strategyVersion)) {
+                    continue;
+                }
+                iterator.remove();
+            }
         }
 
         @Override
         public void insertRegistry(StrategyLiveRegistryPublishRow row) {
             insertedRegistryRows.add(row);
+            activeRows.add(row);
         }
 
         @Override

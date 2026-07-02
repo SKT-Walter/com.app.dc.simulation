@@ -133,13 +133,16 @@ public class WorkbenchService {
             }
             Map<String, Object> publish = publishCache.get(taskId);
             if (publish == null) {
-                publish = buildPublishState(taskRow);
+                publish = buildPublishState(taskRow, summary);
                 publishCache.put(taskId, publish);
             }
             item.put("strategyDescription", candidate == null ? "" : blankTo(candidate.description, ""));
             item.put("summary", summaryView(summary));
             item.put("report", report);
             item.put("publish", publish);
+            item.put("liveEligibility", blankTo(publish.get("liveEligibility") == null ? null : String.valueOf(publish.get("liveEligibility")), ""));
+            item.put("publishDecision", blankTo(publish.get("publishDecision") == null ? null : String.valueOf(publish.get("publishDecision")), ""));
+            item.put("publishReason", blankTo(publish.get("publishReason") == null ? null : String.valueOf(publish.get("publishReason")), ""));
         }
         Map<String, Object> data = new LinkedHashMap<String, Object>();
         data.put("date", date);
@@ -184,13 +187,16 @@ public class WorkbenchService {
         StrategyCandidateRow candidate = loadCandidate(row.strategyName, row.strategyVersion);
         StrategyBacktestSummary summary = loadLatestSummary(row.strategyName, row.strategyVersion);
         Map<String, Object> report = loadLatestReportMeta(row.id, row.strategyName, row.strategyVersion);
-        Map<String, Object> publish = buildPublishState(row);
+        Map<String, Object> publish = buildPublishState(row, summary);
 
         data.put("task", toTaskView(row));
         data.put("candidate", candidateView(candidate));
         data.put("summary", summaryView(summary));
         data.put("report", report);
         data.put("publish", publish);
+        data.put("liveEligibility", blankTo(publish.get("liveEligibility") == null ? null : String.valueOf(publish.get("liveEligibility")), ""));
+        data.put("publishDecision", blankTo(publish.get("publishDecision") == null ? null : String.valueOf(publish.get("publishDecision")), ""));
+        data.put("publishReason", blankTo(publish.get("publishReason") == null ? null : String.valueOf(publish.get("publishReason")), ""));
         return data;
     }
 
@@ -1294,7 +1300,7 @@ public class WorkbenchService {
         return view;
     }
 
-    private Map<String, Object> buildPublishState(StrategyBacktestTaskRow taskRow) {
+    private Map<String, Object> buildPublishState(StrategyBacktestTaskRow taskRow, StrategyBacktestSummary summary) {
         Map<String, Object> publish = new LinkedHashMap<String, Object>();
         String strategyName = taskRow == null ? "" : blankTo(taskRow.strategyName, "");
         String strategyVersion = taskRow == null ? "" : blankTo(taskRow.strategyVersion, "");
@@ -1328,7 +1334,123 @@ public class WorkbenchService {
         publish.put("evolutionEventTime", evolutionTriggered ? latestEventTime : "");
         publish.put("evolutionEventReason", evolutionTriggered ? latestEventReason : "");
         publish.put("evolutionEventSource", evolutionTriggered ? latestEventSource : "");
+        publish.put("liveEligibility", resolveLiveEligibility(taskRow, summary, taskResult, publishedEvent));
+        publish.put("publishDecision", resolvePublishDecision(taskRow, summary, taskResult, publishedEvent, evolutionTriggered));
+        publish.put("publishReason", resolvePublishReason(taskRow, summary, taskResult, publishedEvent, evolutionTriggered));
         return publish;
+    }
+
+    private String resolveLiveEligibility(StrategyBacktestTaskRow taskRow,
+                                          StrategyBacktestSummary summary,
+                                          Map<String, Object> taskResult,
+                                          boolean publishedEvent) {
+        String status = StringUtils.upperCase(blankTo(taskRow == null ? null : taskRow.status, ""));
+        if ("FAILED".equals(status)) {
+            return "publish_rejected";
+        }
+        if (!"SUCCESS".equals(status)) {
+            return "watch_only";
+        }
+        if (publishedEvent) {
+            return "publish_ready";
+        }
+        String autoAction = firstNonBlank(taskResult.get("autoPublishAction"));
+        String autoReason = firstNonBlank(taskResult.get("autoPublishReason"));
+        if ("SKIP".equalsIgnoreCase(autoAction)
+                && StringUtils.containsIgnoreCase(autoReason, "same version already active")) {
+            return "live_eligible";
+        }
+        if (summary == null) {
+            return "watch_only";
+        }
+        if (summary.oosPass != null && summary.oosPass.intValue() <= 0) {
+            return "publish_rejected";
+        }
+        if (summary.forwardPnl != null && summary.forwardPnl.doubleValue() < 0D) {
+            return "publish_rejected";
+        }
+        if (summary.feeAdjustedValidatePnl != null && summary.feeAdjustedValidatePnl.doubleValue() <= 0D) {
+            return "publish_rejected";
+        }
+        if (summary.validateTradeCount != null && summary.validateTradeCount.intValue() <= 0) {
+            return "watch_only";
+        }
+        if (summary.overfitPass != null && summary.overfitPass.intValue() <= 0) {
+            return "watch_only";
+        }
+        if ("SKIP".equalsIgnoreCase(autoAction)) {
+            return "live_eligible";
+        }
+        return "live_eligible";
+    }
+
+    private String resolvePublishDecision(StrategyBacktestTaskRow taskRow,
+                                          StrategyBacktestSummary summary,
+                                          Map<String, Object> taskResult,
+                                          boolean publishedEvent,
+                                          boolean evolutionTriggered) {
+        if (publishedEvent) {
+            String action = StringUtils.upperCase(firstNonBlank(taskResult.get("autoPublishAction")));
+            if ("REPLACE".equals(action) || action.endsWith("_REPLACE")) {
+                return "replace_with_new";
+            }
+            return "replace_with_new";
+        }
+        if (evolutionTriggered) {
+            return "no_publish";
+        }
+        String liveEligibility = resolveLiveEligibility(taskRow, summary, taskResult, false);
+        if ("publish_rejected".equals(liveEligibility)) {
+            return "no_publish";
+        }
+        if ("live_eligible".equals(liveEligibility) || "watch_only".equals(liveEligibility)) {
+            return "keep_old";
+        }
+        return "no_publish";
+    }
+
+    private String resolvePublishReason(StrategyBacktestTaskRow taskRow,
+                                        StrategyBacktestSummary summary,
+                                        Map<String, Object> taskResult,
+                                        boolean publishedEvent,
+                                        boolean evolutionTriggered) {
+        if (publishedEvent) {
+            return firstNonBlank(taskResult.get("autoPublishReason"), "published_to_live");
+        }
+        String failureReason = blankTo(taskRow == null ? null : taskRow.failureReason, "");
+        if (StringUtils.isNotBlank(failureReason)) {
+            return failureReason;
+        }
+        String autoAction = StringUtils.upperCase(firstNonBlank(taskResult.get("autoPublishAction")));
+        String autoReason = firstNonBlank(taskResult.get("autoPublishReason"));
+        if ("SKIP".equals(autoAction) && StringUtils.containsIgnoreCase(autoReason, "same version already active")) {
+            return "same_version_active";
+        }
+        if (summary == null) {
+            return evolutionTriggered ? "evolution_triggered" : "summary_missing";
+        }
+        if (summary.oosPass != null && summary.oosPass.intValue() <= 0) {
+            return "oos_failed";
+        }
+        if (summary.forwardPnl != null && summary.forwardPnl.doubleValue() < 0D) {
+            return "forward_negative";
+        }
+        if (summary.feeAdjustedValidatePnl != null && summary.feeAdjustedValidatePnl.doubleValue() <= 0D) {
+            return "cost_not_covered";
+        }
+        if (summary.validateTradeCount != null && summary.validateTradeCount.intValue() <= 0) {
+            return "too_few_trades";
+        }
+        if (summary.overfitPass != null && summary.overfitPass.intValue() <= 0) {
+            return "validate_unstable";
+        }
+        if ("SKIP".equals(autoAction) && StringUtils.containsIgnoreCase(autoReason, "same version already active")) {
+            return "same_version_active";
+        }
+        if (StringUtils.isNotBlank(autoReason)) {
+            return autoReason;
+        }
+        return evolutionTriggered ? "evolution_triggered" : "live_eligible_pending_publish";
     }
 
     private StrategyBacktestTaskRow loadTaskRow(List<StrategyBacktestTaskRow> rows,

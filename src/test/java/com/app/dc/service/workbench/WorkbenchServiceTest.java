@@ -200,6 +200,9 @@ public class WorkbenchServiceTest {
         Assert.assertEquals(Boolean.FALSE, publish.get("publishedToLive"));
         Assert.assertEquals(Boolean.TRUE, publish.get("active"));
         Assert.assertEquals("", publish.get("releaseEventType"));
+        Assert.assertEquals("live_eligible", publish.get("liveEligibility"));
+        Assert.assertEquals("keep_old", publish.get("publishDecision"));
+        Assert.assertEquals("same_version_active", publish.get("publishReason"));
     }
 
     @Test
@@ -227,6 +230,43 @@ public class WorkbenchServiceTest {
         Assert.assertEquals(Boolean.TRUE, publish.get("publishedToLive"));
         Assert.assertEquals("PROMOTE", publish.get("releaseEventType"));
         Assert.assertEquals("promote profitable walk-forward first version", publish.get("releaseEventReason"));
+        Assert.assertEquals("publish_ready", publish.get("liveEligibility"));
+        Assert.assertEquals("replace_with_new", publish.get("publishDecision"));
+        Assert.assertEquals("promote profitable walk-forward first version", publish.get("publishReason"));
+    }
+
+    @Test
+    public void queryBacktestListShouldExposeRejectedPublishReasonFromSummaryGates() {
+        FakeWorkbenchService service = new FakeWorkbenchService();
+
+        StrategyBacktestTaskRow row = new StrategyBacktestTaskRow();
+        row.id = "bt-rejected-1";
+        row.strategyName = "wb15_range_r002";
+        row.strategyVersion = "v21";
+        row.status = "SUCCESS";
+        row.createTime = "2026-06-27 10:00:00";
+        row.updateTime = "2026-06-27 10:22:59";
+        row.payload = "{\"backtestParam\":{\"symbol\":\"TRXUSDT\",\"text\":\"15m\",\"beginDate\":\"2025-06-01\",\"endDate\":\"2026-06-22\"}}";
+        service.rows.add(row);
+
+        StrategyBacktestSummary summary = new StrategyBacktestSummary();
+        summary.strategyName = "wb15_range_r002";
+        summary.strategyVersion = "v21";
+        summary.oosPass = 1;
+        summary.forwardPnl = -3.2D;
+        summary.feeAdjustedValidatePnl = 12.4D;
+        summary.validateTradeCount = 18;
+        service.summaries.put("wb15_range_r002@v21", summary);
+
+        Map<String, Object> data = service.queryBacktestList(Collections.singletonMap("date", "2026-06-27"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) data.get("items");
+        Assert.assertEquals(1, items.size());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> publish = (Map<String, Object>) items.get(0).get("publish");
+        Assert.assertEquals("publish_rejected", publish.get("liveEligibility"));
+        Assert.assertEquals("no_publish", publish.get("publishDecision"));
+        Assert.assertEquals("forward_negative", publish.get("publishReason"));
     }
 
     @Test

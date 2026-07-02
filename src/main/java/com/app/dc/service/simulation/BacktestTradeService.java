@@ -18,6 +18,7 @@ public class BacktestTradeService {
         Position position = new Position();
         position.side = signal.side;
         position.entryPrice = signal.price.doubleValue();
+        position.entryReason = extractEntryReason(signal);
         position.entryTime = bar.getEndTime().toString();
         position.entryBarBeginTime = bar.getBeginTime().toString();
         position.entryBarEndTime = bar.getEndTime().toString();
@@ -81,6 +82,7 @@ public class BacktestTradeService {
                                      int exitIndex, double feeRatePct) {
         TradeRecord record = new TradeRecord();
         record.side = position.side == null ? "" : position.side.name();
+        record.entryReason = position.entryReason;
         record.entryTime = position.entryTime;
         record.exitTime = exitBar.getEndTime().toString();
         record.entryBarBeginTime = position.entryBarBeginTime;
@@ -131,5 +133,27 @@ public class BacktestTradeService {
 
     public BigDecimal scale(double value) {
         return BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 从回测信号备注中提取入场原因码。
+     */
+    private String extractEntryReason(Signal signal) {
+        if (signal == null || signal.remark == null) {
+            return null;
+        }
+        String remark = signal.remark;
+        String prefix = "reason=";
+        int start = remark.indexOf(prefix);
+        if (start < 0) {
+            return null;
+        }
+        int valueStart = start + prefix.length();
+        int end = remark.indexOf(",", valueStart);
+        if (end < 0) {
+            end = remark.length();
+        }
+        String reason = remark.substring(valueStart, end).trim();
+        return reason.isEmpty() ? null : reason;
     }
 }

@@ -56,6 +56,7 @@ public final class BacktestModels {
 
     public static class TradeRecord {
         public String side;
+        public String entryReason;
         public String entryTime;
         public String exitTime;
         public String entryBarBeginTime;
@@ -75,6 +76,7 @@ public final class BacktestModels {
     public static class Position {
         public Side side;
         public double entryPrice;
+        public String entryReason;
         public String entryTime;
         public String entryBarBeginTime;
         public String entryBarEndTime;

@@ -39,7 +39,7 @@ public class BacktestQueryService {
      * 查询回测K线数据，优先读取本地文件，找不到文件时再回退到ClickHouse。
      */
     public List<TTbookOhlc> queryOhlc(String symbol, String text, String beginDate, String endDate) {
-        List<TTbookOhlc> localFileResult = queryLocalFile(symbol, text, beginDate, endDate);
+        List<TTbookOhlc> localFileResult = null;//queryLocalFile(symbol, text, beginDate, endDate);
         if (localFileResult != null) {
             return localFileResult;
         }
@@ -52,7 +52,8 @@ public class BacktestQueryService {
         if (!ranges.isEmpty()) {
             List<TTbookOhlc> result = new ArrayList<TTbookOhlc>();
             for (DateRange range : ranges) {
-                result.addAll(querySingleRange(symbol, text, range.beginDate, range.endDate));
+                List<TTbookOhlc> queryList = querySingleRange(symbol, text, range.beginDate, range.endDate);
+                result.addAll(queryList);
             }
             return result;
         }

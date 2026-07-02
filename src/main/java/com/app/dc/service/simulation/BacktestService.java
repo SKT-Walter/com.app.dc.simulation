@@ -20,19 +20,28 @@ import org.ta4j.core.BaseBarSeries;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.text.SimpleDateFormat;
 import java.time.Duration;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.TimeZone;
 
 @Service
 public class BacktestService {
+
+    private static final ZoneId BEIJING_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final DateTimeFormatter DB_TIME_FORMATTER = new DateTimeFormatterBuilder()
+            .appendPattern("yyyy-MM-dd HH:mm:ss")
+            .optionalStart()
+            .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true)
+            .optionalEnd()
+            .toFormatter();
 
     @Autowired
     private BacktestQueryService queryService;
@@ -253,20 +262,41 @@ public class BacktestService {
     }
 
     public Bar toBar(TTbookOhlc ohlc, Duration duration) throws Exception {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
-        sdf.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
-        String barEndTime = resolveBarEndTime(ohlc);
-        ZonedDateTime endTime = ZonedDateTime.ofInstant(
-                Instant.ofEpochMilli(sdf.parse(barEndTime).getTime()), ZoneId.of("Asia/Shanghai"));
+        String barTime = resolveBarTime(ohlc);
+        ZonedDateTime endTime = parseBarTime(barTime, duration);
         return new BaseBar(duration, endTime, ohlc.open, ohlc.high, ohlc.low, ohlc.close, ohlc.volume);
+    }
+
+    /**
+     * 解析数据库K线时间，并按周期归一到对应K线的开始时刻。
+     */
+    private ZonedDateTime parseBarTime(String barEndTime, Duration duration) {
+        LocalDateTime localDateTime = LocalDateTime.parse(barEndTime.trim(), DB_TIME_FORMATTER);
+        return floorToBarStart(localDateTime, duration).atZone(BEIJING_ZONE);
+    }
+
+    /**
+     * 将任意K线时间向下归到周期开始点，例如08:34:59.999归到08:30:00。
+     */
+    private LocalDateTime floorToBarStart(LocalDateTime value, Duration duration) {
+        long seconds = Math.max(1L, duration.getSeconds());
+        long daySecond = value.toLocalTime().toSecondOfDay();
+        long flooredSecond = daySecond / seconds * seconds;
+        return value.toLocalDate().atStartOfDay().plusSeconds(flooredSecond);
     }
 
     /**
      * 优先使用K线结束时间构造BaseBar，缺失时回退到starttime。
      */
-    private String resolveBarEndTime(TTbookOhlc ohlc) {
+    /**
+     * 解析K线归桶时间，优先使用starttime避免整点endtime落到下一根K线。
+     */
+    private String resolveBarTime(TTbookOhlc ohlc) {
         if (ohlc == null) {
             return null;
+        }
+        if (ohlc.starttime != null && ohlc.starttime.trim().length() > 0) {
+            return ohlc.starttime.trim();
         }
         try {
             java.lang.reflect.Field endField = ohlc.getClass().getDeclaredField("endtime");
@@ -308,8 +338,9 @@ public class BacktestService {
         if (signal == null || signal.remark == null) {
             return false;
         }
-        return signal.remark.contains("reason=dif_dea_cross_down")
+        boolean reverseCross = signal.remark.contains("reason=dif_dea_cross_down")
                 || signal.remark.contains("reason=dif_dea_cross_up");
+        return reverseCross && signal.remark.contains("reverseEntry=true");
     }
 
     public BigDecimal scale(double value) {

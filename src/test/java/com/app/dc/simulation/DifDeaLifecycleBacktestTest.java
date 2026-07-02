@@ -16,6 +16,7 @@ import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.PropertySource;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Collections;
 import java.util.List;
 
@@ -54,6 +55,42 @@ public class DifDeaLifecycleBacktestTest {
     }
 
     /**
+     * 按默认参数的日期范围逐天运行回测，并为每天单独输出报告。
+     */
+    @Test
+    public void runDifDeaLifecycleDailyBacktest() throws Exception {
+        BasicConfigurator.configure();
+        PropertyConfigurator.configure("./config/log4j.ini");
+
+        ConfigurableApplicationContext context = new SpringApplicationBuilder(TestApp.class)
+                .properties("spring.config.location=file:./config/application.properties")
+                .properties("binanceBacktestStageGuardEnabled=false")
+                .properties("binanceBacktestSentimentGuardEnabled=false")
+                .run();
+        try {
+            BacktestService backtestService = context.getBean(BacktestService.class);
+            BacktestReportService reportService = context.getBean(BacktestReportService.class);
+            BacktestParam rangeParam = defaultParam();
+            LocalDate beginDate = LocalDate.parse(rangeParam.beginDate);
+            LocalDate endDate = LocalDate.parse(rangeParam.endDate);
+
+            Assert.assertFalse("endDate must not be before beginDate", endDate.isBefore(beginDate));
+            for (LocalDate current = beginDate; !current.isAfter(endDate); current = current.plusDays(1)) {
+                BacktestParam dailyParam = copyDailyParam(rangeParam, current);
+                BacktestModels.BacktestResponse response = backtestService.run(dailyParam);
+                String reportPath = reportService.writeReport(response);
+                String compareReportPath = reportService.writeCompareReport(response);
+
+                Assert.assertNotNull(response);
+                Assert.assertNotNull(response.results);
+                printDailySummary(current, response, reportPath, compareReportPath);
+            }
+        } finally {
+            context.close();
+        }
+    }
+
+    /**
      * 构造默认回测参数。
      */
     private BacktestParam defaultParam() {
@@ -61,13 +98,33 @@ public class DifDeaLifecycleBacktestTest {
         param.strategyName = "difDeaLifecycle";
         param.symbols = "ETHUSDT";
         param.text = "5m";
-        param.beginDate = "2026-06-23";
-        param.endDate = "2026-06-24";
+        param.beginDate = "2026-06-21";
+        param.endDate = "2026-06-29";
         param.initialCapital = new BigDecimal("10000");
         param.feeRatePct = new BigDecimal("0.04");
         param.fallbackStopLossPct = new BigDecimal("6.0");
         param.fallbackTakeProfitPct = new BigDecimal("6.0");
         param.ignoreSentimentGuard = true;
+        return param;
+    }
+
+    /**
+     * 基于区间参数生成某一天的回测参数。
+     */
+    private BacktestParam copyDailyParam(BacktestParam source, LocalDate date) {
+        BacktestParam param = new BacktestParam();
+        param.strategyName = source.strategyName;
+        param.symbol = source.symbol;
+        param.symbols = source.symbols;
+        param.text = source.text;
+        param.beginDate = date.toString();
+        param.endDate = date.toString();
+        param.initialCapital = source.initialCapital;
+        param.feeRatePct = source.feeRatePct;
+        param.fallbackStopLossPct = source.fallbackStopLossPct;
+        param.fallbackTakeProfitPct = source.fallbackTakeProfitPct;
+        param.maxHoldBars = source.maxHoldBars;
+        param.ignoreSentimentGuard = source.ignoreSentimentGuard;
         return param;
     }
 
@@ -101,6 +158,17 @@ public class DifDeaLifecycleBacktestTest {
                     + ", maxDrawdownPct=" + result.maxDrawdownPct
                     + ", finalCapital=" + result.finalCapital);
         }
+    }
+
+    /**
+     * 打印单日回测的核心指标和报告路径。
+     */
+    private void printDailySummary(LocalDate date,
+                                   BacktestModels.BacktestResponse response,
+                                   String reportPath,
+                                   String compareReportPath) {
+        System.out.println("daily_backtest_date=" + date);
+        printSummary(response, reportPath, compareReportPath);
     }
 
     @SpringBootApplication

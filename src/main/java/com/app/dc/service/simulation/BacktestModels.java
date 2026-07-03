@@ -37,6 +37,7 @@ public final class BacktestModels {
         public BigDecimal validatePrimaryScore = BigDecimal.ZERO;
         public BigDecimal forwardAuxScore = BigDecimal.ZERO;
         public BigDecimal feeAdjustedValidatePnl = BigDecimal.ZERO;
+        public BigDecimal feeAdjustedForwardPnl = BigDecimal.ZERO;
         public BigDecimal sliceParamDriftScore = BigDecimal.ZERO;
         public Integer oosPass = 0;
         public Integer overfitPass = 0;
@@ -83,6 +84,7 @@ public final class BacktestModels {
         public BigDecimal validatePrimaryScore = BigDecimal.ZERO;
         public BigDecimal forwardAuxScore = BigDecimal.ZERO;
         public BigDecimal feeAdjustedValidatePnl = BigDecimal.ZERO;
+        public BigDecimal feeAdjustedForwardPnl = BigDecimal.ZERO;
         public BigDecimal sliceParamDriftScore = BigDecimal.ZERO;
         public Integer oosPass = 0;
         public Integer overfitPass = 0;

@@ -22,6 +22,7 @@ public class StrategyBacktestSummary {
     public Double validatePrimaryScore;
     public Double forwardAuxScore;
     public Double feeAdjustedValidatePnl;
+    public Double feeAdjustedForwardPnl;
     public Double sliceParamDriftScore;
     public Integer oosPass;
     public Integer validateTradeCount;

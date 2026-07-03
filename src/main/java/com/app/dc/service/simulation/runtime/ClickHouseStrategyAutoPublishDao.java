@@ -195,6 +195,7 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
                 + "sum(validate_primary_score) as validatePrimaryScore,"
                 + "avg(forward_aux_score) as forwardAuxScore,"
                 + "sum(fee_adjusted_validate_pnl) as feeAdjustedValidatePnl,"
+                + "sum(fee_adjusted_forward_pnl) as feeAdjustedForwardPnl,"
                 + "avg(slice_param_drift_score) as sliceParamDriftScore,"
                 + "toString(max(run_time)) as runTime,"
                 + "sum(total_pnl) as totalPnl,"

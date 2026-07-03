@@ -79,6 +79,7 @@ public class StrategyAutoPublishService {
             decision.currentTotalPnl = current.totalPnl;
             decision.currentValidatePnl = current.validatePnl;
             decision.currentForwardPnl = current.forwardPnl;
+            decision.currentFeeAdjustedForwardPnl = current.feeAdjustedForwardPnl;
             decision.currentForwardScore = current.forwardScore;
             decision.currentValidatePrimaryScore = current.validatePrimaryScore;
             decision.currentFeeAdjustedValidatePnl = current.feeAdjustedValidatePnl;
@@ -136,6 +137,7 @@ public class StrategyAutoPublishService {
         decision.baselineTotalPnl = baseline.totalPnl;
         decision.baselineValidatePnl = baseline.validatePnl;
         decision.baselineForwardPnl = baseline.forwardPnl;
+        decision.baselineFeeAdjustedForwardPnl = baseline.feeAdjustedForwardPnl;
         decision.baselineForwardScore = baseline.forwardScore;
         decision.baselineValidatePrimaryScore = baseline.validatePrimaryScore;
         BaselineComparison baselineCheck = compareAgainstBaseline(candidate, current, baseline, active, active == null, symbolScope);
@@ -214,6 +216,7 @@ public class StrategyAutoPublishService {
         decision.currentTotalPnl = aggregate.totalPnl;
         decision.currentValidatePnl = aggregate.validatePnl;
         decision.currentForwardPnl = aggregate.forwardPnl;
+        decision.currentFeeAdjustedForwardPnl = aggregate.feeAdjustedForwardPnl;
         decision.currentForwardScore = aggregate.forwardScore;
         decision.currentValidatePrimaryScore = aggregate.validatePrimaryScore;
         decision.currentFeeAdjustedValidatePnl = aggregate.feeAdjustedValidatePnl;
@@ -229,6 +232,7 @@ public class StrategyAutoPublishService {
         decision.bestParamSetJson = current.bestParamSetJson;
         decision.validatePnl = current.validatePnl;
         decision.forwardPnl = current.forwardPnl;
+        decision.feeAdjustedForwardPnl = current.feeAdjustedForwardPnl;
         decision.totalPnl = current.totalPnl;
         decision.validatePrimaryScore = current.validatePrimaryScore;
         decision.forwardScore = current.forwardScore;
@@ -406,6 +410,7 @@ public class StrategyAutoPublishService {
         payload.put("sliceCount", current.sliceCount);
         payload.put("currentValidatePnl", current.validatePnl);
         payload.put("currentForwardPnl", current.forwardPnl);
+        payload.put("currentFeeAdjustedForwardPnl", current.feeAdjustedForwardPnl);
         payload.put("currentTotalPnl", current.totalPnl);
         payload.put("currentForwardScore", current.forwardScore);
         payload.put("minForwardContribution", current.minForwardContribution);
@@ -450,6 +455,7 @@ public class StrategyAutoPublishService {
         summary.validatePrimaryScore = response == null ? 0D : toDouble(response.validatePrimaryScore);
         summary.forwardAuxScore = response == null ? 0D : toDouble(response.forwardAuxScore);
         summary.feeAdjustedValidatePnl = response == null ? 0D : toDouble(response.feeAdjustedValidatePnl);
+        summary.feeAdjustedForwardPnl = response == null ? 0D : toDouble(response.feeAdjustedForwardPnl);
         summary.sliceParamDriftScore = response == null ? 0D : toDouble(response.sliceParamDriftScore);
         summary.oosPass = response == null ? 0 : response.oosPass;
         List<BacktestModels.BacktestResult> results = response == null
@@ -459,6 +465,7 @@ public class StrategyAutoPublishService {
         double fitPnl = 0D;
         double validatePnl = 0D;
         double forwardPnl = 0D;
+        double feeAdjustedForwardPnl = 0D;
         double forwardScoreSum = 0D;
         double validateTradeCount = 0D;
         double validateMaxDrawdownPct = 0D;
@@ -476,6 +483,7 @@ public class StrategyAutoPublishService {
                 fitPnl += toDouble(result.fitPnl);
                 validatePnl += toDouble(result.validatePnl);
                 forwardPnl += toDouble(result.forwardPnl);
+                feeAdjustedForwardPnl += toDouble(result.feeAdjustedForwardPnl);
                 forwardScoreSum += toDouble(result.forwardScore);
                 validateTradeCount += result.tradeCount == null ? 0 : result.tradeCount.intValue();
                 validateMaxDrawdownPct = Math.max(validateMaxDrawdownPct, toDouble(result.maxDrawdownPct));
@@ -495,6 +503,7 @@ public class StrategyAutoPublishService {
         summary.fitPnl = scale(fitPnl);
         summary.validatePnl = scale(validatePnl);
         summary.forwardPnl = scale(forwardPnl);
+        summary.feeAdjustedForwardPnl = scale(feeAdjustedForwardPnl);
         summary.totalPnl = scale(totalPnl);
         summary.forwardScore = scale(count <= 0 ? 0D : forwardScoreSum / count);
         summary.validateTradeCount = Integer.valueOf((int) validateTradeCount);
@@ -571,6 +580,7 @@ public class StrategyAutoPublishService {
             response.validatePrimaryScore = result.validatePrimaryScore;
             response.forwardAuxScore = result.forwardAuxScore;
             response.feeAdjustedValidatePnl = result.feeAdjustedValidatePnl;
+            response.feeAdjustedForwardPnl = result.feeAdjustedForwardPnl;
             response.sliceParamDriftScore = result.sliceParamDriftScore;
             response.oosPass = result.oosPass;
             response.overfitPass = result.overfitPass;
@@ -757,10 +767,10 @@ public class StrategyAutoPublishService {
         if (!gt(current.forwardScore, 0D)) {
             return "forward_score <= 0";
         }
-        if (!gte(current.forwardPnl, 0D)) {
+        if (!gte(preferredFeeAdjustedForward(current), 0D)) {
             return "forward_pnl < 0";
         }
-        if (!gte(forwardContribution(current.forwardPnl, current.totalPnl), current.minForwardContribution)) {
+        if (!gte(forwardContribution(preferredFeeAdjustedForward(current), current.totalPnl), current.minForwardContribution)) {
             return "forward contribution below threshold";
         }
         if (isTrue(current.fragileBest)) {
@@ -838,6 +848,16 @@ public class StrategyAutoPublishService {
             return summary.feeAdjustedValidatePnl;
         }
         return summary.validatePnl;
+    }
+
+    private Double preferredFeeAdjustedForward(StrategyBacktestSummary summary) {
+        if (summary == null) {
+            return 0D;
+        }
+        if (summary.feeAdjustedForwardPnl != null && Math.abs(summary.feeAdjustedForwardPnl) > 0D) {
+            return summary.feeAdjustedForwardPnl;
+        }
+        return summary.forwardPnl;
     }
 
     private boolean expectsOptimizationEvidence(StrategyCandidateRow candidate) {

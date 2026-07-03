@@ -153,6 +153,8 @@ public class WalkForwardBacktestRunner {
         aggregate.validatePnl = scale(validatePnl);
         aggregate.forwardPnl = scale(forwardPnl);
         aggregate.totalPnl = scale(validatePnl.add(forwardPnl));
+        aggregate.feeAdjustedValidatePnl = aggregate.validatePnl;
+        aggregate.feeAdjustedForwardPnl = aggregate.forwardPnl;
         aggregate.windowMode = WINDOW_MODE;
         aggregate.forwardScore = slices.isEmpty()
                 ? BigDecimal.ZERO

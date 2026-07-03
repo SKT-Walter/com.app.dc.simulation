@@ -389,6 +389,7 @@ public class BacktestService {
         BigDecimal validatePrimaryScore = BigDecimal.ZERO;
         BigDecimal forwardAuxScore = BigDecimal.ZERO;
         BigDecimal feeAdjustedValidatePnl = BigDecimal.ZERO;
+        BigDecimal feeAdjustedForwardPnl = BigDecimal.ZERO;
         BigDecimal sliceParamDriftScore = BigDecimal.ZERO;
         int sliceCount = Integer.MAX_VALUE;
         List<BacktestResult> symbolResults = executeSymbols(candidate, req, symbols, trialParams, windowConfig, plan, ohlcCache, trialBudget);
@@ -410,6 +411,7 @@ public class BacktestService {
             validatePrimaryScore = validatePrimaryScore.add(nz(result.validatePrimaryScore));
             forwardAuxScore = forwardAuxScore.add(nz(result.forwardAuxScore));
             feeAdjustedValidatePnl = feeAdjustedValidatePnl.add(nz(result.feeAdjustedValidatePnl));
+            feeAdjustedForwardPnl = feeAdjustedForwardPnl.add(nz(result.feeAdjustedForwardPnl));
             sliceParamDriftScore = sliceParamDriftScore.add(nz(result.sliceParamDriftScore));
             sliceCount = Math.min(sliceCount, result.sliceCount == null ? 0 : result.sliceCount.intValue());
         }
@@ -422,6 +424,7 @@ public class BacktestService {
         response.forwardAuxScore = results.isEmpty() ? BigDecimal.ZERO : scale(forwardAuxScore.doubleValue() / Math.max(1, results.size()));
         response.forwardScore = response.forwardAuxScore;
         response.feeAdjustedValidatePnl = scale(feeAdjustedValidatePnl.doubleValue());
+        response.feeAdjustedForwardPnl = scale(feeAdjustedForwardPnl.doubleValue());
         response.sliceParamDriftScore = results.isEmpty() ? BigDecimal.ZERO : scale(sliceParamDriftScore.doubleValue() / Math.max(1, results.size()));
         response.sliceCount = results.isEmpty() ? 0 : sliceCount;
         GateDecision gate = evaluateAggregateGate(response.fitPnl, response.validatePnl, response.forwardPnl, sumTradeCount(results));

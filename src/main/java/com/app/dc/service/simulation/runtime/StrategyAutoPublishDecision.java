@@ -11,12 +11,14 @@ public class StrategyAutoPublishDecision {
     public Double currentTotalPnl;
     public Double currentValidatePnl;
     public Double currentForwardPnl;
+    public Double currentFeeAdjustedForwardPnl;
     public Double currentForwardScore;
     public Double currentValidatePrimaryScore;
     public Double currentFeeAdjustedValidatePnl;
     public Double baselineTotalPnl;
     public Double baselineValidatePnl;
     public Double baselineForwardPnl;
+    public Double baselineFeeAdjustedForwardPnl;
     public Double baselineForwardScore;
     public Double baselineValidatePrimaryScore;
     public Integer publishedCount = 0;
@@ -34,6 +36,7 @@ public class StrategyAutoPublishDecision {
         public String bestParamSetJson;
         public Double validatePnl;
         public Double forwardPnl;
+        public Double feeAdjustedForwardPnl;
         public Double totalPnl;
         public Double validatePrimaryScore;
         public Double forwardScore;

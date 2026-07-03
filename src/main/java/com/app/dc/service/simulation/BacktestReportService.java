@@ -110,6 +110,7 @@ public class BacktestReportService {
         report.put("summary", buildSummary(response));
         report.put("gates", buildGates(response, candidate, activeRows, release, decision));
         report.put("audit", buildAudit(response, candidate));
+        report.put("userSummary", buildUserSummary(response, candidate, decision, report));
         report.put("publish", buildPublish(decision));
         report.put("optimization", buildOptimization(response, candidate));
         report.put("results", buildResults(response));
@@ -183,6 +184,7 @@ public class BacktestReportService {
         summary.put("validatePrimaryScore", scale(response.validatePrimaryScore));
         summary.put("forwardAuxScore", scale(response.forwardAuxScore));
         summary.put("feeAdjustedValidatePnl", scale(response.feeAdjustedValidatePnl));
+        summary.put("feeAdjustedForwardPnl", scale(response.feeAdjustedForwardPnl));
         summary.put("sliceParamDriftScore", scale(response.sliceParamDriftScore));
         summary.put("oosPass", nzInt(response.oosPass));
         summary.put("sliceCount", nzInt(response.sliceCount));
@@ -359,6 +361,98 @@ public class BacktestReportService {
         audit.put("summary", buildAuditSummary(response, candidate, checks, finalDecision));
         audit.put("checks", checks);
         return audit;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> buildUserSummary(BacktestResponse response,
+                                                 StrategyCandidateRow candidate,
+                                                 StrategyAutoPublishDecision decision,
+                                                 Map<String, Object> report) {
+        Map<String, Object> summary = new LinkedHashMap<String, Object>();
+        Map<String, Object> gates = report == null ? null : (Map<String, Object>) report.get("gates");
+        Map<String, Object> audit = report == null ? null : (Map<String, Object>) report.get("audit");
+        Map<String, Object> core = report == null ? null : (Map<String, Object>) report.get("summary");
+        boolean liveEntered = isTrue(gates == null ? null : gates.get("liveRegistryEntered"));
+        boolean publishEligible = isTrue(gates == null ? null : gates.get("publishEligible"));
+        String finalDecision = s(audit == null ? null : audit.get("finalDecision"));
+        String headline;
+        String statusClass;
+        String actionLabel;
+        if (liveEntered) {
+            headline = "这版策略已经进入实盘";
+            statusClass = "pass";
+            actionLabel = "继续观察实盘";
+        } else if ("PASS".equalsIgnoreCase(finalDecision) && publishEligible) {
+            headline = "这版策略已经通过回测审核";
+            statusClass = "pass";
+            actionLabel = "等待自动发布";
+        } else if ("WATCH".equalsIgnoreCase(finalDecision)) {
+            headline = "这版策略暂时建议观察";
+            statusClass = "warn";
+            actionLabel = "不要直接上实盘";
+        } else {
+            headline = "这版策略暂时不建议上实盘";
+            statusClass = "fail";
+            actionLabel = "需要继续优化后再回测";
+        }
+        summary.put("headline", headline);
+        summary.put("statusClass", statusClass);
+        summary.put("actionLabel", actionLabel);
+        summary.put("auditDecisionLabel", audit == null ? "" : s(audit.get("finalDecisionLabel")));
+        summary.put("publishDecisionLabel", publishEligible ? "满足发布门槛" : "未满足发布门槛");
+        summary.put("liveDecisionLabel", liveEntered ? "已进入实盘" : "未进入实盘");
+        summary.put("auditSummary", audit == null ? "" : s(audit.get("summary")));
+
+        List<String> reasons = new ArrayList<String>();
+        if (audit != null && StringUtils.isNotBlank(s(audit.get("summary")))) {
+            reasons.add(s(audit.get("summary")));
+        }
+        if (gates != null && StringUtils.isNotBlank(s(gates.get("publishReason")))) {
+            addUnique(reasons, "发布判断：" + s(gates.get("publishReason")));
+        }
+        if (gates != null && !liveEntered && StringUtils.isNotBlank(s(gates.get("liveRegistryReason")))) {
+            addUnique(reasons, "实盘状态：" + s(gates.get("liveRegistryReason")));
+        }
+        List<String> failedRules = gates == null ? Collections.<String>emptyList() : (List<String>) gates.get("failedRules");
+        if (failedRules != null) {
+            for (String item : failedRules) {
+                addUnique(reasons, "未通过项：" + s(item));
+                if (reasons.size() >= 3) {
+                    break;
+                }
+            }
+        }
+        if (reasons.isEmpty() && response != null) {
+            addUnique(reasons, "Validate 收益 " + scale(response.validatePnl).toPlainString()
+                    + "，Forward 收益 " + scale(response.forwardPnl).toPlainString() + "。");
+        }
+        if (reasons.size() > 3) {
+            reasons = new ArrayList<String>(reasons.subList(0, 3));
+        }
+        summary.put("reasons", reasons);
+
+        List<String> nextSteps = new ArrayList<String>();
+        if (liveEntered) {
+            nextSteps.add("继续观察今天和未来 1 到 3 天的实盘盈亏、成交数和风控拦截情况。");
+            nextSteps.add("如果后续复盘建议下线，再走升级版生成、回测和替换。");
+        } else if ("WATCH".equalsIgnoreCase(finalDecision)) {
+            nextSteps.add("暂时不要直接发布到实盘，先继续观察或补强策略逻辑。");
+            nextSteps.add("优先针对报告里的未通过项重新生成或调参后再回测。");
+        } else {
+            nextSteps.add("先修复报告中的关键失败项，再重新回测。");
+            nextSteps.add("如果 Forward 收益、OOS 或扣费后 Validate 不达标，不要直接发布。");
+        }
+        if (decision != null && decision.skippedSymbols != null && !decision.skippedSymbols.isEmpty()) {
+            nextSteps.add("本次仍有跳过的品种：" + joinStrings(decision.skippedSymbols) + "，需要逐个看原因。");
+        }
+        summary.put("nextSteps", nextSteps);
+
+        summary.put("keyValidatePnl", core == null ? "" : s(core.get("validatePnl")));
+        summary.put("keyForwardPnl", core == null ? "" : s(core.get("forwardPnl")));
+        summary.put("keyFeeAdjustedForwardPnl", core == null ? "" : s(core.get("feeAdjustedForwardPnl")));
+        summary.put("keyDrawdown", core == null ? "" : s(core.get("maxDrawdownPct")));
+        summary.put("keyTradeCount", core == null ? "" : s(core.get("tradeCount")));
+        return summary;
     }
 
     private String buildAuditSummary(BacktestResponse response,
@@ -1009,6 +1103,7 @@ public class BacktestReportService {
         summary.put("validatePrimaryScore", scale(result.validatePrimaryScore));
         summary.put("forwardAuxScore", scale(result.forwardAuxScore));
         summary.put("feeAdjustedValidatePnl", scale(result.feeAdjustedValidatePnl));
+        summary.put("feeAdjustedForwardPnl", scale(result.feeAdjustedForwardPnl));
         summary.put("sliceParamDriftScore", scale(result.sliceParamDriftScore));
         summary.put("oosPass", nzInt(result.oosPass));
         summary.put("forwardScore", scale(result.forwardScore));
@@ -1285,6 +1380,8 @@ public class BacktestReportService {
         @SuppressWarnings("unchecked")
         Map<String, Object> summary = (Map<String, Object>) report.get("summary");
         @SuppressWarnings("unchecked")
+        Map<String, Object> userSummary = (Map<String, Object>) report.get("userSummary");
+        @SuppressWarnings("unchecked")
         Map<String, Object> gates = (Map<String, Object>) report.get("gates");
         @SuppressWarnings("unchecked")
         Map<String, Object> audit = (Map<String, Object>) report.get("audit");
@@ -1320,6 +1417,11 @@ public class BacktestReportService {
                 .append("tr:nth-child(even) td{background:#fcfdff;}")
                 .append(".svg-box{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:12px;}")
                 .append(".tips{background:#fff7ed;border:1px solid #fdba74;color:#9a3412;border-radius:14px;padding:14px 16px;}")
+                .append("details.fold{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:0 14px;margin-top:12px;}")
+                .append("details.fold summary{cursor:pointer;list-style:none;padding:14px 4px;font-weight:700;color:#0f172a;}")
+                .append("details.fold summary::-webkit-details-marker{display:none;}")
+                .append("details.fold[open] summary{border-bottom:1px solid #eef2f7;}")
+                .append(".fold-body{padding:14px 0 6px;}")
                 .append("@media (max-width: 768px){")
                 .append("body{padding:12px;}")
                 .append(".page{max-width:none;}")
@@ -1355,8 +1457,10 @@ public class BacktestReportService {
                 .append(escape(s(meta.get("generatedAt"))))
                 .append("</p></div>");
 
-        html.append("<div class=\"section\"><h2>\u7b56\u7565\u8ddf\u8e2a</h2>")
-                .append("<div class=\"table-wrap\"><table><thead><tr>")
+        html.append(renderUserSummarySection(userSummary));
+
+        html.append(detailsBlock("工程追踪（默认收起）",
+                new StringBuilder("<div class=\"table-wrap\"><table><thead><tr>")
                 .append("<th>\u5b57\u6bb5</th><th>\u503c</th></tr></thead><tbody>")
                 .append(trackingRow("\u7b56\u7565\u540d", tracking.get("strategyName")))
                 .append(trackingRow("\u7248\u672c\u53f7", tracking.get("strategyVersion")))
@@ -1376,7 +1480,7 @@ public class BacktestReportService {
                 .append(trackingRow("\u5df2\u53d1\u5e03 Symbol", tracking.get("publishedSymbols")))
                 .append(trackingRow("\u8df3\u8fc7 Symbol \u6570", tracking.get("skippedCount")))
                 .append(trackingRow("\u8df3\u8fc7 Symbol", tracking.get("skippedSymbols")))
-                .append("</tbody></table></div></div>");
+                .append("</tbody></table></div>").toString(), false));
 
         html.append("<div class=\"section\"><h2>\u7ed3\u8bba\u603b\u89c8</h2><div class=\"grid\">")
                 .append(statusCard("\u8fc7\u62df\u5408\u68c0\u67e5", isTrue(gates.get("overfitPass")) ? "\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5" : "\u672a\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5", s(gates.get("overfitReason")), isTrue(gates.get("overfitPass")) ? "pass" : "fail"))
@@ -1384,21 +1488,22 @@ public class BacktestReportService {
                 .append(statusCard("\u5b9e\u76d8\u51c6\u5165\u7ed3\u679c", isTrue(gates.get("liveRegistryEntered")) ? "\u5df2\u8fdb\u5165\u5b9e\u76d8" : "\u672a\u8fdb\u5165\u5b9e\u76d8", s(gates.get("liveRegistryDetail")), isTrue(gates.get("liveRegistryEntered")) ? "pass" : "fail"))
                 .append("</div></div>");
 
-        html.append("<div class=\"section\"><h2>\u5ba1\u6838\u68c0\u67e5</h2>")
-                .append("<div class=\"grid\">")
+        StringBuilder auditBlock = new StringBuilder();
+        auditBlock.append("<div class=\"grid\">")
                 .append(statusCard("\u5ba1\u6838\u7ed3\u8bba", s(audit.get("finalDecisionLabel")), s(audit.get("summary")), auditDecisionClass(s(audit.get("finalDecision")))))
                 .append(statusCard("\u53c2\u6570\u8d28\u91cf", s(((Map<String, Object>) optimization.get("quality")).get("statusLabel")), s(((Map<String, Object>) optimization.get("quality")).get("message")), optimizationQualityClass(s(((Map<String, Object>) optimization.get("quality")).get("status")))))
                 .append("</div>")
                 .append("<div class=\"tips\">\u8bf4\u660e\uff1a\u5ba1\u6838\u7ed3\u8bba\u6309\u7ec4\u5408/\u6574\u4f53\u56de\u6d4b\u4efb\u52a1\u7ed9\u51fa\uff1b\u5b9e\u76d8\u53d1\u5e03\u5219\u6309 Symbol \u72ec\u7acb\u5224\u5b9a\uff0c\u56e0\u6b64\u53ef\u80fd\u51fa\u73b0\u201c\u5ba1\u6838\u5931\u8d25\u6216\u89c2\u5bdf\uff0c\u4f46\u5df2\u53d1\u5e03\u90e8\u5206 Symbol\u201d\u7684\u60c5\u51b5\u3002</div>")
-                .append(renderAuditTable(audit))
-                .append("</div>");
+                .append(renderAuditTable(audit));
+        html.append(detailsBlock("审核细节（默认收起）", auditBlock.toString(), false));
 
-        html.append(renderPublishDecisionTable(publish));
+        html.append(detailsBlock("按品种发布细节（默认收起）", renderPublishDecisionTable(publish), false));
 
         html.append("<div class=\"section\"><h2>\u6c47\u603b\u6307\u6807</h2><div class=\"grid\">")
                 .append(metric("Fit \u6536\u76ca", summary.get("fitPnl")))
                 .append(metric("Validate \u6536\u76ca", summary.get("validatePnl")))
                 .append(metric("Forward \u6536\u76ca", summary.get("forwardPnl")))
+                .append(metric("\u6263\u8d39 Forward \u6536\u76ca", summary.get("feeAdjustedForwardPnl")))
                 .append(metric("Validate \u4e3b\u5206", summary.get("validatePrimaryScore")))
                 .append(metric("Forward \u8f85\u5206", summary.get("forwardAuxScore")))
                 .append(metric("\u6263\u8d39 Validate \u6536\u76ca", summary.get("feeAdjustedValidatePnl")))
@@ -1413,7 +1518,8 @@ public class BacktestReportService {
                 .append(metric("\u603b\u624b\u7eed\u8d39", summary.get("totalFee")))
                 .append("</div></div>");
 
-        html.append("<div class=\"section\"><h2>\u53c2\u6570\u4f18\u5316\u7ed3\u679c</h2><div class=\"grid\">")
+        StringBuilder optimizationBlock = new StringBuilder();
+        optimizationBlock.append("<div class=\"grid\">")
                 .append(metric("\u4f18\u5316\u6a21\u5f0f", optimization.get("optimizationMode")))
                 .append(metric("\u4f18\u5316\u76ee\u6807", optimization.get("optimizationObjective")))
                 .append(metric("\u4f18\u5316\u8bc1\u636e", optimization.get("evidenceStatus")))
@@ -1432,8 +1538,8 @@ public class BacktestReportService {
                 .append(renderOptimizationParticipation(optimization))
                 .append(renderHeatmapSection(optimization))
                 .append(renderOptimizationCombinationSummary(optimization))
-                .append(renderOptimizationTrialsV2(optimization))
-                .append("</div>");
+                .append(renderOptimizationTrialsV2(optimization));
+        html.append(detailsBlock("参数搜索和优化细节（默认收起）", optimizationBlock.toString(), false));
 
         html.append("<div class=\"section\"><div class=\"tips\">")
                 .append(isTrue(gates.get("liveRegistryEntered")) ? "\u8be5\u7b56\u7565\u5df2\u6ee1\u8db3\u56de\u6d4b\u4e0e\u53d1\u5e03\u95e8\u69db\uff0c\u5e76\u5df2\u8fdb\u5165 live_registry\u3002" : "\u8be5\u7b56\u7565\u672a\u8fdb\u5165\u5b9e\u76d8\uff0c\u539f\u56e0\uff1a" + escape(s(gates.get("liveRegistryReason"))))
@@ -1465,6 +1571,7 @@ public class BacktestReportService {
                     .append(metric("Validate \u4e3b\u5206", itemSummary.get("validatePrimaryScore")))
                     .append(metric("Forward \u8f85\u5206", itemSummary.get("forwardAuxScore")))
                     .append(metric("\u6263\u8d39 Validate", itemSummary.get("feeAdjustedValidatePnl")))
+                    .append(metric("\u6263\u8d39 Forward", itemSummary.get("feeAdjustedForwardPnl")))
                     .append(metric("OOS \u901a\u8fc7", isTrue(itemSummary.get("oosPass")) ? "\u662f" : "\u5426"))
                     .append(metric("Maker \u624b\u7eed\u8d39", itemSummary.get("entryFeeTotal")))
                     .append(metric("Taker \u624b\u7eed\u8d39", itemSummary.get("exitFeeTotal")))
@@ -1472,11 +1579,20 @@ public class BacktestReportService {
                     .append(metric("\u6700\u4f73\u70b9\u8106\u5f31", isTrue(itemSummary.get("fragileBest")) ? "\u662f" : "\u5426"))
                     .append("</div></div>");
 
-            html.append("<div class=\"section\"><h2>\u8d26\u6237\u4f59\u989d\u53d8\u52a8\u66f2\u7ebf</h2><div class=\"svg-box\">").append(renderEquitySvg(equityCurve, phaseWindow)).append("</div></div>");
-            html.append("<div class=\"section\"><h2>\u5355\u54c1\u79cd\u56fe\u5f62\u590d\u76d8</h2><div class=\"svg-box\">").append(renderReplaySvg(replay)).append("</div></div>");
-            html.append("<div class=\"section\"><h2>Walk-forward \u5207\u7247\u660e\u7ec6</h2>").append(renderTable(new String[]{"\u5207\u7247", "Fit \u5f00\u59cb", "Fit \u7ed3\u675f", "Validate \u6536\u76ca", "Forward \u6536\u76ca", "Fit \u9009\u53c2\u5206", "Validate \u5206", "\u6700\u4f73\u53c2\u6570", "\u8106\u5f31", "\u9009\u53c2\u76ee\u6807"}, slices, new String[]{"sliceNo", "fitBegin", "fitEnd", "validatePnl", "forwardPnl", "fitScore", "validateScore", "bestParamSetJson", "fragileBest", "selectionObjective"})).append("</div>");
-            html.append("<div class=\"section\"><h2>\u5355\u7b14\u4ea4\u6613\u660e\u7ec6</h2>").append(renderTable(new String[]{"\u7f16\u53f7", "\u65b9\u5411", "\u5f00\u4ed3\u65f6\u95f4", "\u5f00\u4ed3\u4ef7", "\u5e73\u4ed3\u65f6\u95f4", "\u5e73\u4ed3\u4ef7", "\u6536\u76ca", "\u624b\u7eed\u8d39", "\u9000\u51fa\u539f\u56e0"}, trades, new String[]{"tradeNo", "side", "entryTime", "entryPrice", "exitTime", "exitPrice", "pnl", "totalFee", "exitReason"})).append("</div>");
-            html.append("<div class=\"section\"><h2>\u62d2\u5355\u539f\u56e0\u7edf\u8ba1</h2>").append(renderTable(new String[]{"\u539f\u56e0", "\u6b21\u6570"}, rejectReasons, new String[]{"reason", "count"})).append("</div>");
+            html.append(detailsBlock(s(item.get("symbol")) + " 图形和切片细节（默认收起）",
+                    "<div class=\"section\"><h2>\u8d26\u6237\u4f59\u989d\u53d8\u52a8\u66f2\u7ebf</h2><div class=\"svg-box\">"
+                            + renderEquitySvg(equityCurve, phaseWindow)
+                            + "</div></div>"
+                            + "<div class=\"section\"><h2>\u5355\u54c1\u79cd\u56fe\u5f62\u590d\u76d8</h2><div class=\"svg-box\">"
+                            + renderReplaySvg(replay)
+                            + "</div></div>"
+                            + "<div class=\"section\"><h2>Walk-forward \u5207\u7247\u660e\u7ec6</h2>"
+                            + renderTable(new String[]{"\u5207\u7247", "Fit \u5f00\u59cb", "Fit \u7ed3\u675f", "Validate \u6536\u76ca", "Forward \u6536\u76ca", "Fit \u9009\u53c2\u5206", "Validate \u5206", "\u6700\u4f73\u53c2\u6570", "\u8106\u5f31", "\u9009\u53c2\u76ee\u6807"}, slices, new String[]{"sliceNo", "fitBegin", "fitEnd", "validatePnl", "forwardPnl", "fitScore", "validateScore", "bestParamSetJson", "fragileBest", "selectionObjective"})
+                            + "<div class=\"section\"><h2>\u5355\u7b14\u4ea4\u6613\u660e\u7ec6</h2>"
+                            + renderTable(new String[]{"\u7f16\u53f7", "\u65b9\u5411", "\u5f00\u4ed3\u65f6\u95f4", "\u5f00\u4ed3\u4ef7", "\u5e73\u4ed3\u65f6\u95f4", "\u5e73\u4ed3\u4ef7", "\u6536\u76ca", "\u624b\u7eed\u8d39", "\u9000\u51fa\u539f\u56e0"}, trades, new String[]{"tradeNo", "side", "entryTime", "entryPrice", "exitTime", "exitPrice", "pnl", "totalFee", "exitReason"})
+                            + "<div class=\"section\"><h2>\u62d2\u5355\u539f\u56e0\u7edf\u8ba1</h2>"
+                            + renderTable(new String[]{"\u539f\u56e0", "\u6b21\u6570"}, rejectReasons, new String[]{"reason", "count"}),
+                    false));
         }
 
         html.append("</div></body></html>");
@@ -2083,6 +2199,8 @@ public class BacktestReportService {
         @SuppressWarnings("unchecked")
         Map<String, Object> summary = (Map<String, Object>) report.get("summary");
         @SuppressWarnings("unchecked")
+        Map<String, Object> userSummary = (Map<String, Object>) report.get("userSummary");
+        @SuppressWarnings("unchecked")
         Map<String, Object> gates = (Map<String, Object>) report.get("gates");
         @SuppressWarnings("unchecked")
         Map<String, Object> audit = (Map<String, Object>) report.get("audit");
@@ -2114,11 +2232,13 @@ public class BacktestReportService {
         md.append("- \u5b9e\u76d8\u51c6\u5165\u7ed3\u679c\uff1a").append(isTrue(gates.get("liveRegistryEntered")) ? "\u5df2\u8fdb\u5165\u5b9e\u76d8" : "\u672a\u8fdb\u5165\u5b9e\u76d8")
                 .append("\uff1b\u539f\u56e0\uff1a").append(s(gates.get("liveRegistryDetail"))).append("\\n");
         md.append("- \u8bf4\u660e\uff1a\u5ba1\u6838\u7ed3\u8bba\u6309\u7ec4\u5408/\u6574\u4f53\u56de\u6d4b\u4efb\u52a1\u7ed9\u51fa\uff1b\u5b9e\u76d8\u53d1\u5e03\u6309 Symbol \u72ec\u7acb\u5224\u5b9a\uff0c\u56e0\u6b64\u53ef\u80fd\u51fa\u73b0\u201c\u5ba1\u6838\u5931\u8d25\u6216\u89c2\u5bdf\uff0c\u4f46\u5df2\u53d1\u5e03\u90e8\u5206 Symbol\u201d\u3002\\n\\n");
+        appendUserSummaryMarkdown(md, userSummary);
         md.append("## \u6c47\u603b\u6307\u6807\\n\\n");
         md.append("| \u6307\u6807 | \u6570\u503c |\\n|---|---|\\n");
         md.append("| Fit \u6536\u76ca | ").append(s(summary.get("fitPnl"))).append(" |\\n");
         md.append("| Validate \u6536\u76ca | ").append(s(summary.get("validatePnl"))).append(" |\\n");
         md.append("| Forward \u6536\u76ca | ").append(s(summary.get("forwardPnl"))).append(" |\\n");
+        md.append("| \u6263\u8d39 Forward \u6536\u76ca | ").append(s(summary.get("feeAdjustedForwardPnl"))).append(" |\\n");
         md.append("| Validate \u4e3b\u5206 | ").append(s(summary.get("validatePrimaryScore"))).append(" |\\n");
         md.append("| Forward \u8f85\u5206 | ").append(s(summary.get("forwardAuxScore"))).append(" |\\n");
         md.append("| \u6263\u8d39 Validate \u6536\u76ca | ").append(s(summary.get("feeAdjustedValidatePnl"))).append(" |\\n");
@@ -2252,6 +2372,67 @@ public class BacktestReportService {
             }
         }
         return md.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private String renderUserSummarySection(Map<String, Object> userSummary) {
+        if (userSummary == null || userSummary.isEmpty()) {
+            return "";
+        }
+        StringBuilder html = new StringBuilder();
+        html.append("<div class=\"section\"><h2>给用户的结论</h2><div class=\"grid\">")
+                .append(statusCard("回测结论", s(userSummary.get("headline")), s(userSummary.get("auditSummary")), s(userSummary.get("statusClass"))))
+                .append(statusCard("现在该怎么做", s(userSummary.get("actionLabel")), "只看这一条即可判断下一步动作。", s(userSummary.get("statusClass"))))
+                .append(metric("Validate 收益", userSummary.get("keyValidatePnl")))
+                .append(metric("Forward 收益", userSummary.get("keyForwardPnl")))
+                .append(metric("最大回撤", userSummary.get("keyDrawdown")))
+                .append(metric("交易笔数", userSummary.get("keyTradeCount")))
+                .append("</div>");
+        html.append(renderStringList("为什么是这个结论", (List<String>) userSummary.get("reasons")));
+        html.append(renderStringList("下一步建议", (List<String>) userSummary.get("nextSteps")));
+        html.append("</div>");
+        return html.toString();
+    }
+
+    private String detailsBlock(String title, String body, boolean open) {
+        StringBuilder html = new StringBuilder();
+        html.append("<details class=\"fold\"");
+        if (open) {
+            html.append(" open");
+        }
+        html.append("><summary>").append(escape(title)).append("</summary><div class=\"fold-body\">")
+                .append(body == null ? "" : body)
+                .append("</div></details>");
+        return html.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void appendUserSummaryMarkdown(StringBuilder md, Map<String, Object> userSummary) {
+        if (md == null || userSummary == null || userSummary.isEmpty()) {
+            return;
+        }
+        md.append("## 给用户的结论\\n\\n");
+        md.append("- 回测结论：").append(s(userSummary.get("headline"))).append("\\n");
+        md.append("- 现在该怎么做：").append(s(userSummary.get("actionLabel"))).append("\\n");
+        md.append("- Validate 收益：").append(s(userSummary.get("keyValidatePnl"))).append("\\n");
+        md.append("- Forward 收益：").append(s(userSummary.get("keyForwardPnl"))).append("\\n");
+        md.append("- 最大回撤：").append(s(userSummary.get("keyDrawdown"))).append("\\n");
+        md.append("- 交易笔数：").append(s(userSummary.get("keyTradeCount"))).append("\\n");
+        List<String> reasons = (List<String>) userSummary.get("reasons");
+        if (reasons != null && !reasons.isEmpty()) {
+            md.append("\\n### 为什么是这个结论\\n\\n");
+            for (String item : reasons) {
+                md.append("- ").append(item).append("\\n");
+            }
+        }
+        List<String> nextSteps = (List<String>) userSummary.get("nextSteps");
+        if (nextSteps != null && !nextSteps.isEmpty()) {
+            md.append("\\n### 下一步建议\\n\\n");
+            for (String item : nextSteps) {
+                md.append("- ").append(item).append("\\n");
+            }
+        }
+        md.append("\\n");
     }
 
     @SuppressWarnings("unchecked")
@@ -2403,6 +2584,18 @@ public class BacktestReportService {
         }
         html.append("</ul></div>");
         return html.toString();
+    }
+
+    private void addUnique(List<String> rows, String value) {
+        if (rows == null || StringUtils.isBlank(value)) {
+            return;
+        }
+        for (String item : rows) {
+            if (StringUtils.equalsIgnoreCase(StringUtils.trimToEmpty(item), StringUtils.trimToEmpty(value))) {
+                return;
+            }
+        }
+        rows.add(value.trim());
     }
 
     private boolean isPublishEligible(BacktestResponse response, StrategyCandidateRow candidate) {

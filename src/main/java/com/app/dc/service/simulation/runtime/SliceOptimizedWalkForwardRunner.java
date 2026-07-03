@@ -137,6 +137,7 @@ public class SliceOptimizedWalkForwardRunner {
         aggregate.forwardScore = aggregate.forwardAuxScore;
         aggregate.totalFee = aggregate.totalFee == null ? BigDecimal.ZERO : aggregate.totalFee;
         aggregate.feeAdjustedValidatePnl = scale(validatePnl);
+        aggregate.feeAdjustedForwardPnl = scale(forwardPnl);
         aggregate.finalCapital = scale(nz(aggregate.initialCapital).add(aggregate.validatePnl));
         aggregate.totalReturnPct = nz(aggregate.initialCapital).compareTo(BigDecimal.ZERO) <= 0
                 ? BigDecimal.ZERO

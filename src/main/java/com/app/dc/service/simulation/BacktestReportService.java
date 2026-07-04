@@ -449,6 +449,7 @@ public class BacktestReportService {
 
         summary.put("keyValidatePnl", core == null ? "" : s(core.get("validatePnl")));
         summary.put("keyForwardPnl", core == null ? "" : s(core.get("forwardPnl")));
+        summary.put("keyFeeAdjustedValidatePnl", core == null ? "" : s(core.get("feeAdjustedValidatePnl")));
         summary.put("keyFeeAdjustedForwardPnl", core == null ? "" : s(core.get("feeAdjustedForwardPnl")));
         summary.put("keyDrawdown", core == null ? "" : s(core.get("maxDrawdownPct")));
         summary.put("keyTradeCount", core == null ? "" : s(core.get("tradeCount")));
@@ -1482,12 +1483,6 @@ public class BacktestReportService {
                 .append(trackingRow("\u8df3\u8fc7 Symbol", tracking.get("skippedSymbols")))
                 .append("</tbody></table></div>").toString(), false));
 
-        html.append("<div class=\"section\"><h2>\u7ed3\u8bba\u603b\u89c8</h2><div class=\"grid\">")
-                .append(statusCard("\u8fc7\u62df\u5408\u68c0\u67e5", isTrue(gates.get("overfitPass")) ? "\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5" : "\u672a\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5", s(gates.get("overfitReason")), isTrue(gates.get("overfitPass")) ? "pass" : "fail"))
-                .append(statusCard("\u76c8\u5229\u53d1\u5e03\u95e8\u69db", isTrue(gates.get("publishEligible")) ? "\u6ee1\u8db3\u4e0a\u7ebf\u524d\u76c8\u5229\u95e8\u69db" : "\u4e0d\u6ee1\u8db3\u4e0a\u7ebf\u524d\u76c8\u5229\u95e8\u69db", s(gates.get("publishReason")), isTrue(gates.get("publishEligible")) ? "pass" : "warn"))
-                .append(statusCard("\u5b9e\u76d8\u51c6\u5165\u7ed3\u679c", isTrue(gates.get("liveRegistryEntered")) ? "\u5df2\u8fdb\u5165\u5b9e\u76d8" : "\u672a\u8fdb\u5165\u5b9e\u76d8", s(gates.get("liveRegistryDetail")), isTrue(gates.get("liveRegistryEntered")) ? "pass" : "fail"))
-                .append("</div></div>");
-
         StringBuilder auditBlock = new StringBuilder();
         auditBlock.append("<div class=\"grid\">")
                 .append(statusCard("\u5ba1\u6838\u7ed3\u8bba", s(audit.get("finalDecisionLabel")), s(audit.get("summary")), auditDecisionClass(s(audit.get("finalDecision")))))
@@ -1499,14 +1494,18 @@ public class BacktestReportService {
 
         html.append(detailsBlock("按品种发布细节（默认收起）", renderPublishDecisionTable(publish), false));
 
-        html.append("<div class=\"section\"><h2>\u6c47\u603b\u6307\u6807</h2><div class=\"grid\">")
+        StringBuilder metricDetailBlock = new StringBuilder();
+        metricDetailBlock.append("<div class=\"grid\">")
+                .append(statusCard("\u8fc7\u62df\u5408\u68c0\u67e5", isTrue(gates.get("overfitPass")) ? "\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5" : "\u672a\u901a\u8fc7\u8fc7\u62df\u5408\u68c0\u67e5", s(gates.get("overfitReason")), isTrue(gates.get("overfitPass")) ? "pass" : "fail"))
+                .append(statusCard("\u76c8\u5229\u53d1\u5e03\u95e8\u69db", isTrue(gates.get("publishEligible")) ? "\u6ee1\u8db3\u4e0a\u7ebf\u524d\u76c8\u5229\u95e8\u69db" : "\u4e0d\u6ee1\u8db3\u4e0a\u7ebf\u524d\u76c8\u5229\u95e8\u69db", s(gates.get("publishReason")), isTrue(gates.get("publishEligible")) ? "pass" : "warn"))
+                .append(statusCard("\u5b9e\u76d8\u51c6\u5165\u7ed3\u679c", isTrue(gates.get("liveRegistryEntered")) ? "\u5df2\u8fdb\u5165\u5b9e\u76d8" : "\u672a\u8fdb\u5165\u5b9e\u76d8", s(gates.get("liveRegistryDetail")), isTrue(gates.get("liveRegistryEntered")) ? "pass" : "fail"))
                 .append(metric("Fit \u6536\u76ca", summary.get("fitPnl")))
                 .append(metric("Validate \u6536\u76ca", summary.get("validatePnl")))
                 .append(metric("Forward \u6536\u76ca", summary.get("forwardPnl")))
+                .append(metric("\u6263\u8d39 Validate \u6536\u76ca", summary.get("feeAdjustedValidatePnl")))
                 .append(metric("\u6263\u8d39 Forward \u6536\u76ca", summary.get("feeAdjustedForwardPnl")))
                 .append(metric("Validate \u4e3b\u5206", summary.get("validatePrimaryScore")))
                 .append(metric("Forward \u8f85\u5206", summary.get("forwardAuxScore")))
-                .append(metric("\u6263\u8d39 Validate \u6536\u76ca", summary.get("feeAdjustedValidatePnl")))
                 .append(metric("OOS \u901a\u8fc7", isTrue(summary.get("oosPass")) ? "\u662f" : "\u5426"))
                 .append(metric("Forward Score", summary.get("forwardScore")))
                 .append(metric("\u7a97\u53e3\u914d\u7f6e", s(summary.get("fitWindowDays")) + "/" + s(summary.get("validateWindowDays")) + "/" + s(summary.get("forwardWindowDays"))))
@@ -1516,7 +1515,8 @@ public class BacktestReportService {
                 .append(metric("Validate \u4ea4\u6613\u7b14\u6570", summary.get("tradeCount")))
                 .append(metric("Validate \u6700\u5927\u56de\u64a4", summary.get("maxDrawdownPct")))
                 .append(metric("\u603b\u624b\u7eed\u8d39", summary.get("totalFee")))
-                .append("</div></div>");
+                .append("</div>");
+        html.append(detailsBlock("\u5ba1\u6838\u548c\u6307\u6807\u8be6\u60c5\uff08\u9ed8\u8ba4\u6536\u8d77\uff09", metricDetailBlock.toString(), false));
 
         StringBuilder optimizationBlock = new StringBuilder();
         optimizationBlock.append("<div class=\"grid\">")
@@ -1541,13 +1541,15 @@ public class BacktestReportService {
                 .append(renderOptimizationTrialsV2(optimization));
         html.append(detailsBlock("参数搜索和优化细节（默认收起）", optimizationBlock.toString(), false));
 
-        html.append("<div class=\"section\"><div class=\"tips\">")
-                .append(isTrue(gates.get("liveRegistryEntered")) ? "\u8be5\u7b56\u7565\u5df2\u6ee1\u8db3\u56de\u6d4b\u4e0e\u53d1\u5e03\u95e8\u69db\uff0c\u5e76\u5df2\u8fdb\u5165 live_registry\u3002" : "\u8be5\u7b56\u7565\u672a\u8fdb\u5165\u5b9e\u76d8\uff0c\u539f\u56e0\uff1a" + escape(s(gates.get("liveRegistryReason"))))
-                .append("<br/>")
-                .append("\u4f18\u5316\u8bc1\u636e\uff1a").append(escape(s(optimization.get("evidenceMessage"))))
-                .append(renderStringList("\u672a\u901a\u8fc7\u9879", (List<String>) gates.get("failedRules")))
-                .append(renderStringList("\u63d0\u793a", (List<String>) gates.get("warnings")))
-                .append("</div></div>");
+        html.append(detailsBlock("\u5931\u8d25\u9879\u548c\u8865\u5145\u63d0\u793a\uff08\u9ed8\u8ba4\u6536\u8d77\uff09",
+                "<div class=\"tips\">"
+                        + (isTrue(gates.get("liveRegistryEntered")) ? "\u8be5\u7b56\u7565\u5df2\u6ee1\u8db3\u56de\u6d4b\u4e0e\u53d1\u5e03\u95e8\u69db\uff0c\u5e76\u5df2\u8fdb\u5165 live_registry\u3002" : "\u8be5\u7b56\u7565\u672a\u8fdb\u5165\u5b9e\u76d8\uff0c\u539f\u56e0\uff1a" + escape(s(gates.get("liveRegistryReason"))))
+                        + "<br/>"
+                        + "\u4f18\u5316\u8bc1\u636e\uff1a" + escape(s(optimization.get("evidenceMessage")))
+                        + renderStringList("\u672a\u901a\u8fc7\u9879", (List<String>) gates.get("failedRules"))
+                        + renderStringList("\u63d0\u793a", (List<String>) gates.get("warnings"))
+                        + "</div>",
+                false));
 
         for (Map<String, Object> item : results) {
             @SuppressWarnings("unchecked")
@@ -2383,8 +2385,8 @@ public class BacktestReportService {
         html.append("<div class=\"section\"><h2>给用户的结论</h2><div class=\"grid\">")
                 .append(statusCard("回测结论", s(userSummary.get("headline")), s(userSummary.get("auditSummary")), s(userSummary.get("statusClass"))))
                 .append(statusCard("现在该怎么做", s(userSummary.get("actionLabel")), "只看这一条即可判断下一步动作。", s(userSummary.get("statusClass"))))
-                .append(metric("Validate 收益", userSummary.get("keyValidatePnl")))
-                .append(metric("Forward 收益", userSummary.get("keyForwardPnl")))
+                .append(metric("扣费 Validate 收益", userSummary.get("keyFeeAdjustedValidatePnl")))
+                .append(metric("扣费 Forward 收益", userSummary.get("keyFeeAdjustedForwardPnl")))
                 .append(metric("最大回撤", userSummary.get("keyDrawdown")))
                 .append(metric("交易笔数", userSummary.get("keyTradeCount")))
                 .append("</div>");
@@ -2414,8 +2416,8 @@ public class BacktestReportService {
         md.append("## 给用户的结论\\n\\n");
         md.append("- 回测结论：").append(s(userSummary.get("headline"))).append("\\n");
         md.append("- 现在该怎么做：").append(s(userSummary.get("actionLabel"))).append("\\n");
-        md.append("- Validate 收益：").append(s(userSummary.get("keyValidatePnl"))).append("\\n");
-        md.append("- Forward 收益：").append(s(userSummary.get("keyForwardPnl"))).append("\\n");
+        md.append("- 扣费 Validate 收益：").append(s(userSummary.get("keyFeeAdjustedValidatePnl"))).append("\\n");
+        md.append("- 扣费 Forward 收益：").append(s(userSummary.get("keyFeeAdjustedForwardPnl"))).append("\\n");
         md.append("- 最大回撤：").append(s(userSummary.get("keyDrawdown"))).append("\\n");
         md.append("- 交易笔数：").append(s(userSummary.get("keyTradeCount"))).append("\\n");
         List<String> reasons = (List<String>) userSummary.get("reasons");

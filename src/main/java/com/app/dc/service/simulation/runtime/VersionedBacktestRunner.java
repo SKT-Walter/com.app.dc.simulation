@@ -75,6 +75,7 @@ public class VersionedBacktestRunner {
         BacktestModels.Position position = null;
 
         for (TTbookOhlc ohlc : ohlcList) {
+            BacktestExecutionGuard.checkInterrupted("versioned_backtest_bar_loop");
             Bar bar = legacyBacktestService.toBar(ohlc, duration);
             marketSeriesRegistry.appendBar(param.text, param.symbol, bar);
             replaySeries = marketSeriesRegistry.getSeries(param.text, param.symbol);
@@ -103,6 +104,7 @@ public class VersionedBacktestRunner {
             signalContext.marketSeriesRegistry = marketSeriesRegistry;
             signalContext.parameters.putAll(definition.parameters);
 
+            BacktestExecutionGuard.checkInterrupted("versioned_backtest_before_evaluate");
             Signal signal = runtimeFacade.evaluate(candidate.strategyName, candidate.strategyVersion, signalContext);
             if (signal == null || signal.side == null || signal.side == Side.NONE) {
                 continue;

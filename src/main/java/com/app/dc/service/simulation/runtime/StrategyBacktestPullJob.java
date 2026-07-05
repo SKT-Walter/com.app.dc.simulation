@@ -26,7 +26,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
 @Slf4j
@@ -51,6 +53,12 @@ public class StrategyBacktestPullJob {
 
     @Value("${strategy.backtest.task.suspendedRetryMinutes:30}")
     private int suspendedRetryMinutes;
+
+    @Value("${strategy.backtest.task.maxRuntimeMinutes:240}")
+    private int maxRuntimeMinutes;
+
+    @Value("${strategy.backtest.task.maxIdleProgressMinutes:30}")
+    private int maxIdleProgressMinutes;
 
     @Autowired
     private StrategyBacktestTaskDao taskDao;
@@ -81,12 +89,15 @@ public class StrategyBacktestPullJob {
     private ThreadPoolTaskExecutor strategyBacktestTaskExecutor;
 
     private final Set<String> inFlightTaskIds = ConcurrentHashMap.newKeySet();
+    private final Map<String, RunningTaskContext> runningTaskContexts =
+            new ConcurrentHashMap<String, RunningTaskContext>();
 
     @Scheduled(cron = "${strategy.backtest.task.cron:0 */1 * * * ?}")
     public void run() {
         if (!enabled) {
             return;
         }
+        sweepTimedOutTasks();
         int effectiveParallelism = Math.max(1, parallelism);
         int currentInFlight = inFlightTaskIds.size();
         int availableSlots = Math.max(0, effectiveParallelism - currentInFlight);
@@ -118,18 +129,23 @@ public class StrategyBacktestPullJob {
                     task.id, task.strategyName, task.strategyVersion);
             return;
         }
+        final RunningTaskContext context = new RunningTaskContext(task);
+        runningTaskContexts.put(task.id, context);
         try {
-            strategyBacktestTaskExecutor.execute(new Runnable() {
+            Future<?> future = strategyBacktestTaskExecutor.submit(new Runnable() {
                 @Override
                 public void run() {
                     handleTask(task);
                 }
             });
+            context.future = future;
         } catch (RejectedExecutionException e) {
+            runningTaskContexts.remove(task.id);
             inFlightTaskIds.remove(task.id);
             log.warn("StrategyBacktestPullJob rejected task dispatch, task:{}, strategy:{}@{}",
                     task.id, task.strategyName, task.strategyVersion, e);
         } catch (Exception e) {
+            runningTaskContexts.remove(task.id);
             inFlightTaskIds.remove(task.id);
             log.error("StrategyBacktestPullJob dispatch error, task:{}, strategy:{}@{}",
                     task.id, task.strategyName, task.strategyVersion, e);
@@ -141,6 +157,10 @@ public class StrategyBacktestPullJob {
         String threadName = Thread.currentThread().getName();
         LocalDateTime backtestStart = LocalDateTime.now();
         final BacktestParam[] resolvedParamHolder = new BacktestParam[1];
+        final RunningTaskContext context = task == null ? null : runningTaskContexts.get(task.id);
+        if (context != null) {
+            context.bindThread(threadName);
+        }
         try {
             log.info("StrategyBacktestPullJob task start, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, fromStatus:{}, heap:{}",
                     task.id, task.generationTaskId, task.candidateId, task.strategyName, task.strategyVersion,
@@ -169,6 +189,9 @@ public class StrategyBacktestPullJob {
                     new BacktestService.ProgressListener() {
                         @Override
                         public void onProgress(Map<String, Object> progress) {
+                            if (context != null) {
+                                context.touch();
+                            }
                             try {
                                 taskDao.refreshRunningProgress(task.id, buildRunningPayload(task, resolvedParamHolder[0], progress));
                             } catch (Exception e) {
@@ -293,6 +316,31 @@ public class StrategyBacktestPullJob {
                     task.id, task.generationTaskId, firstNotBlank(task.candidateId, candidate.id),
                     candidate.strategyName, candidate.strategyVersion, threadName,
                     publishDecision.published, publishDecision.reason);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            String failureReason = resolveInterruptedFailureReason(task, context, e);
+            log.warn("StrategyBacktestPullJob task interrupted, task:{}, generationTaskId:{}, candidateId:{}, thread:{}, reason:{}, heap:{}",
+                    task == null ? null : task.id,
+                    task == null ? null : task.generationTaskId,
+                    task == null ? null : task.candidateId,
+                    threadName,
+                    failureReason,
+                    memorySummary());
+            Map<String, Object> pipelinePayload = resolvePipelinePayload(task, null);
+            pipelinePayload.put("error", failureReason);
+            if (context != null && !isBlank(context.cancelReason)) {
+                pipelinePayload.put("cancelReason", context.cancelReason);
+            }
+            markPipeline(task, null, StrategyPipelineModels.BACKTEST, StrategyPipelineModels.FAILED,
+                    failureReason, backtestStart, pipelinePayload);
+            taskDao.markFailed(task == null ? null : task.id, failureReason);
+            log.info("StrategyBacktestPullJob task status -> FAILED, task:{}, generationTaskId:{}, candidateId:{}, thread:{}, error:{}, heap:{}",
+                    task == null ? null : task.id,
+                    task == null ? null : task.generationTaskId,
+                    task == null ? null : task.candidateId,
+                    threadName,
+                    failureReason,
+                    memorySummary());
         } catch (BacktestTaskSuspendedException e) {
             if (isNonRetryableSuspend(e)) {
                 String failureReason = summarizeSuspendFailure(e);
@@ -430,6 +478,9 @@ public class StrategyBacktestPullJob {
                     task == null ? null : task.candidateId,
                     threadName, failureReason, memorySummary());
         } finally {
+            if (task != null) {
+                runningTaskContexts.remove(task.id);
+            }
             inFlightTaskIds.remove(task == null ? null : task.id);
             long elapsedMs = Math.max(0L, (System.nanoTime() - startNs) / 1_000_000L);
             log.info("StrategyBacktestPullJob task end, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, elapsedMs:{}, inFlight:{}, heap:{}",
@@ -559,6 +610,11 @@ public class StrategyBacktestPullJob {
     }
 
     @SuppressWarnings("unchecked")
+    private String buildSuccessPayload(StrategyBacktestTaskRow task, Map<String, Object> taskResult) {
+        return buildSuccessPayload(task, null, taskResult);
+    }
+
+    @SuppressWarnings("unchecked")
     private String buildSuccessPayload(StrategyBacktestTaskRow task, BacktestParam resolvedParam, Map<String, Object> taskResult) {
         Map<String, Object> merged = extractCompactPayloadMap(task, resolvedParam);
         merged.remove("runningProgress");
@@ -575,6 +631,10 @@ public class StrategyBacktestPullJob {
             }
         }
         return JsonUtils.Serializer(merged);
+    }
+
+    private String buildRunningPayload(StrategyBacktestTaskRow task, Map<String, Object> runningProgress) {
+        return buildRunningPayload(task, null, runningProgress);
     }
 
     private String buildRunningPayload(StrategyBacktestTaskRow task, BacktestParam resolvedParam, Map<String, Object> runningProgress) {
@@ -731,6 +791,46 @@ public class StrategyBacktestPullJob {
         LocalDateTime staleCutoff = LocalDateTime.now().minusMinutes(Math.max(1, runningReclaimMinutes));
         LocalDateTime reclaimBefore = staleCutoff.isAfter(processBootAt) ? staleCutoff : processBootAt;
         return CLICKHOUSE_TIME.format(reclaimBefore);
+    }
+
+    private void sweepTimedOutTasks() {
+        if (runningTaskContexts.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        long maxRuntimeMs = Math.max(1L, maxRuntimeMinutes) * 60_000L;
+        long maxIdleMs = Math.max(1L, maxIdleProgressMinutes) * 60_000L;
+        for (RunningTaskContext context : runningTaskContexts.values()) {
+            if (context == null || !context.shouldCancel(now, maxRuntimeMs, maxIdleMs)) {
+                continue;
+            }
+            Future<?> future = context.future;
+            boolean cancelIssued = future != null && future.cancel(true);
+            log.warn("StrategyBacktestPullJob watchdog cancel, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, reason:{}, runtimeMinutes:{}, idleMinutes:{}, cancelIssued:{}",
+                    context.taskId,
+                    context.generationTaskId,
+                    context.candidateId,
+                    context.strategyName,
+                    context.strategyVersion,
+                    context.threadName,
+                    context.cancelReason,
+                    context.runtimeMinutes(now),
+                    context.idleMinutes(now),
+                    cancelIssued);
+        }
+    }
+
+    private String resolveInterruptedFailureReason(StrategyBacktestTaskRow task,
+                                                   RunningTaskContext context,
+                                                   InterruptedException error) {
+        if (context != null && !isBlank(context.cancelReason)) {
+            return "backtest watchdog interrupted: " + context.cancelReason;
+        }
+        String message = error == null ? "" : error.getMessage();
+        if (!isBlank(message)) {
+            return message;
+        }
+        return "backtest interrupted: " + (task == null ? "" : task.id);
     }
 
     private String defaultSymbol(String scene) {
@@ -906,5 +1006,60 @@ public class StrategyBacktestPullJob {
 
     private boolean isNegativeIndexMessage(String message) {
         return !isBlank(message) && message.contains("index = -");
+    }
+
+    private static final class RunningTaskContext {
+        private final String taskId;
+        private final String generationTaskId;
+        private final String candidateId;
+        private final String strategyName;
+        private final String strategyVersion;
+        private final long startedAtMs = System.currentTimeMillis();
+        private volatile long lastProgressAtMs = startedAtMs;
+        private volatile String threadName = "";
+        private volatile String cancelReason = "";
+        private volatile Future<?> future;
+        private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
+
+        private RunningTaskContext(StrategyBacktestTaskRow task) {
+            this.taskId = task == null ? "" : task.id;
+            this.generationTaskId = task == null ? "" : task.generationTaskId;
+            this.candidateId = task == null ? "" : task.candidateId;
+            this.strategyName = task == null ? "" : task.strategyName;
+            this.strategyVersion = task == null ? "" : task.strategyVersion;
+        }
+
+        private void bindThread(String threadName) {
+            this.threadName = threadName == null ? "" : threadName;
+        }
+
+        private void touch() {
+            this.lastProgressAtMs = System.currentTimeMillis();
+        }
+
+        private boolean shouldCancel(long now, long maxRuntimeMs, long maxIdleMs) {
+            if (cancelRequested.get()) {
+                return false;
+            }
+            long runtimeMs = Math.max(0L, now - startedAtMs);
+            long idleMs = Math.max(0L, now - lastProgressAtMs);
+            if (runtimeMs >= maxRuntimeMs) {
+                cancelReason = "runtime_exceeded_" + (maxRuntimeMs / 60000L) + "m";
+                return cancelRequested.compareAndSet(false, true);
+            }
+            if (idleMs >= maxIdleMs) {
+                cancelReason = "no_progress_exceeded_" + (maxIdleMs / 60000L) + "m";
+                return cancelRequested.compareAndSet(false, true);
+            }
+            return false;
+        }
+
+        private long runtimeMinutes(long now) {
+            return Math.max(0L, (now - startedAtMs) / 60000L);
+        }
+
+        private long idleMinutes(long now) {
+            return Math.max(0L, (now - lastProgressAtMs) / 60000L);
+        }
     }
 }

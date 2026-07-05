@@ -93,6 +93,7 @@ public class SliceOptimizedWalkForwardRunner {
         int nextTrialNo = 1;
 
         for (int i = 0; i < slices.size(); i++) {
+            BacktestExecutionGuard.checkInterrupted("slice_optimized_slice_loop");
             WindowSlice slice = slices.get(i);
             List<TTbookOhlc> fitRows = filterRows(rows, slice.fitBegin, slice.fitEnd);
             List<TTbookOhlc> validateRows = filterRows(rows, slice.validateBegin, slice.validateEnd);
@@ -255,6 +256,7 @@ public class SliceOptimizedWalkForwardRunner {
         }
         int trialNo = Math.max(1, startTrialNo);
         for (Map<String, Object> paramSet : paramSets) {
+            BacktestExecutionGuard.checkInterrupted("slice_fit_trial_loop");
             BacktestModels.BacktestResult fitResult = runWindow(candidate, baseParam, paramSet, fitRows, slice.fitBegin, slice.fitEnd);
             SliceFitTrial trial = new SliceFitTrial();
             trial.trialNo = trialNo++;

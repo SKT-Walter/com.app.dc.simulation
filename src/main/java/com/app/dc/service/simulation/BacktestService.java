@@ -35,6 +35,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 
@@ -205,6 +206,7 @@ public class BacktestService {
         List<TrialExecution> executions = new ArrayList<TrialExecution>();
         int trialNo = startTrialNo;
         for (Map<String, Object> paramSet : paramSets) {
+            checkInterrupted("backtest_execute_trials_loop");
             long trialStartNs = System.nanoTime();
             log.info("BacktestService trial start, strategy:{}@{}, phase:{}, trialNo:{}, params:{}",
                     candidate.strategyName, candidate.strategyVersion, phase, trialNo, JsonUtils.Serializer(paramSet));
@@ -380,6 +382,7 @@ public class BacktestService {
         response.minForwardContribution = plan == null ? BigDecimal.ZERO : plan.minForwardContribution;
         log.info("BacktestService runSingle start, strategy:{}@{}, symbols:{}, trialParams:{}",
                 candidate.strategyName, candidate.strategyVersion, symbols, JsonUtils.Serializer(trialParams));
+        checkInterrupted("backtest_run_single_start");
 
         List<BacktestResult> results = new ArrayList<BacktestResult>();
         BigDecimal fitPnl = BigDecimal.ZERO;
@@ -400,6 +403,7 @@ public class BacktestService {
             }
         });
         for (BacktestResult result : symbolResults) {
+            checkInterrupted("backtest_run_single_merge_results");
             if (result == null) {
                 continue;
             }
@@ -502,7 +506,20 @@ public class BacktestService {
         }
         List<BacktestResult> results = new ArrayList<BacktestResult>();
         for (Future<BacktestResult> future : futures) {
-            results.add(future.get());
+            try {
+                checkInterrupted("backtest_execute_symbols_parallel_wait");
+                results.add(future.get());
+            } catch (InterruptedException e) {
+                cancelFutures(futures);
+                Thread.currentThread().interrupt();
+                throw e;
+            } catch (CancellationException e) {
+                cancelFutures(futures);
+                throw new InterruptedException("backtest interrupted while waiting symbol future");
+            } catch (Exception e) {
+                cancelFutures(futures);
+                throw e;
+            }
         }
         return results;
     }
@@ -527,9 +544,25 @@ public class BacktestService {
         List<BacktestResult> results = new ArrayList<BacktestResult>();
         int perSymbolBudget = Math.max(1, trialBudget / Math.max(1, symbols.size()));
         for (String symbol : symbols) {
+            checkInterrupted("backtest_execute_symbols_serial_loop");
             results.add(runSingleSymbol(candidate, req, symbol, trialParams, windowConfig, plan, ohlcCache, perSymbolBudget));
         }
         return results;
+    }
+
+    private void cancelFutures(List<Future<BacktestResult>> futures) {
+        if (futures == null) {
+            return;
+        }
+        for (Future<BacktestResult> future : futures) {
+            if (future != null && !future.isDone()) {
+                future.cancel(true);
+            }
+        }
+    }
+
+    private void checkInterrupted(String stage) throws InterruptedException {
+        com.app.dc.service.simulation.runtime.BacktestExecutionGuard.checkInterrupted(stage);
     }
 
     private BacktestResult runSingleSymbol(StrategyCandidateRow candidate,

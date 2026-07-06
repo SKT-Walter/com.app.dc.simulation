@@ -10,6 +10,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Collections;
@@ -73,114 +75,60 @@ public class BacktestResultClickHouseDao {
                 + "optimization_objective,min_forward_contribution,fragile_best,stable_param_range,neighbor_avg_pnl,neighbor_worst_pnl,payload)"
                 + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
-        for (BacktestModels.BacktestResult result : results) {
-            try {
-                Object[] args = new Object[]{
-                        Timestamp.from(Instant.now()),
-                        safe(sid),
-                        safe(result.strategyName),
-                        safe(result.strategyVersion),
-                        safe(result.baselineVersion),
-                        safe(result.runtimeType),
-                        safe(result.scene),
-                        safe(result.symbol),
-                        safe(result.text),
-                        safe(result.beginDate),
-                        safe(result.endDate),
-                        nzInt(result.tradeCount),
-                        nzInt(result.winCount),
-                        nzInt(result.lossCount),
-                        nzInt(result.flatCount),
-                        nzDouble(result.winRate),
-                        nzDouble(result.totalReturnPct),
-                        nzDouble(result.profitFactor),
-                        nzDouble(result.maxDrawdownPct),
-                        nzDouble(result.initialCapital),
-                        nzDouble(result.finalCapital),
-                        result.totalPnl == null
-                                ? calcTotalPnl(result.initialCapital, result.finalCapital)
-                                : nzDouble(result.totalPnl),
-                        nzDouble(result.forwardScore),
-                        nzDouble(result.validatePrimaryScore),
-                        nzDouble(result.forwardAuxScore),
-                        nzDouble(result.feeAdjustedValidatePnl),
-                        nzDouble(result.feeAdjustedForwardPnl),
-                        nzDouble(result.sliceParamDriftScore),
-                        nzInt(result.oosPass),
-                        safe(result.windowMode),
-                        nzInt(result.sliceCount),
-                        nzDouble(result.fitPnl),
-                        nzDouble(result.validatePnl),
-                        nzDouble(result.forwardPnl),
-                        nzInt(result.overfitPass),
-                        safe(result.overfitReason),
-                        safe(result.optimizationMode),
-                        nzInt(result.trialCount),
-                        safe(result.bestParamSetJson),
-                        nzInt(result.bestRank),
-                        nzInt(result.symbolCount),
-                        nzInt(result.fitWindowDays),
-                        nzInt(result.validateWindowDays),
-                        nzInt(result.forwardWindowDays),
-                        nzInt(result.minSliceCount),
-                        safe(result.optimizationObjective),
-                        nzDouble(result.minForwardContribution),
-                        nzInt(result.elapsedMs),
-                        nzInt(result.fragileBest),
-                        safe(result.stableParamRangeJson),
-                        nzDouble(result.neighborAvgPnl),
-                        nzDouble(result.neighborWorstPnl),
-                        safe(reportPath),
-                        JsonUtils.Serializer(result)
-                };
-                ClickHouseDBUtils.update(sql, args);
-                insertSliceResults(sliceSql, sid, result);
-            } catch (Exception e) {
-                log.error("BacktestResultClickHouseDao insert error, strategy:{}, symbol:{}",
-                        result.strategyName, result.symbol, e);
+        Connection con = null;
+        try {
+            con = ClickHouseDBUtils.getDatabaseConnection().getConnection();
+            insertBacktestResults(con, sql, sliceSql, sid, reportPath, results);
+            insertOptimizationTrials(con, trialSql, sid, response);
+        } catch (Exception e) {
+            log.error("BacktestResultClickHouseDao insert session error, sid:{}, resultCount:{}, trialCount:{}",
+                    sid,
+                    results.size(),
+                    response.trials == null ? 0 : response.trials.size(),
+                    e);
+        } finally {
+            if (con != null) {
+                try {
+                    ClickHouseDBUtils.getDatabaseConnection().freeConnection(con);
+                } catch (Exception ignore) {
+                }
             }
         }
-        insertOptimizationTrials(trialSql, sid, response);
     }
 
-    private void insertSliceResults(String sql, String sid, BacktestModels.BacktestResult result) {
+    private void insertBacktestResults(Connection con,
+                                       String resultSql,
+                                       String sliceSql,
+                                       String sid,
+                                       String reportPath,
+                                       List<BacktestModels.BacktestResult> results) throws Exception {
+        PreparedStatement resultPs = null;
+        PreparedStatement slicePs = null;
+        try {
+            resultPs = con.prepareStatement(resultSql);
+            slicePs = con.prepareStatement(sliceSql);
+            for (BacktestModels.BacktestResult result : results) {
+                try {
+                    executePrepared(resultPs, buildResultArgs(sid, reportPath, result));
+                    insertSliceResults(slicePs, sid, result);
+                } catch (Exception e) {
+                    log.error("BacktestResultClickHouseDao insert error, strategy:{}, symbol:{}",
+                            result.strategyName, result.symbol, e);
+                }
+            }
+        } finally {
+            closeQuietly(slicePs);
+            closeQuietly(resultPs);
+        }
+    }
+
+    private void insertSliceResults(PreparedStatement slicePs, String sid, BacktestModels.BacktestResult result) {
         if (result == null || result.sliceResults == null || result.sliceResults.isEmpty()) {
             return;
         }
         for (BacktestModels.BacktestSliceResult slice : result.sliceResults) {
             try {
-                Object[] args = new Object[]{
-                        Timestamp.from(Instant.now()),
-                        safe(sid),
-                        safe(slice.strategyName),
-                        safe(slice.strategyVersion),
-                        safe(slice.symbol),
-                        safe(slice.text),
-                        nzInt(slice.sliceNo),
-                        safe(slice.fitBegin),
-                        safe(slice.fitEnd),
-                        safe(slice.validateBegin),
-                        safe(slice.validateEnd),
-                        safe(slice.forwardBegin),
-                        safe(slice.forwardEnd),
-                        nzDouble(slice.fitPnl),
-                        nzDouble(slice.validatePnl),
-                        nzDouble(slice.forwardPnl),
-                        nzInt(slice.fitTradeCount),
-                        nzInt(slice.validateTradeCount),
-                        nzInt(slice.forwardTradeCount),
-                        nzDouble(slice.fitMaxDrawdownPct),
-                        nzDouble(slice.validateMaxDrawdownPct),
-                        nzDouble(slice.forwardMaxDrawdownPct),
-                        safe(slice.bestParamSetJson),
-                        nzDouble(slice.fitScore),
-                        nzDouble(slice.validateScore),
-                        nzDouble(slice.forwardScore),
-                        safe(slice.selectionObjective),
-                        nzInt(slice.fragileBest),
-                        safe(slice.payload)
-                };
-                ClickHouseDBUtils.update(sql, args);
+                executePrepared(slicePs, buildSliceArgs(sid, slice));
             } catch (Exception e) {
                 log.error("BacktestResultClickHouseDao insert slice error, strategy:{}, symbol:{}, slice:{}",
                         result.strategyName, result.symbol, slice.sliceNo, e);
@@ -188,51 +136,176 @@ public class BacktestResultClickHouseDao {
         }
     }
 
-    private void insertOptimizationTrials(String sql, String sid, BacktestModels.BacktestResponse response) {
+    private void insertOptimizationTrials(Connection con,
+                                          String sql,
+                                          String sid,
+                                          BacktestModels.BacktestResponse response) throws Exception {
         if (response == null || response.trials == null || response.trials.isEmpty()) {
             return;
         }
-        for (BacktestModels.OptimizationTrial trial : response.trials) {
-            try {
-                Object[] args = new Object[]{
-                        Timestamp.from(Instant.now()),
-                        safe(sid),
-                        safe(trial.strategyName),
-                        safe(trial.strategyVersion),
-                        safe(trial.symbolScope),
-                        safe(trial.textScope),
-                        nzInt(trial.trialNo),
-                        safe(trial.phase),
-                        safe(trial.paramSetJson),
-                        nzDouble(trial.fitPnl),
-                        nzDouble(trial.validatePnl),
-                        nzDouble(trial.forwardPnl),
-                        nzDouble(trial.totalPnl),
-                        nzDouble(trial.forwardScore),
-                        nzDouble(trial.maxDrawdownPct),
-                        nzInt(trial.overfitPass),
-                        safe(trial.overfitReason),
-                        nzInt(trial.rank),
-                        nzInt(trial.elapsedMs),
-                        nzInt(trial.symbolCount),
-                        nzInt(trial.sliceCount),
-                        nzInt(trial.fitWindowDays),
-                        nzInt(trial.validateWindowDays),
-                        nzInt(trial.forwardWindowDays),
-                        nzInt(trial.minSliceCount),
-                        safe(trial.optimizationObjective),
-                        nzDouble(trial.minForwardContribution),
-                        nzInt(trial.fragileBest),
-                        safe(trial.stableParamRangeJson),
-                        nzDouble(trial.neighborAvgPnl),
-                        nzDouble(trial.neighborWorstPnl),
-                        JsonUtils.Serializer(trial)
-                };
-                ClickHouseDBUtils.update(sql, args);
-            } catch (Exception e) {
-                log.error("BacktestResultClickHouseDao insert optimization trial error, strategy:{}, trial:{}",
-                        trial.strategyName, trial.trialNo, e);
+        PreparedStatement trialPs = null;
+        try {
+            trialPs = con.prepareStatement(sql);
+            for (BacktestModels.OptimizationTrial trial : response.trials) {
+                try {
+                    executePrepared(trialPs, buildTrialArgs(sid, trial));
+                } catch (Exception e) {
+                    log.error("BacktestResultClickHouseDao insert optimization trial error, strategy:{}, trial:{}",
+                            trial.strategyName, trial.trialNo, e);
+                }
             }
+        } finally {
+            closeQuietly(trialPs);
+        }
+    }
+
+    private Object[] buildResultArgs(String sid, String reportPath, BacktestModels.BacktestResult result) {
+        return new Object[]{
+                Timestamp.from(Instant.now()),
+                safe(sid),
+                safe(result.strategyName),
+                safe(result.strategyVersion),
+                safe(result.baselineVersion),
+                safe(result.runtimeType),
+                safe(result.scene),
+                safe(result.symbol),
+                safe(result.text),
+                safe(result.beginDate),
+                safe(result.endDate),
+                nzInt(result.tradeCount),
+                nzInt(result.winCount),
+                nzInt(result.lossCount),
+                nzInt(result.flatCount),
+                nzDouble(result.winRate),
+                nzDouble(result.totalReturnPct),
+                nzDouble(result.profitFactor),
+                nzDouble(result.maxDrawdownPct),
+                nzDouble(result.initialCapital),
+                nzDouble(result.finalCapital),
+                result.totalPnl == null
+                        ? calcTotalPnl(result.initialCapital, result.finalCapital)
+                        : nzDouble(result.totalPnl),
+                nzDouble(result.forwardScore),
+                nzDouble(result.validatePrimaryScore),
+                nzDouble(result.forwardAuxScore),
+                nzDouble(result.feeAdjustedValidatePnl),
+                nzDouble(result.feeAdjustedForwardPnl),
+                nzDouble(result.sliceParamDriftScore),
+                nzInt(result.oosPass),
+                safe(result.windowMode),
+                nzInt(result.sliceCount),
+                nzDouble(result.fitPnl),
+                nzDouble(result.validatePnl),
+                nzDouble(result.forwardPnl),
+                nzInt(result.overfitPass),
+                safe(result.overfitReason),
+                safe(result.optimizationMode),
+                nzInt(result.trialCount),
+                safe(result.bestParamSetJson),
+                nzInt(result.bestRank),
+                nzInt(result.symbolCount),
+                nzInt(result.fitWindowDays),
+                nzInt(result.validateWindowDays),
+                nzInt(result.forwardWindowDays),
+                nzInt(result.minSliceCount),
+                safe(result.optimizationObjective),
+                nzDouble(result.minForwardContribution),
+                nzInt(result.elapsedMs),
+                nzInt(result.fragileBest),
+                safe(result.stableParamRangeJson),
+                nzDouble(result.neighborAvgPnl),
+                nzDouble(result.neighborWorstPnl),
+                safe(reportPath),
+                JsonUtils.Serializer(result)
+        };
+    }
+
+    private Object[] buildSliceArgs(String sid, BacktestModels.BacktestSliceResult slice) {
+        return new Object[]{
+                Timestamp.from(Instant.now()),
+                safe(sid),
+                safe(slice.strategyName),
+                safe(slice.strategyVersion),
+                safe(slice.symbol),
+                safe(slice.text),
+                nzInt(slice.sliceNo),
+                safe(slice.fitBegin),
+                safe(slice.fitEnd),
+                safe(slice.validateBegin),
+                safe(slice.validateEnd),
+                safe(slice.forwardBegin),
+                safe(slice.forwardEnd),
+                nzDouble(slice.fitPnl),
+                nzDouble(slice.validatePnl),
+                nzDouble(slice.forwardPnl),
+                nzInt(slice.fitTradeCount),
+                nzInt(slice.validateTradeCount),
+                nzInt(slice.forwardTradeCount),
+                nzDouble(slice.fitMaxDrawdownPct),
+                nzDouble(slice.validateMaxDrawdownPct),
+                nzDouble(slice.forwardMaxDrawdownPct),
+                safe(slice.bestParamSetJson),
+                nzDouble(slice.fitScore),
+                nzDouble(slice.validateScore),
+                nzDouble(slice.forwardScore),
+                safe(slice.selectionObjective),
+                nzInt(slice.fragileBest),
+                safe(slice.payload)
+        };
+    }
+
+    private Object[] buildTrialArgs(String sid, BacktestModels.OptimizationTrial trial) {
+        return new Object[]{
+                Timestamp.from(Instant.now()),
+                safe(sid),
+                safe(trial.strategyName),
+                safe(trial.strategyVersion),
+                safe(trial.symbolScope),
+                safe(trial.textScope),
+                nzInt(trial.trialNo),
+                safe(trial.phase),
+                safe(trial.paramSetJson),
+                nzDouble(trial.fitPnl),
+                nzDouble(trial.validatePnl),
+                nzDouble(trial.forwardPnl),
+                nzDouble(trial.totalPnl),
+                nzDouble(trial.forwardScore),
+                nzDouble(trial.maxDrawdownPct),
+                nzInt(trial.overfitPass),
+                safe(trial.overfitReason),
+                nzInt(trial.rank),
+                nzInt(trial.elapsedMs),
+                nzInt(trial.symbolCount),
+                nzInt(trial.sliceCount),
+                nzInt(trial.fitWindowDays),
+                nzInt(trial.validateWindowDays),
+                nzInt(trial.forwardWindowDays),
+                nzInt(trial.minSliceCount),
+                safe(trial.optimizationObjective),
+                nzDouble(trial.minForwardContribution),
+                nzInt(trial.fragileBest),
+                safe(trial.stableParamRangeJson),
+                nzDouble(trial.neighborAvgPnl),
+                nzDouble(trial.neighborWorstPnl),
+                JsonUtils.Serializer(trial)
+        };
+    }
+
+    private void executePrepared(PreparedStatement ps, Object[] args) throws Exception {
+        ps.clearParameters();
+        for (int i = 0; i < args.length; i++) {
+            ps.setObject(i + 1, args[i]);
+        }
+        ps.executeUpdate();
+    }
+
+    private void closeQuietly(PreparedStatement ps) {
+        if (ps == null) {
+            return;
+        }
+        try {
+            ps.close();
+        } catch (Exception ignore) {
         }
     }
 

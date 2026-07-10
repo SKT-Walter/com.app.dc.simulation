@@ -148,24 +148,20 @@ public class DifDeaLifecycleDecisionEngine {
      * 判断多头待确认入场是否延续。
      */
     private boolean isLongPendingConfirmed(LifecycleState state, LifecycleIndicatorSample cur) {
-        double currentGap = cur.getDif() - cur.getDea();
         return cur.getDif() >= cur.getDea()
                 && cur.getMacdBar() > 0.0d
                 && cur.getClose() >= state.getPendingEntryClose()
-                && (cur.getClose() > state.getPendingEntryHigh()
-                || currentGap > state.getPendingEntryDifDeaGap());
+                && cur.getClose() > state.getPendingEntryHigh();
     }
 
     /**
      * 判断空头待确认入场是否延续。
      */
     private boolean isShortPendingConfirmed(LifecycleState state, LifecycleIndicatorSample cur) {
-        double currentGap = cur.getDea() - cur.getDif();
         return cur.getDif() <= cur.getDea()
                 && cur.getMacdBar() < 0.0d
                 && cur.getClose() <= state.getPendingEntryClose()
-                && (cur.getClose() < state.getPendingEntryLow()
-                || currentGap > state.getPendingEntryDifDeaGap());
+                && cur.getClose() < state.getPendingEntryLow();
     }
 
     /**
@@ -231,26 +227,22 @@ public class DifDeaLifecycleDecisionEngine {
      * 判断反手做多确认条件是否成立。
      */
     private boolean isLongReverseConfirmed(LifecycleState state, LifecycleIndicatorSample cur) {
-        double currentGap = cur.getDif() - cur.getDea();
         return cur.getDif() >= cur.getDea()
                 && cur.getMacdBar() > 0.0d
                 && cur.getClose() >= state.getPendingReverseClose()
-                && (cur.getClose() > state.getPendingReverseHigh()
-                || currentGap > state.getPendingReverseDifDeaGap());
+                && cur.getClose() > state.getPendingReverseHigh();
     }
 
     /**
      * 判断反手做空确认条件是否成立。
      */
     private boolean isShortReverseConfirmed(LifecycleState state, LifecycleIndicatorSample cur) {
-        double currentGap = cur.getDea() - cur.getDif();
         return cur.getDif() <= cur.getDea()
                 && cur.getMacdBar() < 0.0d
                 && cur.getClose() <= state.getPendingReverseClose()
                 && cur.getClose() < cur.getMa10()
                 && cur.getMa10() <= cur.getMa20()
-                && (cur.getClose() < state.getPendingReverseLow()
-                || currentGap > state.getPendingReverseDifDeaGap());
+                && cur.getClose() < state.getPendingReverseLow();
     }
 
     /**

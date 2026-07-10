@@ -29,21 +29,20 @@ public class DifDeaLifecycleDecisionEngine {
 
         if (state.inLong()) {
             if (crossDown) {
-                boolean reverseAllowed = !isLargeBar(cur, context.getConfig())
-                        && !isShortHold(state, cur, context.getConfig());
                 return LifecycleDecision.of(LifecycleDecisionType.LEAVE_LONG,
-                        "dif_dea_cross_down", reverseAllowed);
+                        "dif_dea_cross_down", false);
             }
             return LifecycleDecision.none("long_active_no_exit");
         }
         if (state.inShort()) {
             if (crossUp) {
-                boolean reverseAllowed = !isLargeBar(cur, context.getConfig())
-                        && !isShortHold(state, cur, context.getConfig());
                 return LifecycleDecision.of(LifecycleDecisionType.LEAVE_SHORT,
-                        "dif_dea_cross_up", reverseAllowed);
+                        "dif_dea_cross_up", false);
             }
             return LifecycleDecision.none("short_active_no_exit");
+        }
+        if (state.hasPendingReverse()) {
+            return decidePendingReverse(context, crossUp, crossDown);
         }
         if (state.hasPendingEntry()) {
             return decidePendingEntry(context, crossUp, crossDown);
@@ -177,6 +176,127 @@ public class DifDeaLifecycleDecisionEngine {
             return 0;
         }
         return Math.max(0, sample.getIndex() - state.getPendingEntryIndex());
+    }
+
+    /**
+     * 判断反向交叉平仓后是否允许进入待确认反手。
+     */
+    public boolean canStartPendingReverse(LifecycleState state, LifecycleIndicatorSample sample,
+                                          LifecycleConfig config) {
+        return state != null
+                && sample != null
+                && config != null
+                && !isLargeBar(sample, config)
+                && !isShortHold(state, sample, config)
+                && !isReverseBlockedByProfitableWeakCross(state, sample, config);
+    }
+
+    /**
+     * 判断待确认反手是否在下一根K线获得延续。
+     */
+    private LifecycleDecision decidePendingReverse(LifecycleContext context, boolean crossUp, boolean crossDown) {
+        LifecycleState state = context.getState();
+        LifecycleIndicatorSample cur = context.current();
+        int pendingAge = pendingReverseAge(state, cur);
+        if (pendingAge > context.getConfig().getPendingReverseMaxBars()) {
+            state.clearPendingReverse();
+            return LifecycleDecision.none("reverse_pending_not_confirmed");
+        }
+        if (pendingAge < 1) {
+            return LifecycleDecision.none("reverse_pending_started");
+        }
+        if (state.getPendingReverseDirection() == LifecycleDirection.LONG) {
+            if (crossDown || !isLongReverseConfirmed(state, cur)) {
+                state.clearPendingReverse();
+                return LifecycleDecision.none("reverse_pending_not_confirmed");
+            }
+            state.clearPendingReverse();
+            return LifecycleDecision.entry(LifecycleDecisionType.ENTER_LONG,
+                    "dif_dea_cross_up", "confirmed_reverse_long_after_dif_dea_cross_up");
+        }
+        if (state.getPendingReverseDirection() == LifecycleDirection.SHORT) {
+            if (crossUp || !isShortReverseConfirmed(state, cur)) {
+                state.clearPendingReverse();
+                return LifecycleDecision.none("reverse_pending_not_confirmed");
+            }
+            state.clearPendingReverse();
+            return LifecycleDecision.entry(LifecycleDecisionType.ENTER_SHORT,
+                    "dif_dea_cross_down", "confirmed_reverse_short_after_dif_dea_cross_down");
+        }
+        state.clearPendingReverse();
+        return LifecycleDecision.none("reverse_pending_not_confirmed");
+    }
+
+    /**
+     * 判断反手做多确认条件是否成立。
+     */
+    private boolean isLongReverseConfirmed(LifecycleState state, LifecycleIndicatorSample cur) {
+        double currentGap = cur.getDif() - cur.getDea();
+        return cur.getDif() >= cur.getDea()
+                && cur.getMacdBar() > 0.0d
+                && cur.getClose() >= state.getPendingReverseClose()
+                && (cur.getClose() > state.getPendingReverseHigh()
+                || currentGap > state.getPendingReverseDifDeaGap());
+    }
+
+    /**
+     * 判断反手做空确认条件是否成立。
+     */
+    private boolean isShortReverseConfirmed(LifecycleState state, LifecycleIndicatorSample cur) {
+        double currentGap = cur.getDea() - cur.getDif();
+        return cur.getDif() <= cur.getDea()
+                && cur.getMacdBar() < 0.0d
+                && cur.getClose() <= state.getPendingReverseClose()
+                && cur.getClose() < cur.getMa10()
+                && cur.getMa10() <= cur.getMa20()
+                && (cur.getClose() < state.getPendingReverseLow()
+                || currentGap > state.getPendingReverseDifDeaGap());
+    }
+
+    /**
+     * 计算待确认反手已经经过的K线数量。
+     */
+    public int pendingReverseAge(LifecycleState state, LifecycleIndicatorSample sample) {
+        if (state == null || sample == null || state.getPendingReverseIndex() < 0) {
+            return 0;
+        }
+        return Math.max(0, sample.getIndex() - state.getPendingReverseIndex());
+    }
+
+    /**
+     * 判断盈利长持仓后的弱反向交叉是否只平不反手。
+     */
+    public boolean isReverseBlockedByProfitableWeakCross(LifecycleState state, LifecycleIndicatorSample sample,
+                                                         LifecycleConfig config) {
+        if (state == null || sample == null || config == null || state.getEntryIndex() < 0
+                || Double.isNaN(state.getEntryPrice()) || state.getEntryPrice() == 0.0d) {
+            return false;
+        }
+        int holdBars = Math.max(0, sample.getIndex() - state.getEntryIndex());
+        if (holdBars < config.getProfitableReverseFilterHoldBars()) {
+            return false;
+        }
+        if (state.inLong()) {
+            double profitPct = (sample.getClose() - state.getEntryPrice()) / state.getEntryPrice() * 100.0d;
+            double reverseGap = sample.getDea() - sample.getDif();
+            boolean structureNotReversed = sample.getClose() >= sample.getMa10()
+                    && sample.getClose() >= sample.getMa20();
+            return profitPct >= config.getProfitableReverseFilterMinProfitPct()
+                    && reverseGap >= 0.0d
+                    && reverseGap < config.getProfitableReverseDifDeaGapMin()
+                    && structureNotReversed;
+        }
+        if (state.inShort()) {
+            double profitPct = (state.getEntryPrice() - sample.getClose()) / state.getEntryPrice() * 100.0d;
+            double reverseGap = sample.getDif() - sample.getDea();
+            boolean structureNotReversed = sample.getClose() <= sample.getMa10()
+                    && sample.getClose() <= sample.getMa20();
+            return profitPct >= config.getProfitableReverseFilterMinProfitPct()
+                    && reverseGap >= 0.0d
+                    && reverseGap < config.getProfitableReverseDifDeaGapMin()
+                    && structureNotReversed;
+        }
+        return false;
     }
 
     /**

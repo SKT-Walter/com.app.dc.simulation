@@ -12,6 +12,10 @@ public class LifecycleConfig {
     private final int crossDensityLookbackBars = 12;
     private final int crossDensityBlockCount = 2;
     private final int pendingEntryMaxBars = 1;
+    private final int pendingReverseMaxBars = 1;
+    private final int profitableReverseFilterHoldBars = 20;
+    private final double profitableReverseFilterMinProfitPct = 0.3d;
+    private final double profitableReverseDifDeaGapMin = 0.12d;
 
     /**
      * 获取预热K线数量。
@@ -47,4 +51,24 @@ public class LifecycleConfig {
      * 获取交叉入场最多等待确认K线数量。
      */
     public int getPendingEntryMaxBars() { return pendingEntryMaxBars; }
+
+    /**
+     * 获取反手入场最多等待确认K线数量。
+     */
+    public int getPendingReverseMaxBars() { return pendingReverseMaxBars; }
+
+    /**
+     * 获取盈利长单反手过滤的最小持仓K线数量。
+     */
+    public int getProfitableReverseFilterHoldBars() { return profitableReverseFilterHoldBars; }
+
+    /**
+     * 获取盈利长单反手过滤的最小浮盈百分比。
+     */
+    public double getProfitableReverseFilterMinProfitPct() { return profitableReverseFilterMinProfitPct; }
+
+    /**
+     * 获取盈利长单弱反向交叉的DIF/DEA最小张口。
+     */
+    public double getProfitableReverseDifDeaGapMin() { return profitableReverseDifDeaGapMin; }
 }

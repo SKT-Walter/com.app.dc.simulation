@@ -21,6 +21,14 @@ public class LifecycleState {
     private double pendingEntryLow = Double.NaN;
     private double pendingEntryDifDeaGap = Double.NaN;
     private double pendingEntryMacdBar = Double.NaN;
+    private LifecycleDirection pendingReverseDirection = LifecycleDirection.NONE;
+    private int pendingReverseIndex = -1;
+    private double pendingReverseClose = Double.NaN;
+    private double pendingReverseHigh = Double.NaN;
+    private double pendingReverseLow = Double.NaN;
+    private double pendingReverseDifDeaGap = Double.NaN;
+    private double pendingReverseMacdBar = Double.NaN;
+    private String pendingReverseSource = "";
 
     /**
      * 判断当前是否多头持仓。
@@ -38,6 +46,14 @@ public class LifecycleState {
     public boolean hasPendingEntry() {
         return getPendingEntryDirection() == LifecycleDirection.LONG
                 || getPendingEntryDirection() == LifecycleDirection.SHORT;
+    }
+
+    /**
+     * 判断当前是否存在待确认反手信号。
+     */
+    public boolean hasPendingReverse() {
+        return getPendingReverseDirection() == LifecycleDirection.LONG
+                || getPendingReverseDirection() == LifecycleDirection.SHORT;
     }
 
     /**
@@ -82,6 +98,40 @@ public class LifecycleState {
         pendingEntryLow = Double.NaN;
         pendingEntryDifDeaGap = Double.NaN;
         pendingEntryMacdBar = Double.NaN;
+    }
+
+    /**
+     * 记录待确认反手信号K线。
+     */
+    public void startPendingReverse(LifecycleDirection direction, LifecycleIndicatorSample sample, String source) {
+        pendingReverseDirection = direction == null ? LifecycleDirection.NONE : direction;
+        pendingReverseIndex = sample == null ? -1 : sample.getIndex();
+        pendingReverseClose = sample == null ? Double.NaN : sample.getClose();
+        pendingReverseHigh = sample == null ? Double.NaN : sample.getHigh();
+        pendingReverseLow = sample == null ? Double.NaN : sample.getLow();
+        pendingReverseMacdBar = sample == null ? Double.NaN : sample.getMacdBar();
+        pendingReverseSource = source == null ? "" : source;
+        if (sample == null) {
+            pendingReverseDifDeaGap = Double.NaN;
+        } else if (pendingReverseDirection == LifecycleDirection.SHORT) {
+            pendingReverseDifDeaGap = sample.getDea() - sample.getDif();
+        } else {
+            pendingReverseDifDeaGap = sample.getDif() - sample.getDea();
+        }
+    }
+
+    /**
+     * 清理待确认反手信号。
+     */
+    public void clearPendingReverse() {
+        pendingReverseDirection = LifecycleDirection.NONE;
+        pendingReverseIndex = -1;
+        pendingReverseClose = Double.NaN;
+        pendingReverseHigh = Double.NaN;
+        pendingReverseLow = Double.NaN;
+        pendingReverseDifDeaGap = Double.NaN;
+        pendingReverseMacdBar = Double.NaN;
+        pendingReverseSource = "";
     }
 
     /**
@@ -214,4 +264,46 @@ public class LifecycleState {
      * 获取待确认入场信号K线MACD柱。
      */
     public double getPendingEntryMacdBar() { return pendingEntryMacdBar; }
+
+    /**
+     * 获取待确认反手方向。
+     */
+    public LifecycleDirection getPendingReverseDirection() {
+        return pendingReverseDirection == null ? LifecycleDirection.NONE : pendingReverseDirection;
+    }
+
+    /**
+     * 获取待确认反手信号K线序号。
+     */
+    public int getPendingReverseIndex() { return pendingReverseIndex; }
+
+    /**
+     * 获取待确认反手信号K线收盘价。
+     */
+    public double getPendingReverseClose() { return pendingReverseClose; }
+
+    /**
+     * 获取待确认反手信号K线最高价。
+     */
+    public double getPendingReverseHigh() { return pendingReverseHigh; }
+
+    /**
+     * 获取待确认反手信号K线最低价。
+     */
+    public double getPendingReverseLow() { return pendingReverseLow; }
+
+    /**
+     * 获取待确认反手信号K线DIF/DEA张口。
+     */
+    public double getPendingReverseDifDeaGap() { return pendingReverseDifDeaGap; }
+
+    /**
+     * 获取待确认反手信号K线MACD柱。
+     */
+    public double getPendingReverseMacdBar() { return pendingReverseMacdBar; }
+
+    /**
+     * 获取待确认反手来源。
+     */
+    public String getPendingReverseSource() { return pendingReverseSource == null ? "" : pendingReverseSource; }
 }

@@ -105,7 +105,7 @@ public class DifDeaLifecycleBacktestTest {
 //        param.endDate = "2026-07-02";
 
         //difDeaLifecycle_ETHUSDT_5M_20260702_161025.md
-        param.beginDate = "2026-07-05";
+        param.beginDate = "2026-06-20";
         param.endDate = "2026-07-10";
 
 //        param.beginDate = "2026-06-10";

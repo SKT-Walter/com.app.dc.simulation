@@ -11,7 +11,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.BarSeries;
 
-import java.time.ZonedDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -19,23 +18,23 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 将 DIF/DEA 生命周期决策适配为 simulation 回测框架可执行的买卖信号。
- */
+ * 灏嗘瀬绠€DIF/DEA閲戝弶姝诲弶閫昏緫鎺ュ叆 simulator 鍥炴祴绛栫暐鎺ュ彛銆? */
 @Slf4j
 @Service("difDeaLifecycle")
 public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy {
 
-    private static final int MIN_SIGNAL_BARS = 35;
+    private static final String TEXT_5M = "5M";
     private static final int MACD_WINDOW = 50;
+
     private final LifecycleIndicatorCalculator indicatorCalculator = new LifecycleIndicatorCalculator(MACD_WINDOW);
     private final DifDeaLifecycleDecisionEngine decisionEngine;
     private final LifecycleConfigProvider configProvider;
     private final Map<String, LifecycleState> stateMap = new ConcurrentHashMap<String, LifecycleState>();
-    private final Map<String, Map<String, Integer>> rejectStats = new ConcurrentHashMap<String, Map<String, Integer>>();
+    private final Map<String, Map<String, Integer>> rejectStats =
+            new ConcurrentHashMap<String, Map<String, Integer>>();
 
     /**
-     * 注入生命周期决策引擎和配置提供器。
-     */
+     * 娉ㄥ叆閲戝弶姝诲弶鍐崇瓥鍜岄粯璁ら厤缃彁渚涘櫒銆?     */
     public DifDeaLifecycleBacktestStrategy(DifDeaLifecycleDecisionEngine decisionEngine,
                                            LifecycleConfigProvider configProvider) {
         this.decisionEngine = decisionEngine;
@@ -44,64 +43,59 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
 
     @Override
     /**
-     * 返回回测策略注册名称。
-     */
+     * 杩斿洖绛栫暐娉ㄥ唽鍚嶃€?     */
     public String getName() {
         return DifDeaLifecycleDecisionEngine.STRATEGY_NAME;
     }
 
     @Override
     /**
-     * 对当前 K 线执行生命周期判断并生成回测信号。
-     */
+     * 瀵瑰綋鍓嶅洖鏀綤绾跨敓鎴愰噾鍙夋鍙変氦鏄撲俊鍙枫€?     */
     public Signal evaluate(String symbol, String text, BarSeries series, TTbookOhlc currentOhlc) {
         Signal signal = BinanceStrategyMath.createBaseSignal(symbol, text, currentOhlc);
         String normalizedSymbol = normalizeSymbol(symbol);
         String normalizedText = normalizeText(text);
-        if (!"5M".equals(normalizedText)) {
+        if (!TEXT_5M.equals(normalizedText)) {
             reject(normalizedSymbol, "unsupported_text");
             return signal;
         }
-
+        logRawKline(normalizedSymbol, normalizedText, series, currentOhlc);
         LifecycleConfig config = configProvider.getConfig(normalizedSymbol, normalizedText);
-        List<LifecycleIndicatorSample> samples = indicatorCalculator.calculate(series, config);
-        if (series == null || series.getBarCount() < MIN_SIGNAL_BARS || samples.size() < MIN_SIGNAL_BARS) {
+        if (series == null || series.getBarCount() < config.getWarmupBars()) {
             reject(normalizedSymbol, "not_enough_warmup_bars");
             return signal;
         }
-
+        List<LifecycleIndicatorSample> samples = indicatorCalculator.calculate(series);
+        if (samples.size() < config.getWarmupBars()) {
+            reject(normalizedSymbol, "not_enough_warmup_bars");
+            return signal;
+        }
         LifecycleIndicatorSample latest = samples.get(samples.size() - 1);
         LifecycleState state = stateMap.computeIfAbsent(key(normalizedSymbol, normalizedText),
-                v -> new LifecycleState(getName(), normalizedSymbol, normalizedText));
+                item -> new LifecycleState());
         if (latest.getEndTime().equals(state.getLastBarTime())) {
             reject(normalizedSymbol, "duplicate_bar");
             return signal;
         }
 
-        LifecycleContext context = new LifecycleContext(getName(), normalizedSymbol, normalizedText, samples, config, state);
+        int recentCrossCount = decisionEngine.calculateRecentCrossCount(samples, config);
+        LifecycleContext context = new LifecycleContext(normalizedSymbol, normalizedText, samples, config, state);
         LifecycleDecision decision = decisionEngine.decide(context);
-        String decisionTrace = decisionEngine.getLastDecisionTrace();
-        updateState(state, latest, decision);
-        logBarMetrics(normalizedSymbol, normalizedText, samples, latest, state, decision, decisionTrace);
-        if (isReverseEntryBlocked(decision)) {
-            reject(normalizedSymbol, "reverse_entry_blocked_by_range_compression");
-        }
-
+        updateState(state, latest, decision, config);
+        logDecisionKline(normalizedSymbol, normalizedText, config, latest, state, decision, recentCrossCount);
         if (!decision.hasAction()) {
             reject(normalizedSymbol, decision.getReason());
             return signal;
         }
-
         applyDecision(signal, decision);
         signal.algoName = getName();
-        signal.remark = buildRemark(decision, samples, latest, state, decisionTrace);
+        signal.remark = buildRemark(decision, latest, state, recentCrossCount);
         return signal;
     }
 
     @Override
     /**
-     * 重置指定品种的拒绝统计和生命周期状态。
-     */
+     * 閲嶇疆鎸囧畾鍝佺鐨勭姸鎬佸拰鎷掔粷缁熻銆?     */
     public void resetRejectStats(String symbol) {
         String normalizedSymbol = normalizeSymbol(symbol);
         rejectStats.remove(normalizedSymbol);
@@ -110,8 +104,7 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
 
     @Override
     /**
-     * 获取指定品种的拒绝原因统计快照。
-     */
+     * 鑾峰彇鎷掔粷缁熻蹇収銆?     */
     public Map<String, Integer> snapshotRejectStats(String symbol) {
         Map<String, Integer> stats = rejectStats.get(normalizeSymbol(symbol));
         if (stats == null) {
@@ -121,18 +114,17 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
     }
 
     /**
-     * 将生命周期动作映射为 BUY/SELL 回测信号。
-     */
+     * 灏嗗喅绛栧姩浣滄槧灏勪负鍥炴祴淇″彿銆?     */
     private void applyDecision(Signal signal, LifecycleDecision decision) {
         if (decision.getType() == LifecycleDecisionType.ENTER_LONG) {
             signal.side = Side.BUY;
             signal.ocType = OCType.OPEN;
-        } else if (decision.getType() == LifecycleDecisionType.LEAVE_LONG) {
-            signal.side = Side.SELL;
-            signal.ocType = OCType.ClOSE;
         } else if (decision.getType() == LifecycleDecisionType.ENTER_SHORT) {
             signal.side = Side.SELL;
             signal.ocType = OCType.OPEN;
+        } else if (decision.getType() == LifecycleDecisionType.LEAVE_LONG) {
+            signal.side = Side.SELL;
+            signal.ocType = OCType.ClOSE;
         } else if (decision.getType() == LifecycleDecisionType.LEAVE_SHORT) {
             signal.side = Side.BUY;
             signal.ocType = OCType.ClOSE;
@@ -140,149 +132,151 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
     }
 
     /**
-     * 根据本次决策推进生命周期状态。
-     */
-    private void updateState(LifecycleState state, LifecycleIndicatorSample latest, LifecycleDecision decision) {
+     * 鏍规嵁浜ゅ弶鍐崇瓥鎺ㄨ繘鍐呭瓨浠撲綅鐘舵€併€?     */
+    private void updateState(LifecycleState state, LifecycleIndicatorSample latest, LifecycleDecision decision,
+                             LifecycleConfig config) {
+        int holdBars = currentHoldBars(state, latest);
         state.setLastBarTime(latest.getEndTime());
         state.setLastDecision(decision.getType().name());
         state.setLastReason(decision.getReason());
 
-        if (decision.getType() == LifecycleDecisionType.PENDING_LONG_LAUNCH) {
-            boolean keepSamePending = state.inPendingLong();
-            if (state.inPendingLong()) {
-                state.continuePendingRange(latest, decisionEngine.getPendingRangeBuildBars());
+        if (decision.getType() == LifecycleDecisionType.ENTER_LONG) {
+            enterLong(state, latest, decision.getEntrySource());
+            return;
+        }
+        if (decision.getType() == LifecycleDecisionType.ENTER_SHORT) {
+            enterShort(state, latest, decision.getEntrySource());
+            return;
+        }
+        if (decision.getType() == LifecycleDecisionType.LEAVE_LONG) {
+            if (decision.isReverseEntryAllowed()) {
+                enterShort(state, latest, "reverse_short_after_dif_dea_cross_down");
             } else {
-                state.startPendingRange(latest, decisionEngine.getPendingRangeBuildBars());
+                applyWhipsawCooldown(state, latest, holdBars, config);
+                state.toNeutral();
             }
-            state.setPhase(LifecyclePhase.PENDING_LONG_LAUNCH);
-            state.setDirection(LifecycleDirection.LONG);
-            state.setPendingSource(resolvePendingSource(state, decision, keepSamePending));
-        } else if (decision.getType() == LifecycleDecisionType.PENDING_SHORT_LAUNCH) {
-            boolean keepSamePending = state.inPendingShort();
-            if (state.inPendingShort()) {
-                state.continuePendingRange(latest, decisionEngine.getPendingRangeBuildBars());
+            return;
+        }
+        if (decision.getType() == LifecycleDecisionType.LEAVE_SHORT) {
+            if (decision.isReverseEntryAllowed()) {
+                enterLong(state, latest, "reverse_long_after_dif_dea_cross_up");
             } else {
-                state.startPendingRange(latest, decisionEngine.getPendingRangeBuildBars());
+                applyWhipsawCooldown(state, latest, holdBars, config);
+                state.toNeutral();
             }
-            state.setPhase(LifecyclePhase.PENDING_SHORT_LAUNCH);
-            state.setDirection(LifecycleDirection.SHORT);
-            state.setPendingSource(resolvePendingSource(state, decision, keepSamePending));
-        } else if (decision.getType() == LifecycleDecisionType.ENTER_LONG) {
-            state.setPhase(LifecyclePhase.LONG_ACTIVE);
-            state.setDirection(LifecycleDirection.LONG);
-            state.clearPending();
-        } else if (decision.getType() == LifecycleDecisionType.ENTER_SHORT) {
-            state.setPhase(LifecyclePhase.SHORT_ACTIVE);
-            state.setDirection(LifecycleDirection.SHORT);
-            state.clearPending();
-        } else if (decision.getType() == LifecycleDecisionType.LEAVE_LONG
-                && "dif_dea_cross_down".equals(decision.getReason())
-                && decision.isReverseEntryAllowed()) {
-            state.setPhase(LifecyclePhase.SHORT_ACTIVE);
-            state.setDirection(LifecycleDirection.SHORT);
-            state.clearPending();
-        } else if (decision.getType() == LifecycleDecisionType.LEAVE_SHORT
-                && "dif_dea_cross_up".equals(decision.getReason())
-                && decision.isReverseEntryAllowed()) {
-            state.setPhase(LifecyclePhase.LONG_ACTIVE);
-            state.setDirection(LifecycleDirection.LONG);
-            state.clearPending();
-        } else if (decision.getType() == LifecycleDecisionType.LEAVE_LONG
-                && "macd_shrinking_and_close_weakening".equals(decision.getReason())) {
-            state.setPhase(LifecyclePhase.PENDING_LONG_LAUNCH);
-            state.setDirection(LifecycleDirection.LONG);
-            state.startPendingRange(latest, decisionEngine.getPendingRangeBuildBars());
-        } else if (decision.getType() == LifecycleDecisionType.LEAVE_SHORT
-                && "macd_recovering_and_close_strengthening".equals(decision.getReason())) {
-            state.setPhase(LifecyclePhase.PENDING_SHORT_LAUNCH);
-            state.setDirection(LifecycleDirection.SHORT);
-            state.startPendingRange(latest, decisionEngine.getPendingRangeBuildBars());
-        } else if (decision.getType() == LifecycleDecisionType.LEAVE_LONG
-                || decision.getType() == LifecycleDecisionType.LEAVE_SHORT) {
-            state.setPhase(LifecyclePhase.NEUTRAL);
-            state.setDirection(LifecycleDirection.NONE);
-            state.clearPending();
-        } else if (state.inPendingLaunch()
-                && ("pending_launch_invalidated_by_reverse_cross".equals(decision.getReason())
-                || "pending_long_launch_expired".equals(decision.getReason())
-                || "pending_short_launch_expired".equals(decision.getReason())
-                || "pending_launch_replaced_by_new_long_cycle".equals(decision.getReason())
-                || "pending_launch_replaced_by_new_short_cycle".equals(decision.getReason()))) {
-            state.setPhase(LifecyclePhase.NEUTRAL);
-            state.setDirection(LifecycleDirection.NONE);
-            state.clearPending();
         }
     }
 
     /**
-     * 构造回测报告中可追踪的信号说明。
-     */
+     * 璁剧疆澶氬ご鎸佷粨鐘舵€併€?     */
+    private void enterLong(LifecycleState state, LifecycleIndicatorSample latest, String entrySource) {
+        state.setPhase(LifecyclePhase.LONG_ACTIVE);
+        state.setDirection(LifecycleDirection.LONG);
+        state.setEntryIndex(latest.getIndex());
+        state.setEntryPrice(latest.getClose());
+        state.setEntrySource(entrySource);
+        state.setCooldownUntilIndex(-1);
+        state.clearPendingEntry();
+    }
+
+    /**
+     * 璁剧疆绌哄ご鎸佷粨鐘舵€併€?     */
+    private void enterShort(LifecycleState state, LifecycleIndicatorSample latest, String entrySource) {
+        state.setPhase(LifecyclePhase.SHORT_ACTIVE);
+        state.setDirection(LifecycleDirection.SHORT);
+        state.setEntryIndex(latest.getIndex());
+        state.setEntryPrice(latest.getClose());
+        state.setEntrySource(entrySource);
+        state.setCooldownUntilIndex(-1);
+        state.clearPendingEntry();
+    }
+
+    /**
+     * 鐭寔浠撹鍙嶅悜浜ゅ弶鎵撳嚭鍚庤繘鍏ュ喎鍗达紝鍑忓皯杩炵画鍙嶆墜銆?     */
+    private void applyWhipsawCooldown(LifecycleState state, LifecycleIndicatorSample latest, int holdBars,
+                                      LifecycleConfig config) {
+        if (state == null || latest == null || config == null) {
+            return;
+        }
+        if (holdBars <= config.getNoReverseHoldBars()) {
+            state.setCooldownUntilIndex(latest.getIndex() + config.getWhipsawCooldownBars());
+        }
+    }
+
+    /**
+     * 鏋勫缓淇″彿澶囨敞浠ュ吋瀹圭幇鏈夊弽鎵嬭瘑鍒€?     */
     private String buildRemark(LifecycleDecision decision,
-                               List<LifecycleIndicatorSample> samples,
                                LifecycleIndicatorSample latest,
                                LifecycleState state,
-                               String decisionTrace) {
+                               int recentCrossCount) {
         return getName()
                 + " decision=" + decision.getType()
                 + ", reason=" + decision.getReason()
                 + ", reverseEntry=" + decision.isReverseEntryAllowed()
                 + ", phase=" + state.getPhase()
-                + ", barTime=" + formatBarTime(latest.getEndTime())
-                + ", open=" + latest.getOpen()
-                + ", high=" + latest.getHigh()
-                + ", low=" + latest.getLow()
-                + ", close=" + latest.getClose()
+                + ", direction=" + state.getDirection()
+                + ", barTime=" + latest.getEndTime()
                 + ", dif=" + latest.getDif()
                 + ", dea=" + latest.getDea()
                 + ", macd=" + latest.getMacdBar()
-                + ", ma5=" + latest.getMa5()
-                + ", ma10=" + latest.getMa10()
-                + ", stddev=" + latest.getCloseStddev()
-                + ", donchianHigh=" + latest.getDonchianHigh()
-                + ", donchianLow=" + latest.getDonchianLow()
-                + ", donchianWidth=" + latest.getDonchianWidth()
-                + ", recentCrossCount=" + latest.getRecentCrossCount()
                 + ", barRangePct=" + decisionEngine.calculateBarRangePct(latest)
-                + ", rangeCompressed=" + isRangeCompressed(samples, latest, configProvider.getConfig(state.getSymbol(), state.getText()))
-                + ", maCounterTrendBlocked=" + isMaCounterTrendBlocked(samples, decision)
-                + ", ma5Up=" + decisionEngine.isMa5Up(samples)
-                + ", ma5Down=" + decisionEngine.isMa5Down(samples)
-                + ", ma10Down3=" + decisionEngine.isMa10Down(samples)
-                + ", ma10Up3=" + decisionEngine.isMa10Up(samples)
-                + ", adx=" + latest.getAdx()
-                + ", pendingBars=" + state.getPendingBars()
-                + ", pendingRangeReady=" + state.isPendingRangeReady()
-                + ", pendingBuildBars=" + decisionEngine.getPendingRangeBuildBars()
-                + ", pendingSource=" + state.getPendingSource()
-                + ", pendingExpired=" + isPendingExpired(decision)
-                + ", pendingMaxBars=" + decisionEngine.getLowMacdPendingMaxBars()
-                + ", pendingHighClose=" + state.getPendingHighClose()
-                + ", pendingLowClose=" + state.getPendingLowClose()
-                + ", pendingUpperBodyBound=" + state.getPendingUpperBodyBound()
-                + ", pendingLowerBodyBound=" + state.getPendingLowerBodyBound()
-                + ", pendingBreakoutPassed=" + isPendingBreakoutPassed(latest, state)
-                + ", trace=" + StringUtils.defaultString(decisionTrace);
+                + ", holdBars=" + currentHoldBars(state, latest)
+                + ", entryPrice=" + state.getEntryPrice()
+                + ", entrySource=" + state.getEntrySource()
+                + ", cooldownUntilIndex=" + state.getCooldownUntilIndex()
+                + ", inCooldown=" + isInCooldown(state, latest)
+                + ", recentCrossCount=" + recentCrossCount
+                + ", pendingEntryDirection=" + state.getPendingEntryDirection()
+                + ", pendingEntryIndex=" + state.getPendingEntryIndex()
+                + ", pendingEntryAge=" + decisionEngine.pendingEntryAge(state, latest);
     }
 
     /**
-     * 按收线时刻打印当前 K 线的 DIF、DEA、MACD 和决策结果，便于回测逐根对照。
-     */
-    private void logBarMetrics(String symbol,
-                               String text,
-                               List<LifecycleIndicatorSample> samples,
-                               LifecycleIndicatorSample latest,
-                               LifecycleState state,
-                               LifecycleDecision decision,
-                               String decisionTrace) {
-        LifecycleConfig config = configProvider.getConfig(symbol, text);
-        log.info("difDeaLifecycle bar, symbol:{}, text:{}, barTime:{}, open:{}, high:{}, low:{}, close:{}, dif:{}, dea:{}, macd:{}, ma5:{}, ma10:{}, " +
-                        "stddev:{}, donchianHigh:{}, donchianLow:{}, donchianWidth:{}, recentCrossCount:{}, " +
-                        "barRangePct:{}, rangeCompressed:{}, maCounterTrendBlocked:{}, ma5Up:{}, ma5Down:{}, ma10Down3:{}, ma10Up3:{}, adx:{}, phase:{}, decision:{}, reason:{}, reverseEntry:{}, " +
-                        "pendingBars:{}, pendingRangeReady:{}, pendingBuildBars:{}, pendingSource:{}, pendingExpired:{}, pendingMaxBars:{}, pendingHighClose:{}, pendingLowClose:{}, " +
-                        "pendingUpperBodyBound:{}, pendingLowerBodyBound:{}, pendingBreakoutPassed:{}, trace:{}",
+     * 鎵撳嵃鍘熷K绾挎暟鎹紝渚夸簬鏍稿鍥炴祴杈撳叆銆?     */
+    private void logRawKline(String symbol, String text, BarSeries series, TTbookOhlc currentOhlc) {
+        if (currentOhlc == null) {
+            log.info("difDeaLifecycle raw kline, symbol:{}, text:{}, currentOhlc:null", symbol, text);
+            return;
+        }
+        log.info("difDeaLifecycle raw kline, symbol:{}, text:{}, seriesBarCount:{}, seriesEndIndex:{}, "
+                        + "securityid:{}, ohlcText:{}, starttime:{}, endtime:{}, fmttime:{}, inf1:{}, "
+                        + "open:{}, high:{}, low:{}, close:{}, volume:{}",
                 symbol,
                 text,
-                formatBarTime(latest.getEndTime()),
+                series == null ? 0 : series.getBarCount(),
+                series == null ? -1 : series.getEndIndex(),
+                currentOhlc.securityid,
+                currentOhlc.text,
+                currentOhlc.starttime,
+                readOptionalField(currentOhlc, "endtime"),
+                readOptionalField(currentOhlc, "fmttime"),
+                readOptionalField(currentOhlc, "inf1"),
+                currentOhlc.open,
+                currentOhlc.high,
+                currentOhlc.low,
+                currentOhlc.close,
+                currentOhlc.volume);
+    }
+
+    /**
+     * 鎵撳嵃绛栫暐瀹為檯浣跨敤鐨勬寚鏍囧寲K绾垮拰鍐崇瓥缁撴灉銆?     */
+    private void logDecisionKline(String symbol,
+                                  String text,
+                                  LifecycleConfig config,
+                                  LifecycleIndicatorSample latest,
+                                  LifecycleState state,
+                                  LifecycleDecision decision,
+                                  int recentCrossCount) {
+        log.info("difDeaLifecycle decision kline, symbol:{}, text:{}, index:{}, barTime:{}, "
+                        + "open:{}, high:{}, low:{}, close:{}, dif:{}, dea:{}, macd:{}, ma10:{}, ma20:{}, "
+                        + "barRangePct:{}, phase:{}, direction:{}, decision:{}, reason:{}, reverseEntry:{}, "
+                        + "holdBars:{}, entryPrice:{}, entrySource:{}, cooldownUntilIndex:{}, inCooldown:{}, "
+                        + "recentCrossCount:{}, crossDensityLookbackBars:{}, pendingEntryDirection:{}, "
+                        + "pendingEntryIndex:{}, pendingEntryAge:{}",
+                symbol,
+                text,
+                latest.getIndex(),
+                latest.getEndTime(),
                 latest.getOpen(),
                 latest.getHigh(),
                 latest.getLow(),
@@ -290,189 +284,82 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 latest.getDif(),
                 latest.getDea(),
                 latest.getMacdBar(),
-                latest.getMa5(),
                 latest.getMa10(),
-                latest.getCloseStddev(),
-                latest.getDonchianHigh(),
-                latest.getDonchianLow(),
-                latest.getDonchianWidth(),
-                latest.getRecentCrossCount(),
+                latest.getMa20(),
                 decisionEngine.calculateBarRangePct(latest),
-                isRangeCompressed(samples, latest, config),
-                isMaCounterTrendBlocked(samples, decision),
-                decisionEngine.isMa5Up(samples),
-                decisionEngine.isMa5Down(samples),
-                decisionEngine.isMa10Down(samples),
-                decisionEngine.isMa10Up(samples),
-                latest.getAdx(),
                 state.getPhase(),
+                state.getDirection(),
                 decision.getType(),
                 decision.getReason(),
                 decision.isReverseEntryAllowed(),
-                state.getPendingBars(),
-                state.isPendingRangeReady(),
-                decisionEngine.getPendingRangeBuildBars(),
-                state.getPendingSource(),
-                isPendingExpired(decision),
-                decisionEngine.getLowMacdPendingMaxBars(),
-                state.getPendingHighClose(),
-                state.getPendingLowClose(),
-                state.getPendingUpperBodyBound(),
-                state.getPendingLowerBodyBound(),
-                isPendingBreakoutPassed(latest, state),
-                StringUtils.defaultString(decisionTrace));
+                currentHoldBars(state, latest),
+                state.getEntryPrice(),
+                state.getEntrySource(),
+                state.getCooldownUntilIndex(),
+                isInCooldown(state, latest),
+                recentCrossCount,
+                config.getCrossDensityLookbackBars(),
+                state.getPendingEntryDirection(),
+                state.getPendingEntryIndex(),
+                decisionEngine.pendingEntryAge(state, latest));
     }
 
     /**
-     * 判断当前指标样本是否处于低MACD蓄势状态。
-     */
-    private boolean isRangeCompressed(List<LifecycleIndicatorSample> samples,
-                                      LifecycleIndicatorSample latest,
-                                      LifecycleConfig config) {
-        if (latest == null || config == null || !config.isCompressionFilterEnabled()) {
-            return false;
+     * 璁＄畻褰撳墠鎸佷粨鏍规暟銆?     */
+    private int currentHoldBars(LifecycleState state, LifecycleIndicatorSample latest) {
+        if (state == null || latest == null || state.getEntryIndex() < 0) {
+            return 0;
         }
-        int hitCount = 0;
-        if (samples != null && samples.size() >= 5) {
-            for (int i = samples.size() - 5; i < samples.size(); i++) {
-                double macd = samples.get(i).getMacdBar();
-                if (!Double.isNaN(macd) && Math.abs(macd) < 0.5d) {
-                    hitCount++;
-                }
-            }
-        }
-        return hitCount >= 4 || latest.getRecentCrossCount() >= config.getCrossCountThreshold();
+        return Math.max(0, latest.getIndex() - state.getEntryIndex());
     }
 
     /**
-     * 判断当前拒绝原因是否命中高一级均线趋势未翻转过滤。
-     */
-    private boolean isMaCounterTrendBlocked(List<LifecycleIndicatorSample> samples, LifecycleDecision decision) {
-        if (decision == null) {
-            return false;
-        }
-        if ("entry_blocked_by_ma_counter_trend".equals(decision.getReason())) {
-            return true;
-        }
-        if (decision.getType() == LifecycleDecisionType.ENTER_LONG
-                || decision.getType() == LifecycleDecisionType.LEAVE_SHORT) {
-            return decisionEngine.isLongEntryBlockedByMaCounterTrend(samples);
-        }
-        if (decision.getType() == LifecycleDecisionType.ENTER_SHORT
-                || decision.getType() == LifecycleDecisionType.LEAVE_LONG) {
-            return decisionEngine.isShortEntryBlockedByMaCounterTrend(samples);
-        }
-        return false;
+     * 鍒ゆ柇褰撳墠鏍锋湰鏄惁浠嶅湪鐭寔浠撳弽澶嶄氦鍙夊喎鍗存湡鍐呫€?     */
+    private boolean isInCooldown(LifecycleState state, LifecycleIndicatorSample latest) {
+        return state != null && latest != null && state.getCooldownUntilIndex() >= latest.getIndex();
     }
 
     /**
-     * 判断反向交叉平仓后是否因为震荡而禁止立即反手。
-     */
-    private boolean isReverseEntryBlocked(LifecycleDecision decision) {
-        if (decision == null || decision.isReverseEntryAllowed()) {
-            return false;
-        }
-        return (decision.getType() == LifecycleDecisionType.LEAVE_LONG
-                && "dif_dea_cross_down".equals(decision.getReason()))
-                || (decision.getType() == LifecycleDecisionType.LEAVE_SHORT
-                && "dif_dea_cross_up".equals(decision.getReason()));
-    }
-
+     * 鍒ゆ柇褰撳墠鏍锋湰鏄惁浠嶅湪浜ゅ弶瀵嗗害鍐峰嵈鏈熷唴銆?     */
     /**
-     * 判断本次 pending 是否因为低MACD压缩观察超时而失效。
-     */
-    private boolean isPendingExpired(LifecycleDecision decision) {
-        if (decision == null) {
-            return false;
-        }
-        return "pending_long_launch_expired".equals(decision.getReason())
-                || "pending_short_launch_expired".equals(decision.getReason());
-    }
-
-    /**
-     * 判断当前 K 线是否已经突破冻结后的 pending 实体边界。
-     */
-    private boolean isPendingBreakoutPassed(LifecycleIndicatorSample latest, LifecycleState state) {
-        if (latest == null || state == null || !state.isPendingRangeReady()) {
-            return false;
-        }
-        if (state.inPendingLong()) {
-            return !Double.isNaN(state.getPendingUpperBodyBound())
-                    && latest.getClose() > state.getPendingUpperBodyBound();
-        }
-        if (state.inPendingShort()) {
-            return !Double.isNaN(state.getPendingLowerBodyBound())
-                    && latest.getClose() < state.getPendingLowerBodyBound();
-        }
-        return false;
-    }
-
-    /**
-     * 根据本次决策和已有状态推断 pending 观察态来源。
-     */
-    private PendingSource resolvePendingSource(LifecycleState state,
-                                               LifecycleDecision decision,
-                                               boolean keepSamePending) {
-        if (decision == null) {
-            return keepSamePending && state != null ? state.getPendingSource() : PendingSource.OTHER;
-        }
-        if (isLowMacdPendingReason(decision.getReason())) {
-            return PendingSource.LOW_MACD_ENTRY;
-        }
-        if (keepSamePending && state != null && state.getPendingSource() != PendingSource.NONE) {
-            return state.getPendingSource();
-        }
-        return PendingSource.OTHER;
-    }
-
-    /**
-     * 判断当前 pending 原因是否属于低MACD压缩观察来源。
-     */
-    private boolean isLowMacdPendingReason(String reason) {
-        return "entry_blocked_by_low_macd".equals(reason);
-    }
-
-    /**
-     * 将带时区的收线时间压缩为本地时间字符串，便于日志阅读。
-     */
-    private String formatBarTime(String endTime) {
-        if (StringUtils.isBlank(endTime)) {
-            return endTime;
+     * 璇诲彇TTbookOhlc鍙€夊瓧娈碉紝鍏煎涓嶅悓渚濊禆鐗堟湰銆?     */
+    private String readOptionalField(TTbookOhlc currentOhlc, String fieldName) {
+        if (currentOhlc == null || StringUtils.isBlank(fieldName)) {
+            return "";
         }
         try {
-            return ZonedDateTime.parse(endTime).toLocalDateTime().toString();
+            java.lang.reflect.Field field = currentOhlc.getClass().getDeclaredField(fieldName);
+            field.setAccessible(true);
+            Object value = field.get(currentOhlc);
+            return value == null ? "" : String.valueOf(value);
         } catch (Exception ignore) {
-            return endTime;
+            return "";
         }
     }
 
     /**
-     * 记录未产生交易动作的原因。
-     */
+     * 璁板綍鏈氦鏄撳師鍥犮€?     */
     private void reject(String symbol, String reason) {
         String normalizedSymbol = normalizeSymbol(symbol);
         String normalizedReason = StringUtils.defaultIfBlank(reason, "unknown");
-        rejectStats.computeIfAbsent(normalizedSymbol, v -> new ConcurrentHashMap<String, Integer>())
+        rejectStats.computeIfAbsent(normalizedSymbol, key -> new ConcurrentHashMap<String, Integer>())
                 .merge(normalizedReason, 1, Integer::sum);
     }
 
     /**
-     * 生成状态缓存键。
-     */
+     * 鐢熸垚鍐呭瓨鐘舵€侀敭銆?     */
     private String key(String symbol, String text) {
         return normalizeSymbol(symbol) + "|" + normalizeText(text);
     }
 
     /**
-     * 标准化交易品种。
-     */
+     * 鏍囧噯鍖栧搧绉嶃€?     */
     private String normalizeSymbol(String symbol) {
         return StringUtils.trimToEmpty(symbol).toUpperCase(Locale.ROOT);
     }
 
     /**
-     * 标准化 K 线周期。
-     */
+     * 鏍囧噯鍖栧懆鏈熴€?     */
     private String normalizeText(String text) {
         return StringUtils.trimToEmpty(text).toUpperCase(Locale.ROOT);
     }

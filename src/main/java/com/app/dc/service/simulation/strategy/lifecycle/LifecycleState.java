@@ -1,359 +1,217 @@
 package com.app.dc.service.simulation.strategy.lifecycle;
 
 /**
- * 生命周期策略在回测过程中的内存状态。
+ * difDeaLifecycle 极简策略在回测中的内存仓位状态。
  */
 public class LifecycleState {
 
-    private final String strategyName;
-    private final String symbol;
-    private final String text;
     private LifecyclePhase phase = LifecyclePhase.NEUTRAL;
     private LifecycleDirection direction = LifecycleDirection.NONE;
     private String lastBarTime = "";
     private String lastDecision = "";
     private String lastReason = "";
-    /**
-     * 当前 pending 观察已经持续的 K 线数量。
-     */
-    private int pendingBars;
-    /**
-     * 当前 pending 观察期间出现过的最高 close。
-     */
-    private double pendingHighClose = Double.NaN;
-    /**
-     * 当前 pending 观察期间出现过的最低 close。
-     */
-    private double pendingLowClose = Double.NaN;
-    /**
-     * 当前 pending 区间是否已经完成建区并冻结。
-     */
-    private boolean pendingRangeReady;
-    /**
-     * 当前 pending 建区窗口内实体上沿的最高值。
-     */
-    private double pendingUpperBodyBound = Double.NaN;
-    /**
-     * 当前 pending 建区窗口内实体下沿的最低值。
-     */
-    private double pendingLowerBodyBound = Double.NaN;
-    /**
-     * 标记当前 pending 观察态的触发来源。
-     */
-    private PendingSource pendingSource = PendingSource.NONE;
+    private String entrySource = "";
+    private int entryIndex = -1;
+    private double entryPrice = Double.NaN;
+    private int cooldownUntilIndex = -1;
+    private LifecycleDirection pendingEntryDirection = LifecycleDirection.NONE;
+    private int pendingEntryIndex = -1;
+    private double pendingEntryClose = Double.NaN;
+    private double pendingEntryHigh = Double.NaN;
+    private double pendingEntryLow = Double.NaN;
+    private double pendingEntryDifDeaGap = Double.NaN;
+    private double pendingEntryMacdBar = Double.NaN;
 
     /**
-     * 初始化指定策略、品种和周期的状态。
+     * 判断当前是否多头持仓。
      */
-    public LifecycleState(String strategyName, String symbol, String text) {
-        this.strategyName = strategyName;
-        this.symbol = symbol;
-        this.text = text;
+    public boolean inLong() { return getPhase() == LifecyclePhase.LONG_ACTIVE; }
+
+    /**
+     * 判断当前是否空头持仓。
+     */
+    public boolean inShort() { return getPhase() == LifecyclePhase.SHORT_ACTIVE; }
+
+    /**
+     * 判断当前是否存在待确认入场。
+     */
+    public boolean hasPendingEntry() {
+        return getPendingEntryDirection() == LifecycleDirection.LONG
+                || getPendingEntryDirection() == LifecycleDirection.SHORT;
     }
 
     /**
-     * 获取状态所属策略名称。
+     * 切换为空仓状态。
      */
-    public String getStrategyName() {
-        return strategyName;
+    public void toNeutral() {
+        phase = LifecyclePhase.NEUTRAL;
+        direction = LifecycleDirection.NONE;
+        entrySource = "";
+        entryIndex = -1;
+        entryPrice = Double.NaN;
+        clearPendingEntry();
     }
 
     /**
-     * 获取状态所属交易品种。
+     * 记录待确认入场信号K线。
      */
-    public String getSymbol() {
-        return symbol;
+    public void startPendingEntry(LifecycleDirection direction, LifecycleIndicatorSample sample) {
+        pendingEntryDirection = direction == null ? LifecycleDirection.NONE : direction;
+        pendingEntryIndex = sample == null ? -1 : sample.getIndex();
+        pendingEntryClose = sample == null ? Double.NaN : sample.getClose();
+        pendingEntryHigh = sample == null ? Double.NaN : sample.getHigh();
+        pendingEntryLow = sample == null ? Double.NaN : sample.getLow();
+        pendingEntryMacdBar = sample == null ? Double.NaN : sample.getMacdBar();
+        if (sample == null) {
+            pendingEntryDifDeaGap = Double.NaN;
+        } else if (pendingEntryDirection == LifecycleDirection.SHORT) {
+            pendingEntryDifDeaGap = sample.getDea() - sample.getDif();
+        } else {
+            pendingEntryDifDeaGap = sample.getDif() - sample.getDea();
+        }
     }
 
     /**
-     * 获取状态所属 K 线周期。
+     * 清理待确认入场信号。
      */
-    public String getText() {
-        return text;
+    public void clearPendingEntry() {
+        pendingEntryDirection = LifecycleDirection.NONE;
+        pendingEntryIndex = -1;
+        pendingEntryClose = Double.NaN;
+        pendingEntryHigh = Double.NaN;
+        pendingEntryLow = Double.NaN;
+        pendingEntryDifDeaGap = Double.NaN;
+        pendingEntryMacdBar = Double.NaN;
     }
 
     /**
-     * 获取当前生命周期阶段。
+     * 获取当前阶段。
      */
-    public LifecyclePhase getPhase() {
-        return phase == null ? LifecyclePhase.NEUTRAL : phase;
-    }
+    public LifecyclePhase getPhase() { return phase == null ? LifecyclePhase.NEUTRAL : phase; }
 
     /**
-     * 设置当前生命周期阶段。
+     * 设置当前阶段。
      */
-    public void setPhase(LifecyclePhase phase) {
-        this.phase = phase == null ? LifecyclePhase.NEUTRAL : phase;
-    }
+    public void setPhase(LifecyclePhase phase) { this.phase = phase == null ? LifecyclePhase.NEUTRAL : phase; }
 
     /**
-     * 获取当前趋势方向。
+     * 获取当前方向。
      */
-    public LifecycleDirection getDirection() {
-        return direction == null ? LifecycleDirection.NONE : direction;
-    }
+    public LifecycleDirection getDirection() { return direction == null ? LifecycleDirection.NONE : direction; }
 
     /**
-     * 设置当前趋势方向。
+     * 设置当前方向。
      */
     public void setDirection(LifecycleDirection direction) {
         this.direction = direction == null ? LifecycleDirection.NONE : direction;
     }
 
     /**
-     * 获取最后处理过的 K 线时间。
+     * 获取最后处理K线时间。
      */
-    public String getLastBarTime() {
-        return lastBarTime == null ? "" : lastBarTime;
-    }
+    public String getLastBarTime() { return lastBarTime == null ? "" : lastBarTime; }
 
     /**
-     * 设置最后处理过的 K 线时间。
+     * 设置最后处理K线时间。
      */
-    public void setLastBarTime(String lastBarTime) {
-        this.lastBarTime = lastBarTime == null ? "" : lastBarTime;
-    }
+    public void setLastBarTime(String lastBarTime) { this.lastBarTime = lastBarTime == null ? "" : lastBarTime; }
 
     /**
-     * 获取最近一次决策类型。
+     * 获取最后决策类型。
      */
-    public String getLastDecision() {
-        return lastDecision == null ? "" : lastDecision;
-    }
+    public String getLastDecision() { return lastDecision == null ? "" : lastDecision; }
 
     /**
-     * 设置最近一次决策类型。
+     * 设置最后决策类型。
      */
     public void setLastDecision(String lastDecision) {
         this.lastDecision = lastDecision == null ? "" : lastDecision;
     }
 
     /**
-     * 获取最近一次决策原因。
+     * 获取最后决策原因。
      */
-    public String getLastReason() {
-        return lastReason == null ? "" : lastReason;
+    public String getLastReason() { return lastReason == null ? "" : lastReason; }
+
+    /**
+     * 设置最后决策原因。
+     */
+    public void setLastReason(String lastReason) { this.lastReason = lastReason == null ? "" : lastReason; }
+
+    /**
+     * 获取当前持仓来源。
+     */
+    public String getEntrySource() { return entrySource == null ? "" : entrySource; }
+
+    /**
+     * 设置当前持仓来源。
+     */
+    public void setEntrySource(String entrySource) { this.entrySource = entrySource == null ? "" : entrySource; }
+
+    /**
+     * 获取入场样本序号。
+     */
+    public int getEntryIndex() { return entryIndex; }
+
+    /**
+     * 设置入场样本序号。
+     */
+    public void setEntryIndex(int entryIndex) { this.entryIndex = entryIndex; }
+
+    /**
+     * 获取入场价。
+     */
+    public double getEntryPrice() { return entryPrice; }
+
+    /**
+     * 设置入场价。
+     */
+    public void setEntryPrice(double entryPrice) { this.entryPrice = entryPrice; }
+
+    /**
+     * 获取短持仓反复交叉后的冷却截止样本序号。
+     */
+    public int getCooldownUntilIndex() { return cooldownUntilIndex; }
+
+    /**
+     * 设置短持仓反复交叉后的冷却截止样本序号。
+     */
+    public void setCooldownUntilIndex(int cooldownUntilIndex) { this.cooldownUntilIndex = cooldownUntilIndex; }
+
+    /**
+     * 获取待确认入场方向。
+     */
+    public LifecycleDirection getPendingEntryDirection() {
+        return pendingEntryDirection == null ? LifecycleDirection.NONE : pendingEntryDirection;
     }
 
     /**
-     * 设置最近一次决策原因。
+     * 获取待确认入场信号K线序号。
      */
-    public void setLastReason(String lastReason) {
-        this.lastReason = lastReason == null ? "" : lastReason;
-    }
+    public int getPendingEntryIndex() { return pendingEntryIndex; }
 
     /**
-     * 判断当前是否处于多头生命周期。
+     * 获取待确认入场信号K线收盘价。
      */
-    public boolean inLong() {
-        return getPhase() == LifecyclePhase.LONG_ACTIVE;
-    }
+    public double getPendingEntryClose() { return pendingEntryClose; }
 
     /**
-     * 判断当前是否处于空头生命周期。
+     * 获取待确认入场信号K线最高价。
      */
-    public boolean inShort() {
-        return getPhase() == LifecyclePhase.SHORT_ACTIVE;
-    }
+    public double getPendingEntryHigh() { return pendingEntryHigh; }
 
     /**
-     * 判断当前是否处于多头补开仓观察态。
+     * 获取待确认入场信号K线最低价。
      */
-    public boolean inPendingLong() {
-        return getPhase() == LifecyclePhase.PENDING_LONG_LAUNCH;
-    }
+    public double getPendingEntryLow() { return pendingEntryLow; }
 
     /**
-     * 判断当前是否处于空头补开仓观察态。
+     * 获取待确认入场信号K线DIF/DEA张口。
      */
-    public boolean inPendingShort() {
-        return getPhase() == LifecyclePhase.PENDING_SHORT_LAUNCH;
-    }
+    public double getPendingEntryDifDeaGap() { return pendingEntryDifDeaGap; }
 
     /**
-     * 判断当前是否处于任一补开仓观察态。
+     * 获取待确认入场信号K线MACD柱。
      */
-    public boolean inPendingLaunch() {
-        return inPendingLong() || inPendingShort();
-    }
-
-    /**
-     * 返回当前 pending 已观察的 K 线数量。
-     */
-    public int getPendingBars() {
-        return pendingBars;
-    }
-
-    /**
-     * 设置当前 pending 已观察的 K 线数量。
-     */
-    public void setPendingBars(int pendingBars) {
-        this.pendingBars = pendingBars;
-    }
-
-    /**
-     * 返回当前 pending 观察期间的最高 close。
-     */
-    public double getPendingHighClose() {
-        return pendingHighClose;
-    }
-
-    /**
-     * 设置当前 pending 观察期间的最高 close。
-     */
-    public void setPendingHighClose(double pendingHighClose) {
-        this.pendingHighClose = pendingHighClose;
-        if (Double.isNaN(this.pendingUpperBodyBound)) {
-            this.pendingUpperBodyBound = pendingHighClose;
-        }
-        if (inPendingLaunch()) {
-            this.pendingRangeReady = true;
-        }
-    }
-
-    /**
-     * 返回当前 pending 观察期间的最低 close。
-     */
-    public double getPendingLowClose() {
-        return pendingLowClose;
-    }
-
-    /**
-     * 设置当前 pending 观察期间的最低 close。
-     */
-    public void setPendingLowClose(double pendingLowClose) {
-        this.pendingLowClose = pendingLowClose;
-        if (Double.isNaN(this.pendingLowerBodyBound)) {
-            this.pendingLowerBodyBound = pendingLowClose;
-        }
-        if (inPendingLaunch()) {
-            this.pendingRangeReady = true;
-        }
-    }
-
-    /**
-     * 返回当前 pending 区间是否已经建好并冻结。
-     */
-    public boolean isPendingRangeReady() {
-        return pendingRangeReady;
-    }
-
-    /**
-     * 设置当前 pending 区间是否已经建好并冻结。
-     */
-    public void setPendingRangeReady(boolean pendingRangeReady) {
-        this.pendingRangeReady = pendingRangeReady;
-    }
-
-    /**
-     * 返回当前 pending 建区窗口内的实体上沿边界。
-     */
-    public double getPendingUpperBodyBound() {
-        return pendingUpperBodyBound;
-    }
-
-    /**
-     * 设置当前 pending 建区窗口内的实体上沿边界。
-     */
-    public void setPendingUpperBodyBound(double pendingUpperBodyBound) {
-        this.pendingUpperBodyBound = pendingUpperBodyBound;
-    }
-
-    /**
-     * 返回当前 pending 建区窗口内的实体下沿边界。
-     */
-    public double getPendingLowerBodyBound() {
-        return pendingLowerBodyBound;
-    }
-
-    /**
-     * 设置当前 pending 建区窗口内的实体下沿边界。
-     */
-    public void setPendingLowerBodyBound(double pendingLowerBodyBound) {
-        this.pendingLowerBodyBound = pendingLowerBodyBound;
-    }
-
-    /**
-     * 返回当前 pending 观察态的触发来源。
-     */
-    public PendingSource getPendingSource() {
-        return pendingSource == null ? PendingSource.NONE : pendingSource;
-    }
-
-    /**
-     * 设置当前 pending 观察态的触发来源。
-     */
-    public void setPendingSource(PendingSource pendingSource) {
-        this.pendingSource = pendingSource == null ? PendingSource.NONE : pendingSource;
-    }
-
-    /**
-     * 使用最新 close 更新 pending 观察区间。
-     */
-    public void updatePendingCloseRange(double close) {
-        if (Double.isNaN(close)) {
-            return;
-        }
-        if (Double.isNaN(pendingHighClose) || close > pendingHighClose) {
-            pendingHighClose = close;
-        }
-        if (Double.isNaN(pendingLowClose) || close < pendingLowClose) {
-            pendingLowClose = close;
-        }
-    }
-
-    /**
-     * 使用当前 K 线的实体高低更新 pending 建区边界。
-     */
-    public void updatePendingBodyRange(LifecycleIndicatorSample sample) {
-        if (sample == null) {
-            return;
-        }
-        double bodyTop = Math.max(sample.getOpen(), sample.getClose());
-        double bodyBottom = Math.min(sample.getOpen(), sample.getClose());
-        if (Double.isNaN(pendingUpperBodyBound) || bodyTop > pendingUpperBodyBound) {
-            pendingUpperBodyBound = bodyTop;
-        }
-        if (Double.isNaN(pendingLowerBodyBound) || bodyBottom < pendingLowerBodyBound) {
-            pendingLowerBodyBound = bodyBottom;
-        }
-    }
-
-    /**
-     * 用进入 pending 的当根 K 线启动建区。
-     */
-    public void startPendingRange(LifecycleIndicatorSample sample, int buildBars) {
-        clearPending();
-        pendingBars = 1;
-        updatePendingCloseRange(sample == null ? Double.NaN : sample.getClose());
-        updatePendingBodyRange(sample);
-        pendingRangeReady = buildBars <= 1;
-    }
-
-    /**
-     * 用后续 K 线延续 pending 观察和建区。
-     */
-    public void continuePendingRange(LifecycleIndicatorSample sample, int buildBars) {
-        pendingBars++;
-        updatePendingCloseRange(sample == null ? Double.NaN : sample.getClose());
-        if (!pendingRangeReady) {
-            updatePendingBodyRange(sample);
-            if (pendingBars >= buildBars) {
-                pendingRangeReady = true;
-            }
-        }
-    }
-
-    /**
-     * 清理 pending 观察状态。
-     */
-    public void clearPending() {
-        pendingBars = 0;
-        pendingHighClose = Double.NaN;
-        pendingLowClose = Double.NaN;
-        pendingRangeReady = false;
-        pendingUpperBodyBound = Double.NaN;
-        pendingLowerBodyBound = Double.NaN;
-        pendingSource = PendingSource.NONE;
-    }
+    public double getPendingEntryMacdBar() { return pendingEntryMacdBar; }
 }

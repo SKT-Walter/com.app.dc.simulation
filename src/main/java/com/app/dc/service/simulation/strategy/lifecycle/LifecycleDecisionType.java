@@ -1,14 +1,12 @@
 package com.app.dc.service.simulation.strategy.lifecycle;
 
 /**
- * 生命周期决策输出类型。
+ * 极简金叉死叉策略支持的决策动作。
  */
 public enum LifecycleDecisionType {
     NONE,
-    PENDING_LONG_LAUNCH,
-    PENDING_SHORT_LAUNCH,
     ENTER_LONG,
-    LEAVE_LONG,
     ENTER_SHORT,
+    LEAVE_LONG,
     LEAVE_SHORT
 }

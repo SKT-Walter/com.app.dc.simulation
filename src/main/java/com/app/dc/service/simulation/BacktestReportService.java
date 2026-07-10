@@ -225,6 +225,7 @@ public class BacktestReportService {
         sb.append("\n");
 
         for (BacktestResult r : sortedResults) {
+            appendEntryReasonStats(sb, r);
             sb.append("## 交易明细 - ").append(s(r.strategyName)).append(" - ").append(s(r.symbol)).append("\n\n");
             List<String> tradeHeaders = new ArrayList<>();
             tradeHeaders.add("序号");
@@ -249,10 +250,11 @@ public class BacktestReportService {
             int max = reportMaxTrades <= 0
                     ? tradeList.size()
                     : Math.min(reportMaxTrades, tradeList.size());
-            for (int idx = 0; idx < max; idx++) {
-                TradeRecord t = tradeList.get(idx);
+            for (int offset = 0; offset < max; offset++) {
+                int tradeIndex = tradeList.size() - 1 - offset;
+                TradeRecord t = tradeList.get(tradeIndex);
                 List<String> row = new ArrayList<>();
-                row.add(String.valueOf(idx + 1));
+                row.add(String.valueOf(tradeIndex + 1));
                 row.add(s(r.symbol));
                 row.add(translateSide(t.side));
                 row.add(formatDisplayTime(t.entryTime));
@@ -598,9 +600,6 @@ public class BacktestReportService {
         if ("dif_dea_cross_down".equalsIgnoreCase(reason)) {
             return "DIF/DEA\u6b7b\u53c9\u5f00\u7a7a";
         }
-        if ("launch_entry_after_compression".equalsIgnoreCase(reason)) {
-            return "\u538b\u7f29\u540e\u542f\u52a8\u8865\u5f00\u4ed3";
-        }
         if ("launch_entry_after_macd_expand".equalsIgnoreCase(reason)) {
             return "MACD\u653e\u5927\u540e\u8865\u5f00\u4ed3";
         }
@@ -638,6 +637,15 @@ public class BacktestReportService {
         if ("entry_blocked_by_large_bar_range".equalsIgnoreCase(reason)) {
             return "单根K线大波幅过滤";
         }
+        if ("entry_blocked_by_whipsaw_cooldown".equalsIgnoreCase(reason)) {
+            return "短持仓反复交叉冷却中";
+        }
+        if ("entry_pending_not_confirmed".equalsIgnoreCase(reason)) {
+            return "交叉入场下一根未确认";
+        }
+        if ("entry_blocked_by_macd_spike_reversal".equalsIgnoreCase(reason)) {
+            return "MACD\u7a81\u53d1\u53cd\u62bd\u53cd\u6740\u8fc7\u6ee4";
+        }
         if ("entry_blocked_by_surge_cross".equalsIgnoreCase(reason)) {
             return "突发拉升下杀交叉过滤";
         }
@@ -647,23 +655,8 @@ public class BacktestReportService {
         if ("entry_blocked_by_low_macd".equalsIgnoreCase(reason)) {
             return "低MACD动能不足不开仓";
         }
-        if ("pending_long_launch_expired".equalsIgnoreCase(reason)) {
-            return "多头观察超时";
-        }
-        if ("pending_short_launch_expired".equalsIgnoreCase(reason)) {
-            return "空头观察超时";
-        }
         if ("launch_entry_after_macd_expand".equalsIgnoreCase(reason)) {
             return "MACD放大后补开仓";
-        }
-        if ("entry_blocked_by_range_compression".equalsIgnoreCase(reason)) {
-            return "震荡压缩过滤";
-        }
-        if ("reverse_entry_blocked_by_range_compression".equalsIgnoreCase(reason)) {
-            return "震荡期只平不反手";
-        }
-        if ("pending_launch_waiting_donchian_breakout".equalsIgnoreCase(reason)) {
-            return "等待唐奇安突破";
         }
         if ("reverse_cross_blocked_by_dif_dea_bonding".equalsIgnoreCase(reason)) {
             return "反向交叉被粘合过滤";
@@ -735,6 +728,105 @@ public class BacktestReportService {
         }
     }
 
+
+    /**
+     * 按入场原因输出盈利和亏损的开仓方式统计表。
+     */
+    private void appendEntryReasonStats(StringBuilder sb, BacktestResult result) {
+        List<TradeRecord> tradeList = result.tradeList == null ? Collections.<TradeRecord>emptyList() : result.tradeList;
+        Map<String, EntryReasonStat> profitStats = buildEntryReasonStats(tradeList, true);
+        Map<String, EntryReasonStat> lossStats = buildEntryReasonStats(tradeList, false);
+
+        sb.append("### \u76c8\u5229\u5f00\u4ed3\u65b9\u5f0f\u7edf\u8ba1").append("\n\n");
+        appendEntryReasonStatTable(sb, profitStats);
+        sb.append("\n");
+
+        sb.append("### \u4e8f\u635f\u5f00\u4ed3\u65b9\u5f0f\u7edf\u8ba1").append("\n\n");
+        appendEntryReasonStatTable(sb, lossStats);
+        sb.append("\n");
+    }
+
+    /**
+     * 按入场原因聚合盈利或亏损交易。
+     */
+    private Map<String, EntryReasonStat> buildEntryReasonStats(List<TradeRecord> tradeList, boolean profit) {
+        Map<String, EntryReasonStat> stats = new LinkedHashMap<>();
+        for (TradeRecord trade : tradeList) {
+            BigDecimal pnl = trade.pnl == null ? BigDecimal.ZERO : trade.pnl;
+            int sign = pnl.compareTo(BigDecimal.ZERO);
+            if (profit ? sign <= 0 : sign >= 0) {
+                continue;
+            }
+            String reason = translateEntryReason(trade.entryReason);
+            EntryReasonStat stat = stats.computeIfAbsent(reason, EntryReasonStat::new);
+            stat.count++;
+            stat.totalPnl = stat.totalPnl.add(pnl);
+            stat.totalHoldBars += trade.holdBars == null ? 0 : trade.holdBars;
+        }
+        return stats;
+    }
+
+    /**
+     * 输出入场原因统计表格。
+     */
+    private void appendEntryReasonStatTable(StringBuilder sb, Map<String, EntryReasonStat> stats) {
+        List<String> headers = new ArrayList<>();
+        headers.add("\u5f00\u4ed3\u65b9\u5f0f");
+        headers.add("\u7b14\u6570");
+        headers.add("\u603b\u6536\u76ca");
+        headers.add("\u5e73\u5747\u6536\u76ca");
+        headers.add("\u5e73\u5747\u6301\u4ed3K\u7ebf\u6570");
+
+        List<List<String>> rows = new ArrayList<>();
+        for (EntryReasonStat stat : stats.values()) {
+            List<String> row = new ArrayList<>();
+            row.add(s(stat.reason));
+            row.add(i(stat.count));
+            row.add(n(stat.totalPnl));
+            row.add(n(stat.averagePnl()));
+            row.add(n(stat.averageHoldBars()));
+            rows.add(row);
+        }
+        appendAlignedTable(sb, headers, rows);
+    }
+
+    /**
+     * 保存单个入场原因的聚合统计结果。
+     */
+    private static class EntryReasonStat {
+        private final String reason;
+        private int count;
+        private BigDecimal totalPnl = BigDecimal.ZERO;
+        private int totalHoldBars;
+
+        /**
+         * 创建入场原因统计对象。
+         */
+        private EntryReasonStat(String reason) {
+            this.reason = reason;
+        }
+
+        /**
+         * 计算平均收益。
+         */
+        private BigDecimal averagePnl() {
+            if (count <= 0) {
+                return BigDecimal.ZERO;
+            }
+            return totalPnl.divide(BigDecimal.valueOf(count), 6, RoundingMode.HALF_UP);
+        }
+
+        /**
+         * 计算平均持仓K线数量。
+         */
+        private BigDecimal averageHoldBars() {
+            if (count <= 0) {
+                return BigDecimal.ZERO;
+            }
+            return BigDecimal.valueOf(totalHoldBars)
+                    .divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP);
+        }
+    }
     private static class CompareRow {
         private String symbol;
         private Integer baseTrades;

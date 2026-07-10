@@ -1,14 +1,12 @@
 package com.app.dc.service.simulation.strategy.lifecycle;
 
-import java.util.Collections;
 import java.util.List;
 
 /**
- * 生命周期决策所需的上下文，聚合样本、配置和状态。
+ * 生命周期决策需要的上下文。
  */
 public class LifecycleContext {
 
-    private final String strategyName;
     private final String symbol;
     private final String text;
     private final List<LifecycleIndicatorSample> samples;
@@ -16,73 +14,49 @@ public class LifecycleContext {
     private final LifecycleState state;
 
     /**
-     * 创建一次生命周期决策上下文。
+     * 创建生命周期决策上下文。
      */
-    public LifecycleContext(String strategyName, String symbol, String text,
-                            List<LifecycleIndicatorSample> samples,
-                            LifecycleConfig config,
-                            LifecycleState state) {
-        this.strategyName = strategyName;
-        this.symbol = symbol;
-        this.text = text;
-        this.samples = samples == null ? Collections.<LifecycleIndicatorSample>emptyList() : samples;
+    public LifecycleContext(String symbol, String text, List<LifecycleIndicatorSample> samples,
+                            LifecycleConfig config, LifecycleState state) {
+        this.symbol = symbol == null ? "" : symbol;
+        this.text = text == null ? "" : text;
+        this.samples = samples;
         this.config = config;
         this.state = state;
     }
 
     /**
-     * 获取策略名称。
+     * 获取品种。
      */
-    public String getStrategyName() {
-        return strategyName;
-    }
+    public String getSymbol() { return symbol; }
 
     /**
-     * 获取交易品种。
+     * 获取周期。
      */
-    public String getSymbol() {
-        return symbol;
-    }
+    public String getText() { return text; }
 
     /**
-     * 获取K线周期。
+     * 获取指标样本。
      */
-    public String getText() {
-        return text;
-    }
+    public List<LifecycleIndicatorSample> getSamples() { return samples; }
 
     /**
-     * 获取指标样本列表。
+     * 获取配置。
      */
-    public List<LifecycleIndicatorSample> getSamples() {
-        return samples;
-    }
+    public LifecycleConfig getConfig() { return config; }
 
     /**
-     * 获取生命周期策略配置。
+     * 获取状态。
      */
-    public LifecycleConfig getConfig() {
-        return config;
-    }
+    public LifecycleState getState() { return state; }
 
     /**
-     * 获取生命周期策略状态。
+     * 获取当前样本。
      */
-    public LifecycleState getState() {
-        return state;
-    }
+    public LifecycleIndicatorSample current() { return samples.get(samples.size() - 1); }
 
     /**
-     * 获取上一根K线的指标样本。
+     * 获取上一根样本。
      */
-    public LifecycleIndicatorSample previous() {
-        return samples.get(samples.size() - 2);
-    }
-
-    /**
-     * 获取当前K线的指标样本。
-     */
-    public LifecycleIndicatorSample current() {
-        return samples.get(samples.size() - 1);
-    }
+    public LifecycleIndicatorSample previous() { return samples.get(samples.size() - 2); }
 }

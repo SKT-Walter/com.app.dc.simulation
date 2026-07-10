@@ -98,8 +98,19 @@ public class DifDeaLifecycleBacktestTest {
         param.strategyName = "difDeaLifecycle";
         param.symbols = "ETHUSDT";
         param.text = "5m";
-        param.beginDate = "2026-06-21";
-        param.endDate = "2026-06-29";
+
+
+        //difDeaLifecycle_ETHUSDT_5M_20260702_160539.md
+//        param.beginDate = "2026-06-20";
+//        param.endDate = "2026-07-02";
+
+        //difDeaLifecycle_ETHUSDT_5M_20260702_161025.md
+        param.beginDate = "2026-07-05";
+        param.endDate = "2026-07-10";
+
+//        param.beginDate = "2026-06-10";
+//        param.endDate = "2026-06-20";
+
         param.initialCapital = new BigDecimal("10000");
         param.feeRatePct = new BigDecimal("0.04");
         param.fallbackStopLossPct = new BigDecimal("6.0");

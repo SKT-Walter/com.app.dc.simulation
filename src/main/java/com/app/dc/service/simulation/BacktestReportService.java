@@ -55,13 +55,13 @@ public class BacktestReportService {
     @Value("${binanceBacktestReportDir:./src/docs}")
     private String reportDir;
 
-    @Value("${strategy.auto.publish.minValidateTrades:5}")
+    @Value("${strategy.auto.publish.minValidateTrades:20}")
     private int minValidateTrades;
 
-    @Value("${strategy.auto.publish.maxValidateDrawdownPct:0.30}")
+    @Value("${strategy.auto.publish.maxValidateDrawdownPct:0.15}")
     private double maxValidateDrawdownPct;
 
-    @Value("${strategy.auto.publish.minValidateProfitFactor:1.05}")
+    @Value("${strategy.auto.publish.minValidateProfitFactor:1.20}")
     private double minValidateProfitFactor;
 
     @Autowired

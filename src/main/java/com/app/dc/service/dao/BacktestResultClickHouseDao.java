@@ -53,7 +53,7 @@ public class BacktestResultClickHouseDao {
         String sliceTable = safeTableName(sliceTableName, "backtest_slice_result");
         String trialTable = safeTableName(trialTableName, "backtest_optimization_trial");
         String sql = "INSERT INTO " + table
-                + " (run_time,sid,strategy_name,strategy_version,baseline_version,runtime_type,scene,"
+                + " (run_time,sid,strategy_name,strategy_version,baseline_version,runtime_type,execution_model_version,scene,"
                 + "symbol,text,begin_date,end_date,trade_count,win_count,loss_count,flat_count,"
                 + "win_rate,total_return_pct,profit_factor,max_drawdown_pct,initial_capital,final_capital,total_pnl,"
                 + "forward_score,validate_primary_score,forward_aux_score,fee_adjusted_validate_pnl,fee_adjusted_forward_pnl,slice_param_drift_score,oos_pass,"
@@ -61,7 +61,7 @@ public class BacktestResultClickHouseDao {
                 + "optimization_mode,trial_count,best_param_set,best_rank,symbol_count,fit_window_days,validate_window_days,"
                 + "forward_window_days,min_slice_count,optimization_objective,min_forward_contribution,elapsed_ms,fragile_best,"
                 + "stable_param_range,neighbor_avg_pnl,neighbor_worst_pnl,report_path,payload)"
-                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         String sliceSql = "INSERT INTO " + sliceTable
                 + " (run_time,sid,strategy_name,strategy_version,symbol,text,slice_no,"
                 + "fit_begin,fit_end,validate_begin,validate_end,forward_begin,forward_end,"
@@ -167,6 +167,7 @@ public class BacktestResultClickHouseDao {
                 safe(result.strategyVersion),
                 safe(result.baselineVersion),
                 safe(result.runtimeType),
+                safe(result.executionModelVersion),
                 safe(result.scene),
                 safe(result.symbol),
                 safe(result.text),

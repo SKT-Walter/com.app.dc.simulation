@@ -293,12 +293,13 @@ public class SliceOptimizedWalkForwardRunner {
             gate.overfitPass = false;
             gate.reason = "fit_pnl > 0 but validate_pnl <= 0";
         } else if (nz(validatePnl).compareTo(BigDecimal.ZERO) > 0
-                && nz(forwardPnl).compareTo(BigDecimal.ZERO) < 0) {
+                && nz(forwardPnl).compareTo(BigDecimal.ZERO) <= 0) {
             gate.overfitPass = false;
-            gate.reason = "validate_pnl > 0 but forward_pnl < 0";
+            gate.reason = "validate_pnl > 0 but forward_pnl <= 0";
         }
         gate.oosPass = gate.overfitPass
                 && nz(validatePnl).compareTo(BigDecimal.ZERO) > 0
+                && nz(forwardPnl).compareTo(BigDecimal.ZERO) > 0
                 && nzInt(tradeCount) > 0;
         return gate;
     }

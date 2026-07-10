@@ -127,12 +127,43 @@ public class StrategyAutoPublishServiceTest {
         Assert.assertTrue(dao.retiredScopes.contains("BTCUSDT,ETHUSDT,SOLUSDT"));
     }
 
+    @Test
+    public void maybePublishShouldRejectZeroFeeAdjustedForwardPnl() throws Exception {
+        StrategyAutoPublishService service = new StrategyAutoPublishService();
+        StubAutoPublishDao dao = new StubAutoPublishDao();
+        wirePublishConfig(service, dao);
+        BacktestModels.BacktestResponse response = response("BTCUSDT");
+        response.results.get(0).forwardPnl = BigDecimal.ZERO;
+        response.results.get(0).feeAdjustedForwardPnl = BigDecimal.ZERO;
+
+        StrategyAutoPublishDecision decision = service.maybePublish(task("bt_103"), candidate("v13"), response);
+
+        Assert.assertFalse(decision.published);
+        Assert.assertEquals("fee adjusted forward pnl <= 0", decision.reason);
+    }
+
+    @Test
+    public void maybePublishShouldNotCompareNewExecutionModelAgainstLegacyInflatedBaseline() throws Exception {
+        StrategyAutoPublishService service = new StrategyAutoPublishService();
+        StubAutoPublishDao dao = new StubAutoPublishDao();
+        dao.active = active("live_acc3", "v12", "BTCUSDT");
+        dao.baseline = baseline(99.0d, 999999d);
+        dao.baseline.executionModelVersion = "";
+        wirePublishConfig(service, dao);
+
+        StrategyAutoPublishDecision decision = service.maybePublish(task("bt_104"), candidate("v13"), response("BTCUSDT"));
+
+        Assert.assertTrue(decision.published);
+        Assert.assertEquals("REPLACE", decision.action);
+        Assert.assertEquals("replace legacy backtest baseline with realistic execution model result", decision.reason);
+    }
+
     private static void wirePublishConfig(StrategyAutoPublishService service, StubAutoPublishDao dao) throws Exception {
         setField(service, "enabled", true);
         setField(service, "publishSource", "test_publish");
-        setField(service, "minValidateTrades", 5);
-        setField(service, "maxValidateDrawdownPct", 0.30d);
-        setField(service, "minValidateProfitFactor", 1.05d);
+        setField(service, "minValidateTrades", 20);
+        setField(service, "maxValidateDrawdownPct", 0.15d);
+        setField(service, "minValidateProfitFactor", 1.20d);
         setField(service, "lossAwareBaselineReplaceEnabled", true);
         setField(service, "lossAwareBaselineReplaceTodayPnlThreshold", 3.0d);
         setField(service, "strategyAutoPublishDao", dao);
@@ -178,7 +209,7 @@ public class StrategyAutoPublishServiceTest {
         result.overfitPass = 1;
         result.bestParamSetJson = "{\"risk\":1}";
         result.fragileBest = 0;
-        result.tradeCount = 9;
+        result.tradeCount = 25;
         result.maxDrawdownPct = BigDecimal.valueOf(0.12d);
         result.profitFactor = BigDecimal.valueOf(1.6d);
 
@@ -217,6 +248,7 @@ public class StrategyAutoPublishServiceTest {
 
     private static StrategyBacktestSummary baseline(double forwardScore, double validateScore) {
         StrategyBacktestSummary row = new StrategyBacktestSummary();
+        row.executionModelVersion = BacktestModels.EXECUTION_MODEL_VERSION;
         row.forwardScore = forwardScore;
         row.validatePrimaryScore = validateScore;
         return row;

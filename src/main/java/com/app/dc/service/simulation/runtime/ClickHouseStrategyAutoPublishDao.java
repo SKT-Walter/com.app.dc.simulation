@@ -182,6 +182,7 @@ public class ClickHouseStrategyAutoPublishDao implements StrategyAutoPublishDao 
                 + "argMax(strategy_version, run_time) as strategyVersion,"
                 + "argMax(symbol, run_time) as symbolScope,"
                 + "argMax(runtime_type, run_time) as runtimeType,"
+                + "argMax(execution_model_version, run_time) as executionModelVersion,"
                 + "argMax(scene, run_time) as scene,"
                 + "argMax(window_mode, run_time) as windowMode,"
                 + "argMax(optimization_mode, run_time) as optimizationMode,"

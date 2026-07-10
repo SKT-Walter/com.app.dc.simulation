@@ -37,13 +37,13 @@ public class StrategyAutoPublishService {
     @Value("${strategy.auto.publish.source:simulation_auto_publish}")
     private String publishSource;
 
-    @Value("${strategy.auto.publish.minValidateTrades:5}")
+    @Value("${strategy.auto.publish.minValidateTrades:20}")
     private int minValidateTrades;
 
-    @Value("${strategy.auto.publish.maxValidateDrawdownPct:0.30}")
+    @Value("${strategy.auto.publish.maxValidateDrawdownPct:0.15}")
     private double maxValidateDrawdownPct;
 
-    @Value("${strategy.auto.publish.minValidateProfitFactor:1.05}")
+    @Value("${strategy.auto.publish.minValidateProfitFactor:1.20}")
     private double minValidateProfitFactor;
 
     @Value("${strategy.auto.publish.lossAwareBaselineReplace.enabled:true}")
@@ -443,6 +443,7 @@ public class StrategyAutoPublishService {
         summary.strategyVersion = candidate.strategyVersion;
         summary.symbolScope = resolveSingleSymbol(response);
         summary.runtimeType = candidate.runtimeType;
+        summary.executionModelVersion = resolveExecutionModelVersion(response);
         summary.scene = candidate.scene;
         summary.runTime = nowString();
         summary.windowMode = response == null ? "" : response.windowMode;
@@ -523,6 +524,18 @@ public class StrategyAutoPublishService {
         StrategyBacktestSummary summary = summarizeCurrent(task, candidate, response);
         summary.symbolScope = result == null ? "" : normalizeSymbolScope(result.symbol);
         return summary;
+    }
+
+    private String resolveExecutionModelVersion(BacktestModels.BacktestResponse response) {
+        if (response == null || response.results == null) {
+            return "";
+        }
+        for (BacktestModels.BacktestResult result : response.results) {
+            if (result != null && StringUtils.isNotBlank(result.executionModelVersion)) {
+                return result.executionModelVersion;
+            }
+        }
+        return "";
     }
 
     private BacktestModels.BacktestResponse wrapResultAsResponse(BacktestModels.BacktestResponse template,
@@ -728,6 +741,9 @@ public class StrategyAutoPublishService {
     }
 
     private String validateGlobalPreconditions(StrategyBacktestSummary current, StrategyCandidateRow candidate) {
+        if (!StringUtils.equals(current.executionModelVersion, BacktestModels.EXECUTION_MODEL_VERSION)) {
+            return "unsupported backtest execution model";
+        }
         if (!StringUtils.equalsIgnoreCase(current.windowMode, "WALK_FORWARD")) {
             return "window_mode is not WALK_FORWARD";
         }
@@ -767,8 +783,8 @@ public class StrategyAutoPublishService {
         if (!gt(current.forwardScore, 0D)) {
             return "forward_score <= 0";
         }
-        if (!gte(preferredFeeAdjustedForward(current), 0D)) {
-            return "forward_pnl < 0";
+        if (!gt(preferredFeeAdjustedForward(current), 0D)) {
+            return "fee adjusted forward pnl <= 0";
         }
         if (!gte(forwardContribution(preferredFeeAdjustedForward(current), current.totalPnl), current.minForwardContribution)) {
             return "forward contribution below threshold";
@@ -792,6 +808,10 @@ public class StrategyAutoPublishService {
         decision.replaceReason = latestBaselineMode
                 ? "replace latest live baseline after review evolution"
                 : "replace active version with stronger backtest result";
+        if (!StringUtils.equals(baseline.executionModelVersion, current.executionModelVersion)) {
+            decision.replaceReason = "replace legacy backtest baseline with realistic execution model result";
+            return decision;
+        }
         if (shouldAllowLossAwareBaselineReplace(candidate, active, latestBaselineMode, symbolScope)) {
             StrategyLiveTradeStatsRow stats = loadTodayTradeStats(candidate, active, symbolScope);
             if (isSevereActiveLoss(stats)) {

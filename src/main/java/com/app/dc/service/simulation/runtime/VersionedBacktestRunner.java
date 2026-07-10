@@ -73,6 +73,7 @@ public class VersionedBacktestRunner {
         result.strategyPayload = candidate.payload;
         BacktestModels.EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue());
         BacktestModels.Position position = null;
+        Signal pendingLimitSignal = null;
 
         for (TTbookOhlc ohlc : ohlcList) {
             BacktestExecutionGuard.checkInterrupted("versioned_backtest_bar_loop");
@@ -93,6 +94,14 @@ public class VersionedBacktestRunner {
                     metricService.applyTrade(result, riskClosed, equityContext);
                     position = null;
                 }
+            }
+
+            if (position == null && pendingLimitSignal != null) {
+                position = tradeService.tryOpenLimitPosition(pendingLimitSignal,
+                        replaySeries.getEndIndex(), bar, param, equityContext.equity);
+                // Generated strategies are evaluated on every closed bar. A limit signal is valid for
+                // the next bar only; a still-valid setup will emit a fresh order at this bar close.
+                pendingLimitSignal = null;
             }
 
             com.app.dc.signal.SignalContext signalContext = com.app.dc.signal.SignalContext.backtest(
@@ -119,7 +128,12 @@ public class VersionedBacktestRunner {
             }
 
             if (position == null) {
-                position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param, equityContext.equity);
+                if (tradeService.isMarketOrder(signal)) {
+                    position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param,
+                            equityContext.equity, param.exitTakerFeeRatePct.doubleValue());
+                } else {
+                    pendingLimitSignal = signal;
+                }
                 continue;
             }
             if (tradeService.isOpposite(position.side, signal.side)) {
@@ -128,7 +142,13 @@ public class VersionedBacktestRunner {
                         param.entryMakerFeeRatePct.doubleValue(),
                         param.exitTakerFeeRatePct.doubleValue());
                 metricService.applyTrade(result, reversed, equityContext);
-                position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param, equityContext.equity);
+                if (tradeService.isMarketOrder(signal)) {
+                    position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param,
+                            equityContext.equity, param.exitTakerFeeRatePct.doubleValue());
+                } else {
+                    position = null;
+                    pendingLimitSignal = signal;
+                }
             }
         }
 

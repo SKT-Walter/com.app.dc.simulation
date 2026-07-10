@@ -15,6 +15,14 @@ import java.math.RoundingMode;
 public class BacktestTradeService {
 
     public Position openPosition(Signal signal, int barIndex, Bar bar, BacktestParam param, double currentEquity) {
+        double entryFeeRatePct = param == null || param.entryMakerFeeRatePct == null
+                ? 0.0d
+                : param.entryMakerFeeRatePct.doubleValue();
+        return openPosition(signal, barIndex, bar, param, currentEquity, entryFeeRatePct);
+    }
+
+    public Position openPosition(Signal signal, int barIndex, Bar bar, BacktestParam param,
+                                 double currentEquity, double entryFeeRatePct) {
         Position position = new Position();
         position.side = signal.side;
         position.entryPrice = resolveEntryPrice(signal, bar);
@@ -23,6 +31,7 @@ public class BacktestTradeService {
         position.signalTime = bar.getEndTime().toString();
         position.entryIndex = barIndex;
         position.entryCapital = currentEquity;
+        position.entryFeeRatePct = entryFeeRatePct;
         position.qty = position.entryPrice <= 0.0 ? 0.0 : currentEquity / position.entryPrice;
         position.stopPrice = signal.stopPrice == null || signal.stopPrice.compareTo(BigDecimal.ZERO) <= 0
                 ? null
@@ -36,6 +45,40 @@ public class BacktestTradeService {
         position.fallbackTakeProfitPct = positiveOrNull(signal.underTakerProfitPrice);
         position.maxHoldBars = param.maxHoldBars == null ? 0 : param.maxHoldBars;
         return position;
+    }
+
+    public Position tryOpenLimitPosition(Signal signal, int barIndex, Bar bar,
+                                         BacktestParam param, double currentEquity) {
+        if (signal == null || bar == null || isMarketOrder(signal)) {
+            return null;
+        }
+        double limitPrice = signal.price == null ? Double.NaN : signal.price.doubleValue();
+        if (!isFinitePositive(limitPrice)) {
+            return null;
+        }
+        double low = bar.getLowPrice().doubleValue();
+        double high = bar.getHighPrice().doubleValue();
+        if (!Double.isFinite(low) || !Double.isFinite(high)) {
+            return null;
+        }
+        if (signal.side == Side.BUY && low > limitPrice) {
+            return null;
+        }
+        if (signal.side == Side.SELL && high < limitPrice) {
+            return null;
+        }
+        if (signal.side != Side.BUY && signal.side != Side.SELL) {
+            return null;
+        }
+        double makerFeeRatePct = param == null || param.entryMakerFeeRatePct == null
+                ? 0.0d
+                : param.entryMakerFeeRatePct.doubleValue();
+        return openPosition(signal, barIndex, bar, param, currentEquity, makerFeeRatePct);
+    }
+
+    public boolean isMarketOrder(Signal signal) {
+        return signal != null
+                && ("MARKET".equalsIgnoreCase(signal.orderType) || signal.type == 2);
     }
 
     private double resolveEntryPrice(Signal signal, Bar bar) {
@@ -139,7 +182,15 @@ public class BacktestTradeService {
         if (position.entryPrice <= 0.0d || position.side == null) {
             return null;
         }
-        double profitPct = Math.abs(((currentClose - position.entryPrice) / position.entryPrice) * 100.0d);
+        double profitPct;
+        if (position.side == Side.SELL) {
+            profitPct = ((position.entryPrice - currentClose) / position.entryPrice) * 100.0d;
+        } else {
+            profitPct = ((currentClose - position.entryPrice) / position.entryPrice) * 100.0d;
+        }
+        if (!Double.isFinite(profitPct) || profitPct <= 0.0d) {
+            return null;
+        }
         Double fallbackPct = position.fallbackTakeProfitPct;
         if (position.trailingFirstStepPct != null && position.trailingStepPct != null
                 && profitPct > position.trailingFirstStepPct) {
@@ -167,6 +218,9 @@ public class BacktestTradeService {
 
     public TradeRecord closePosition(Position position, double exitPrice, String exitTime, String exitReason,
                                      int exitIndex, double entryMakerFeeRatePct, double exitTakerFeeRatePct) {
+        double actualEntryFeeRatePct = position.entryFeeRatePct == null
+                ? entryMakerFeeRatePct
+                : position.entryFeeRatePct.doubleValue();
         TradeRecord record = new TradeRecord();
         record.side = position.side == null ? "" : position.side.name();
         record.signalTime = position.signalTime;
@@ -181,14 +235,14 @@ public class BacktestTradeService {
         record.holdBars = Math.max(1, exitIndex - position.entryIndex);
         record.entryReason = "signal_entry";
         record.exitReason = exitReason;
-        record.entryFeeRatePct = scale(entryMakerFeeRatePct);
+        record.entryFeeRatePct = scale(actualEntryFeeRatePct);
         record.exitFeeRatePct = scale(exitTakerFeeRatePct);
-        record.entryFee = scale(position.entryCapital * entryMakerFeeRatePct / 100.0d);
+        record.entryFee = scale(position.entryCapital * actualEntryFeeRatePct / 100.0d);
         record.exitFee = scale(position.entryCapital * exitTakerFeeRatePct / 100.0d);
         record.totalFee = scale(record.entryFee.doubleValue() + record.exitFee.doubleValue());
         record.grossReturnPct = scale(calcGrossReturnPct(position.side, position.entryPrice, exitPrice));
         record.returnPct = scale(calcReturnPct(position.side, position.entryPrice, exitPrice,
-                entryMakerFeeRatePct, exitTakerFeeRatePct));
+                actualEntryFeeRatePct, exitTakerFeeRatePct));
         return record;
     }
 

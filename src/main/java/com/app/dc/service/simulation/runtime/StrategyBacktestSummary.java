@@ -6,6 +6,7 @@ public class StrategyBacktestSummary {
     public String strategyVersion;
     public String symbolScope;
     public String runtimeType;
+    public String executionModelVersion;
     public String scene;
     public String runTime;
     public String windowMode;

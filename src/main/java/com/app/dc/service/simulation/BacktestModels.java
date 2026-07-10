@@ -8,6 +8,8 @@ import java.util.Map;
 
 public final class BacktestModels {
 
+    public static final String EXECUTION_MODEL_VERSION = "v2_realistic_fill_and_trailing";
+
     private BacktestModels() {
     }
 
@@ -63,6 +65,7 @@ public final class BacktestModels {
     }
 
     public static class BacktestResult {
+        public String executionModelVersion = EXECUTION_MODEL_VERSION;
         public String strategyName;
         public String strategyVersion;
         public String baselineVersion;
@@ -243,6 +246,7 @@ public final class BacktestModels {
         public String signalTime;
         public double signalPrice;
         public double entryCapital;
+        public Double entryFeeRatePct;
         public double qty;
         public int entryIndex;
         public Double stopPrice;

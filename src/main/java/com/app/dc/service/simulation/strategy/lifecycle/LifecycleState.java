@@ -13,6 +13,9 @@ public class LifecycleState {
     private String entrySource = "";
     private int entryIndex = -1;
     private double entryPrice = Double.NaN;
+    private double entrySignalHigh = Double.NaN;
+    private double entrySignalLow = Double.NaN;
+    private double entryMacdStrength = Double.NaN;
     private int cooldownUntilIndex = -1;
     private LifecycleDirection pendingEntryDirection = LifecycleDirection.NONE;
     private int pendingEntryIndex = -1;
@@ -65,7 +68,27 @@ public class LifecycleState {
         entrySource = "";
         entryIndex = -1;
         entryPrice = Double.NaN;
+        clearEarlyFailureGuard();
         clearPendingEntry();
+    }
+
+    /**
+     * 保存确认入场对应的信号K线边界和入场MACD动能。
+     */
+    public void armEarlyFailureGuard(LifecycleDirection direction, double signalHigh, double signalLow,
+                                     double macdBar) {
+        entrySignalHigh = signalHigh;
+        entrySignalLow = signalLow;
+        entryMacdStrength = direction == LifecycleDirection.SHORT ? -macdBar : macdBar;
+    }
+
+    /**
+     * 清理新仓早期趋势失败观察数据。
+     */
+    public void clearEarlyFailureGuard() {
+        entrySignalHigh = Double.NaN;
+        entrySignalLow = Double.NaN;
+        entryMacdStrength = Double.NaN;
     }
 
     /**
@@ -217,6 +240,21 @@ public class LifecycleState {
      * 设置入场价。
      */
     public void setEntryPrice(double entryPrice) { this.entryPrice = entryPrice; }
+
+    /**
+     * 获取入场信号K线最高价。
+     */
+    public double getEntrySignalHigh() { return entrySignalHigh; }
+
+    /**
+     * 获取入场信号K线最低价。
+     */
+    public double getEntrySignalLow() { return entrySignalLow; }
+
+    /**
+     * 获取确认入场K线的方向性MACD动能。
+     */
+    public double getEntryMacdStrength() { return entryMacdStrength; }
 
     /**
      * 获取短持仓反复交叉后的冷却截止样本序号。

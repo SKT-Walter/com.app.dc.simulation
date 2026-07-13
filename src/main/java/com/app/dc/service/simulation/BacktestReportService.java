@@ -646,6 +646,33 @@ public class BacktestReportService {
         if ("entry_pending_breakout_too_shallow".equalsIgnoreCase(reason)) {
             return "交叉入场相对突破强度不足";
         }
+        if ("entry_confirmation_overextended".equalsIgnoreCase(reason)) {
+            return "交叉确认K线过度延伸";
+        }
+        if ("early_trend_failure_long".equalsIgnoreCase(reason)) {
+            return "多头突破及动能早期失效";
+        }
+        if ("early_trend_failure_short".equalsIgnoreCase(reason)) {
+            return "空头突破及动能早期失效";
+        }
+        if ("trend_not_launched_long".equalsIgnoreCase(reason)) {
+            return "多头入场八根仍未启动";
+        }
+        if ("trend_not_launched_short".equalsIgnoreCase(reason)) {
+            return "空头入场八根仍未启动";
+        }
+        if ("trend_zero_progress_long".equalsIgnoreCase(reason)) {
+            return "多头入场八根几乎无推进";
+        }
+        if ("trend_zero_progress_short".equalsIgnoreCase(reason)) {
+            return "空头入场八根几乎无推进";
+        }
+        if ("trend_checkpoint_giveback_long".equalsIgnoreCase(reason)) {
+            return "多头第8-12根有效浮盈全部回吐";
+        }
+        if ("trend_checkpoint_giveback_short".equalsIgnoreCase(reason)) {
+            return "空头第8-12根有效浮盈全部回吐";
+        }
         if ("reverse_pending_started".equalsIgnoreCase(reason)) {
             return "反手入场等待下一根确认";
         }
@@ -654,6 +681,9 @@ public class BacktestReportService {
         }
         if ("reverse_pending_breakout_too_shallow".equalsIgnoreCase(reason)) {
             return "反手入场相对突破强度不足";
+        }
+        if ("reverse_confirmation_overextended".equalsIgnoreCase(reason)) {
+            return "反手确认K线过度延伸";
         }
         if ("entry_blocked_by_macd_spike_reversal".equalsIgnoreCase(reason)) {
             return "MACD\u7a81\u53d1\u53cd\u62bd\u53cd\u6740\u8fc7\u6ee4";

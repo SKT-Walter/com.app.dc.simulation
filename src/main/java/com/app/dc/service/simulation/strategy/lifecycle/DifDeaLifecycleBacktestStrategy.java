@@ -82,11 +82,20 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
         LifecycleContext context = new LifecycleContext(normalizedSymbol, normalizedText, samples, config, state);
         double breakoutConfirmRatio = decisionEngine.calculatePendingBreakoutRatio(state, latest);
         LifecycleDecision decision = decisionEngine.decide(context);
+        double entrySignalHigh = state.getEntrySignalHigh();
+        double entrySignalLow = state.getEntrySignalLow();
+        double entryMacdStrength = state.getEntryMacdStrength();
+        double currentMacdRetentionRatio = decisionEngine.calculateCurrentMacdRetentionRatio(state, latest);
+        boolean earlyFailureWindow = decisionEngine.isInEarlyFailureWindow(state, latest, config);
+        double maxFavorableProgressPct = decisionEngine.calculateMaxFavorableProgressPct(context);
+        boolean entrySignalBoundaryInvalidated = decisionEngine.wasEntrySignalBoundaryInvalidated(context);
         boolean reverseBlockedByProfitableWeakCross =
                 decisionEngine.isReverseBlockedByProfitableWeakCross(state, latest, config);
         updateState(state, latest, decision, config);
         logDecisionKline(normalizedSymbol, normalizedText, config, latest, state, decision, recentCrossCount,
-                breakoutConfirmRatio, reverseBlockedByProfitableWeakCross);
+                breakoutConfirmRatio, reverseBlockedByProfitableWeakCross, entrySignalHigh, entrySignalLow,
+                entryMacdStrength, currentMacdRetentionRatio, earlyFailureWindow,
+                maxFavorableProgressPct, entrySignalBoundaryInvalidated);
         if (!decision.hasAction()) {
             reject(normalizedSymbol, decision.getReason());
             return signal;
@@ -94,7 +103,9 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
         applyDecision(signal, decision);
         signal.algoName = getName();
         signal.remark = buildRemark(decision, latest, state, config, recentCrossCount,
-                reverseBlockedByProfitableWeakCross);
+                reverseBlockedByProfitableWeakCross, entrySignalHigh, entrySignalLow, entryMacdStrength,
+                currentMacdRetentionRatio, earlyFailureWindow,
+                maxFavorableProgressPct, entrySignalBoundaryInvalidated);
         return signal;
     }
 
@@ -154,7 +165,11 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
             return;
         }
         if (decision.getType() == LifecycleDecisionType.LEAVE_LONG) {
-            if (decisionEngine.canStartPendingReverse(state, latest, config)) {
+            if (isEarlyTrendFailureExit(decision)) {
+                applyWhipsawCooldown(state, latest, holdBars, config);
+                state.toNeutral();
+                state.clearPendingReverse();
+            } else if (decisionEngine.canStartPendingReverse(state, latest, config)) {
                 state.toNeutral();
                 state.startPendingReverse(LifecycleDirection.SHORT, latest,
                         "reverse_short_after_dif_dea_cross_down");
@@ -166,7 +181,11 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
             return;
         }
         if (decision.getType() == LifecycleDecisionType.LEAVE_SHORT) {
-            if (decisionEngine.canStartPendingReverse(state, latest, config)) {
+            if (isEarlyTrendFailureExit(decision)) {
+                applyWhipsawCooldown(state, latest, holdBars, config);
+                state.toNeutral();
+                state.clearPendingReverse();
+            } else if (decisionEngine.canStartPendingReverse(state, latest, config)) {
                 state.toNeutral();
                 state.startPendingReverse(LifecycleDirection.LONG, latest,
                         "reverse_long_after_dif_dea_cross_up");
@@ -176,6 +195,21 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 state.clearPendingReverse();
             }
         }
+    }
+
+    /**
+     * 判断当前离场是否由新仓早期趋势失败触发。
+     */
+    private boolean isEarlyTrendFailureExit(LifecycleDecision decision) {
+        return decision != null
+                && ("early_trend_failure_long".equals(decision.getReason())
+                || "early_trend_failure_short".equals(decision.getReason())
+                || "trend_not_launched_long".equals(decision.getReason())
+                || "trend_not_launched_short".equals(decision.getReason())
+                || "trend_zero_progress_long".equals(decision.getReason())
+                || "trend_zero_progress_short".equals(decision.getReason())
+                || "trend_checkpoint_giveback_long".equals(decision.getReason())
+                || "trend_checkpoint_giveback_short".equals(decision.getReason()));
     }
 
     /**
@@ -223,7 +257,14 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                                LifecycleState state,
                                LifecycleConfig config,
                                int recentCrossCount,
-                               boolean reverseBlockedByProfitableWeakCross) {
+                               boolean reverseBlockedByProfitableWeakCross,
+                               double entrySignalHigh,
+                               double entrySignalLow,
+                               double entryMacdStrength,
+                               double currentMacdRetentionRatio,
+                               boolean earlyFailureWindow,
+                               double maxFavorableProgressPct,
+                               boolean entrySignalBoundaryInvalidated) {
         return getName()
                 + " decision=" + decision.getType()
                 + ", reason=" + decision.getReason()
@@ -249,7 +290,14 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 + ", pendingReverseAge=" + decisionEngine.pendingReverseAge(state, latest)
                 + ", pendingReverseSource=" + state.getPendingReverseSource()
                 + ", reverseBlockedByProfitableWeakCross="
-                + reverseBlockedByProfitableWeakCross;
+                + reverseBlockedByProfitableWeakCross
+                + ", entrySignalHigh=" + entrySignalHigh
+                + ", entrySignalLow=" + entrySignalLow
+                + ", entryMacdStrength=" + entryMacdStrength
+                + ", currentMacdRetentionRatio=" + currentMacdRetentionRatio
+                + ", earlyFailureWindow=" + earlyFailureWindow
+                + ", maxFavorableProgressPct=" + maxFavorableProgressPct
+                + ", entrySignalBoundaryInvalidated=" + entrySignalBoundaryInvalidated;
     }
 
     /**
@@ -289,7 +337,14 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                                   LifecycleDecision decision,
                                   int recentCrossCount,
                                   double breakoutConfirmRatio,
-                                  boolean reverseBlockedByProfitableWeakCross) {
+                                  boolean reverseBlockedByProfitableWeakCross,
+                                  double entrySignalHigh,
+                                  double entrySignalLow,
+                                  double entryMacdStrength,
+                                  double currentMacdRetentionRatio,
+                                  boolean earlyFailureWindow,
+                                  double maxFavorableProgressPct,
+                                  boolean entrySignalBoundaryInvalidated) {
         log.info("difDeaLifecycle decision kline, symbol:{}, text:{}, index:{}, barTime:{}, "
                         + "open:{}, high:{}, low:{}, close:{}, dif:{}, dea:{}, macd:{}, ma10:{}, ma20:{}, "
                         + "barRangePct:{}, phase:{}, direction:{}, decision:{}, reason:{}, reverseEntry:{}, "
@@ -298,7 +353,9 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                         + "pendingEntryIndex:{}, pendingEntryAge:{}, pendingReverseDirection:{}, "
                         + "pendingReverseIndex:{}, pendingReverseAge:{}, pendingReverseSource:{}, "
                         + "breakoutConfirmRatio:{}, minBreakoutConfirmRatio:{}, "
-                        + "reverseBlockedByProfitableWeakCross:{}",
+                        + "reverseBlockedByProfitableWeakCross:{}, entrySignalHigh:{}, entrySignalLow:{}, "
+                        + "entryMacdStrength:{}, currentMacdRetentionRatio:{}, earlyFailureWindow:{}, "
+                        + "maxFavorableProgressPct:{}, entrySignalBoundaryInvalidated:{}",
                 symbol,
                 text,
                 latest.getIndex(),
@@ -334,7 +391,14 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 state.getPendingReverseSource(),
                 breakoutConfirmRatio,
                 config.getMinBreakoutConfirmRatio(),
-                reverseBlockedByProfitableWeakCross);
+                reverseBlockedByProfitableWeakCross,
+                entrySignalHigh,
+                entrySignalLow,
+                entryMacdStrength,
+                currentMacdRetentionRatio,
+                earlyFailureWindow,
+                maxFavorableProgressPct,
+                entrySignalBoundaryInvalidated);
     }
 
     /**

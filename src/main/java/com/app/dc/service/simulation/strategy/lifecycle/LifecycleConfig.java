@@ -14,6 +14,16 @@ public class LifecycleConfig {
     private final int pendingEntryMaxBars = 1;
     private final int pendingReverseMaxBars = 1;
     private final double minBreakoutConfirmRatio = 0.25d;
+    private final double overextendedConfirmBarRangePct = 0.60d;
+    private final double overextendedConfirmBreakoutRatio = 1.50d;
+    private final int earlyFailureMaxHoldBars = 8;
+    private final double earlyFailureMacdRetentionRatio = 0.60d;
+    private final int nonLaunchCheckHoldBars = 8;
+    private final double nonLaunchMinFavorableProgressPct = 0.20d;
+    private final double nonLaunchZeroProgressPct = 0.10d;
+    private final double checkpointGivebackMinFavorablePct = 0.20d;
+    private final double checkpointGivebackMacdRetentionRatio = 0.80d;
+    private final int checkpointGivebackMaxHoldBars = 12;
     private final int profitableReverseFilterHoldBars = 20;
     private final double profitableReverseFilterMinProfitPct = 0.3d;
     private final double profitableReverseDifDeaGapMin = 0.12d;
@@ -62,6 +72,56 @@ public class LifecycleConfig {
      * 获取确认K线相对信号K线波幅的最小突破比例。
      */
     public double getMinBreakoutConfirmRatio() { return minBreakoutConfirmRatio; }
+
+    /**
+     * 获取确认K线过度延伸过滤的最小波幅百分比。
+     */
+    public double getOverextendedConfirmBarRangePct() { return overextendedConfirmBarRangePct; }
+
+    /**
+     * 获取确认K线过度延伸过滤的最小相对突破比例。
+     */
+    public double getOverextendedConfirmBreakoutRatio() { return overextendedConfirmBreakoutRatio; }
+
+    /**
+     * 获取新仓早期趋势失败观察的最大持仓K线数量。
+     */
+    public int getEarlyFailureMaxHoldBars() { return earlyFailureMaxHoldBars; }
+
+    /**
+     * 获取早期趋势失败允许保留的MACD动能比例。
+     */
+    public double getEarlyFailureMacdRetentionRatio() { return earlyFailureMacdRetentionRatio; }
+
+    /**
+     * 获取趋势未启动检查的持仓K线数量。
+     */
+    public int getNonLaunchCheckHoldBars() { return nonLaunchCheckHoldBars; }
+
+    /**
+     * 获取趋势视为有效启动所需的最小方向浮盈百分比。
+     */
+    public double getNonLaunchMinFavorableProgressPct() { return nonLaunchMinFavorableProgressPct; }
+
+    /**
+     * 获取第八根零推进退出允许的最大方向浮盈百分比。
+     */
+    public double getNonLaunchZeroProgressPct() { return nonLaunchZeroProgressPct; }
+
+    /**
+     * 获取第八根趋势回吐检查要求的最小方向浮盈百分比。
+     */
+    public double getCheckpointGivebackMinFavorablePct() { return checkpointGivebackMinFavorablePct; }
+
+    /**
+     * 获取第八根趋势回吐检查允许的最大MACD动能保留比例。
+     */
+    public double getCheckpointGivebackMacdRetentionRatio() { return checkpointGivebackMacdRetentionRatio; }
+
+    /**
+     * 获取趋势回吐检查窗口的最大持仓K线数量。
+     */
+    public int getCheckpointGivebackMaxHoldBars() { return checkpointGivebackMaxHoldBars; }
 
     /**
      * 获取盈利长单反手过滤的最小持仓K线数量。

@@ -80,12 +80,13 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
 
         int recentCrossCount = decisionEngine.calculateRecentCrossCount(samples, config);
         LifecycleContext context = new LifecycleContext(normalizedSymbol, normalizedText, samples, config, state);
+        double breakoutConfirmRatio = decisionEngine.calculatePendingBreakoutRatio(state, latest);
         LifecycleDecision decision = decisionEngine.decide(context);
         boolean reverseBlockedByProfitableWeakCross =
                 decisionEngine.isReverseBlockedByProfitableWeakCross(state, latest, config);
         updateState(state, latest, decision, config);
         logDecisionKline(normalizedSymbol, normalizedText, config, latest, state, decision, recentCrossCount,
-                reverseBlockedByProfitableWeakCross);
+                breakoutConfirmRatio, reverseBlockedByProfitableWeakCross);
         if (!decision.hasAction()) {
             reject(normalizedSymbol, decision.getReason());
             return signal;
@@ -287,6 +288,7 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                                   LifecycleState state,
                                   LifecycleDecision decision,
                                   int recentCrossCount,
+                                  double breakoutConfirmRatio,
                                   boolean reverseBlockedByProfitableWeakCross) {
         log.info("difDeaLifecycle decision kline, symbol:{}, text:{}, index:{}, barTime:{}, "
                         + "open:{}, high:{}, low:{}, close:{}, dif:{}, dea:{}, macd:{}, ma10:{}, ma20:{}, "
@@ -295,6 +297,7 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                         + "recentCrossCount:{}, crossDensityLookbackBars:{}, pendingEntryDirection:{}, "
                         + "pendingEntryIndex:{}, pendingEntryAge:{}, pendingReverseDirection:{}, "
                         + "pendingReverseIndex:{}, pendingReverseAge:{}, pendingReverseSource:{}, "
+                        + "breakoutConfirmRatio:{}, minBreakoutConfirmRatio:{}, "
                         + "reverseBlockedByProfitableWeakCross:{}",
                 symbol,
                 text,
@@ -329,6 +332,8 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 state.getPendingReverseIndex(),
                 decisionEngine.pendingReverseAge(state, latest),
                 state.getPendingReverseSource(),
+                breakoutConfirmRatio,
+                config.getMinBreakoutConfirmRatio(),
                 reverseBlockedByProfitableWeakCross);
     }
 

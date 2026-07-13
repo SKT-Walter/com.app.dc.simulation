@@ -13,6 +13,7 @@ public class LifecycleConfig {
     private final int crossDensityBlockCount = 2;
     private final int pendingEntryMaxBars = 1;
     private final int pendingReverseMaxBars = 1;
+    private final double minBreakoutConfirmRatio = 0.25d;
     private final int profitableReverseFilterHoldBars = 20;
     private final double profitableReverseFilterMinProfitPct = 0.3d;
     private final double profitableReverseDifDeaGapMin = 0.12d;
@@ -56,6 +57,11 @@ public class LifecycleConfig {
      * 获取反手入场最多等待确认K线数量。
      */
     public int getPendingReverseMaxBars() { return pendingReverseMaxBars; }
+
+    /**
+     * 获取确认K线相对信号K线波幅的最小突破比例。
+     */
+    public double getMinBreakoutConfirmRatio() { return minBreakoutConfirmRatio; }
 
     /**
      * 获取盈利长单反手过滤的最小持仓K线数量。

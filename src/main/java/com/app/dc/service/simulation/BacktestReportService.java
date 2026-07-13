@@ -643,11 +643,17 @@ public class BacktestReportService {
         if ("entry_pending_not_confirmed".equalsIgnoreCase(reason)) {
             return "交叉入场下一根未确认";
         }
+        if ("entry_pending_breakout_too_shallow".equalsIgnoreCase(reason)) {
+            return "交叉入场相对突破强度不足";
+        }
         if ("reverse_pending_started".equalsIgnoreCase(reason)) {
             return "反手入场等待下一根确认";
         }
         if ("reverse_pending_not_confirmed".equalsIgnoreCase(reason)) {
             return "反手入场下一根未确认";
+        }
+        if ("reverse_pending_breakout_too_shallow".equalsIgnoreCase(reason)) {
+            return "反手入场相对突破强度不足";
         }
         if ("entry_blocked_by_macd_spike_reversal".equalsIgnoreCase(reason)) {
             return "MACD\u7a81\u53d1\u53cd\u62bd\u53cd\u6740\u8fc7\u6ee4";

@@ -127,6 +127,11 @@ public class DifDeaLifecycleDecisionEngine {
                 state.clearPendingEntry();
                 return LifecycleDecision.none("entry_pending_not_confirmed");
             }
+            if (!isBreakoutConfirmRatioReached(LifecycleDirection.LONG,
+                    state.getPendingEntryHigh(), state.getPendingEntryLow(), cur.getClose(), context.getConfig())) {
+                state.clearPendingEntry();
+                return LifecycleDecision.none("entry_pending_breakout_too_shallow");
+            }
             state.clearPendingEntry();
             return LifecycleDecision.entry(LifecycleDecisionType.ENTER_LONG,
                     "dif_dea_cross_up", "confirmed_dif_dea_cross_up");
@@ -135,6 +140,11 @@ public class DifDeaLifecycleDecisionEngine {
             if (crossUp || !isShortPendingConfirmed(state, cur)) {
                 state.clearPendingEntry();
                 return LifecycleDecision.none("entry_pending_not_confirmed");
+            }
+            if (!isBreakoutConfirmRatioReached(LifecycleDirection.SHORT,
+                    state.getPendingEntryHigh(), state.getPendingEntryLow(), cur.getClose(), context.getConfig())) {
+                state.clearPendingEntry();
+                return LifecycleDecision.none("entry_pending_breakout_too_shallow");
             }
             state.clearPendingEntry();
             return LifecycleDecision.entry(LifecycleDecisionType.ENTER_SHORT,
@@ -206,6 +216,11 @@ public class DifDeaLifecycleDecisionEngine {
                 state.clearPendingReverse();
                 return LifecycleDecision.none("reverse_pending_not_confirmed");
             }
+            if (!isBreakoutConfirmRatioReached(LifecycleDirection.LONG,
+                    state.getPendingReverseHigh(), state.getPendingReverseLow(), cur.getClose(), context.getConfig())) {
+                state.clearPendingReverse();
+                return LifecycleDecision.none("reverse_pending_breakout_too_shallow");
+            }
             state.clearPendingReverse();
             return LifecycleDecision.entry(LifecycleDecisionType.ENTER_LONG,
                     "dif_dea_cross_up", "confirmed_reverse_long_after_dif_dea_cross_up");
@@ -214,6 +229,11 @@ public class DifDeaLifecycleDecisionEngine {
             if (crossUp || !isShortReverseConfirmed(state, cur)) {
                 state.clearPendingReverse();
                 return LifecycleDecision.none("reverse_pending_not_confirmed");
+            }
+            if (!isBreakoutConfirmRatioReached(LifecycleDirection.SHORT,
+                    state.getPendingReverseHigh(), state.getPendingReverseLow(), cur.getClose(), context.getConfig())) {
+                state.clearPendingReverse();
+                return LifecycleDecision.none("reverse_pending_breakout_too_shallow");
             }
             state.clearPendingReverse();
             return LifecycleDecision.entry(LifecycleDecisionType.ENTER_SHORT,
@@ -243,6 +263,60 @@ public class DifDeaLifecycleDecisionEngine {
                 && cur.getClose() < cur.getMa10()
                 && cur.getMa10() <= cur.getMa20()
                 && cur.getClose() < state.getPendingReverseLow();
+    }
+
+    /**
+     * 计算当前待确认信号的相对突破强度。
+     */
+    public double calculatePendingBreakoutRatio(LifecycleState state, LifecycleIndicatorSample cur) {
+        if (state == null || cur == null) {
+            return Double.NaN;
+        }
+        if (state.hasPendingReverse()) {
+            return calculateBreakoutConfirmRatio(state.getPendingReverseDirection(),
+                    state.getPendingReverseHigh(), state.getPendingReverseLow(), cur.getClose());
+        }
+        if (state.hasPendingEntry()) {
+            return calculateBreakoutConfirmRatio(state.getPendingEntryDirection(),
+                    state.getPendingEntryHigh(), state.getPendingEntryLow(), cur.getClose());
+        }
+        return Double.NaN;
+    }
+
+    /**
+     * 判断相对信号K线波幅的突破强度是否达到配置阈值。
+     */
+    private boolean isBreakoutConfirmRatioReached(LifecycleDirection direction,
+                                                   double signalHigh,
+                                                   double signalLow,
+                                                   double close,
+                                                   LifecycleConfig config) {
+        if (config == null) {
+            return false;
+        }
+        double ratio = calculateBreakoutConfirmRatio(direction, signalHigh, signalLow, close);
+        return !Double.isNaN(ratio)
+                && !Double.isInfinite(ratio)
+                && ratio >= config.getMinBreakoutConfirmRatio();
+    }
+
+    /**
+     * 按多空方向计算突破信号K线高低点的相对比例。
+     */
+    private double calculateBreakoutConfirmRatio(LifecycleDirection direction,
+                                                  double signalHigh,
+                                                  double signalLow,
+                                                  double close) {
+        double signalRange = signalHigh - signalLow;
+        if (direction == null || direction == LifecycleDirection.NONE
+                || Double.isNaN(signalRange) || Double.isInfinite(signalRange) || signalRange <= 0.0d
+                || Double.isNaN(close) || Double.isInfinite(close)) {
+            return Double.NaN;
+        }
+        double breakout = direction == LifecycleDirection.LONG
+                ? close - signalHigh
+                : signalLow - close;
+        return breakout / signalRange;
     }
 
     /**

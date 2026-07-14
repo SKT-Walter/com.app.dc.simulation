@@ -628,6 +628,9 @@ public class BacktestReportService {
         if ("entry_blocked_by_cross_density".equalsIgnoreCase(reason)) {
             return "交叉密度过滤";
         }
+        if ("entry_blocked_by_ma20_trend".equalsIgnoreCase(reason)) {
+            return "交叉确认与MA20趋势反向";
+        }
         if ("entry_blocked_by_counter_trend".equalsIgnoreCase(reason)) {
             return "最近K线反向走势过滤";
         }
@@ -675,6 +678,9 @@ public class BacktestReportService {
         }
         if ("reverse_pending_started".equalsIgnoreCase(reason)) {
             return "反手入场等待下一根确认";
+        }
+        if ("reverse_entry_blocked_by_ma20_trend".equalsIgnoreCase(reason)) {
+            return "反手确认与MA20趋势反向";
         }
         if ("reverse_pending_not_confirmed".equalsIgnoreCase(reason)) {
             return "反手入场下一根未确认";

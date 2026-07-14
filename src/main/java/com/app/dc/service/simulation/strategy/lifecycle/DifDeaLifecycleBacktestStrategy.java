@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy {
 
     private static final String TEXT_5M = "5M";
-    private static final int MACD_WINDOW = 50;
+    private static final int MACD_WINDOW = 80;
 
     private final LifecycleIndicatorCalculator indicatorCalculator = new LifecycleIndicatorCalculator(MACD_WINDOW);
     private final DifDeaLifecycleDecisionEngine decisionEngine;
@@ -81,6 +81,8 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
         int recentCrossCount = decisionEngine.calculateRecentCrossCount(samples, config);
         LifecycleContext context = new LifecycleContext(normalizedSymbol, normalizedText, samples, config, state);
         double breakoutConfirmRatio = decisionEngine.calculatePendingBreakoutRatio(state, latest);
+        double ma20TrendPct = decisionEngine.calculateMa20TrendPct(context);
+        LifecycleDirection ma20TrendDirection = decisionEngine.detectMa20TrendDirection(context);
         LifecycleDecision decision = decisionEngine.decide(context);
         double entrySignalHigh = state.getEntrySignalHigh();
         double entrySignalLow = state.getEntrySignalLow();
@@ -95,7 +97,8 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
         logDecisionKline(normalizedSymbol, normalizedText, config, latest, state, decision, recentCrossCount,
                 breakoutConfirmRatio, reverseBlockedByProfitableWeakCross, entrySignalHigh, entrySignalLow,
                 entryMacdStrength, currentMacdRetentionRatio, earlyFailureWindow,
-                maxFavorableProgressPct, entrySignalBoundaryInvalidated);
+                maxFavorableProgressPct, entrySignalBoundaryInvalidated,
+                ma20TrendPct, ma20TrendDirection);
         if (!decision.hasAction()) {
             reject(normalizedSymbol, decision.getReason());
             return signal;
@@ -105,7 +108,8 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
         signal.remark = buildRemark(decision, latest, state, config, recentCrossCount,
                 reverseBlockedByProfitableWeakCross, entrySignalHigh, entrySignalLow, entryMacdStrength,
                 currentMacdRetentionRatio, earlyFailureWindow,
-                maxFavorableProgressPct, entrySignalBoundaryInvalidated);
+                maxFavorableProgressPct, entrySignalBoundaryInvalidated,
+                ma20TrendPct, ma20TrendDirection);
         return signal;
     }
 
@@ -264,7 +268,9 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                                double currentMacdRetentionRatio,
                                boolean earlyFailureWindow,
                                double maxFavorableProgressPct,
-                               boolean entrySignalBoundaryInvalidated) {
+                               boolean entrySignalBoundaryInvalidated,
+                               double ma20TrendPct,
+                               LifecycleDirection ma20TrendDirection) {
         return getName()
                 + " decision=" + decision.getType()
                 + ", reason=" + decision.getReason()
@@ -297,7 +303,9 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 + ", currentMacdRetentionRatio=" + currentMacdRetentionRatio
                 + ", earlyFailureWindow=" + earlyFailureWindow
                 + ", maxFavorableProgressPct=" + maxFavorableProgressPct
-                + ", entrySignalBoundaryInvalidated=" + entrySignalBoundaryInvalidated;
+                + ", entrySignalBoundaryInvalidated=" + entrySignalBoundaryInvalidated
+                + ", ma20TrendPct=" + ma20TrendPct
+                + ", ma20TrendDirection=" + ma20TrendDirection;
     }
 
     /**
@@ -344,7 +352,9 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                                   double currentMacdRetentionRatio,
                                   boolean earlyFailureWindow,
                                   double maxFavorableProgressPct,
-                                  boolean entrySignalBoundaryInvalidated) {
+                                  boolean entrySignalBoundaryInvalidated,
+                                  double ma20TrendPct,
+                                  LifecycleDirection ma20TrendDirection) {
         log.info("difDeaLifecycle decision kline, symbol:{}, text:{}, index:{}, barTime:{}, "
                         + "open:{}, high:{}, low:{}, close:{}, dif:{}, dea:{}, macd:{}, ma10:{}, ma20:{}, "
                         + "barRangePct:{}, phase:{}, direction:{}, decision:{}, reason:{}, reverseEntry:{}, "
@@ -355,7 +365,9 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                         + "breakoutConfirmRatio:{}, minBreakoutConfirmRatio:{}, "
                         + "reverseBlockedByProfitableWeakCross:{}, entrySignalHigh:{}, entrySignalLow:{}, "
                         + "entryMacdStrength:{}, currentMacdRetentionRatio:{}, earlyFailureWindow:{}, "
-                        + "maxFavorableProgressPct:{}, entrySignalBoundaryInvalidated:{}",
+                        + "maxFavorableProgressPct:{}, entrySignalBoundaryInvalidated:{}, "
+                        + "ma20TrendPct:{}, ma20TrendDirection:{}, ma20TrendLookbackBars:{}, "
+                        + "ma20TrendThresholdPct:{}",
                 symbol,
                 text,
                 latest.getIndex(),
@@ -398,7 +410,11 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 currentMacdRetentionRatio,
                 earlyFailureWindow,
                 maxFavorableProgressPct,
-                entrySignalBoundaryInvalidated);
+                entrySignalBoundaryInvalidated,
+                ma20TrendPct,
+                ma20TrendDirection,
+                config.getMa20TrendLookbackBars(),
+                config.getMa20TrendThresholdPct());
     }
 
     /**

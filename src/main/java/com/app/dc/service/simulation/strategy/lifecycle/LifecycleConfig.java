@@ -5,7 +5,7 @@ package com.app.dc.service.simulation.strategy.lifecycle;
  */
 public class LifecycleConfig {
 
-    private final int warmupBars = 35;
+    private final int warmupBars = 56;
     private final double largeBarRangePct = 0.8d;
     private final int noReverseHoldBars = 8;
     private final int whipsawCooldownBars = 3;
@@ -24,6 +24,8 @@ public class LifecycleConfig {
     private final double checkpointGivebackMinFavorablePct = 0.20d;
     private final double checkpointGivebackMacdRetentionRatio = 0.80d;
     private final int checkpointGivebackMaxHoldBars = 12;
+    private final int ma20TrendLookbackBars = 36;
+    private final double ma20TrendThresholdPct = 0.10d;
     private final int profitableReverseFilterHoldBars = 20;
     private final double profitableReverseFilterMinProfitPct = 0.3d;
     private final double profitableReverseDifDeaGapMin = 0.12d;
@@ -122,6 +124,16 @@ public class LifecycleConfig {
      * 获取趋势回吐检查窗口的最大持仓K线数量。
      */
     public int getCheckpointGivebackMaxHoldBars() { return checkpointGivebackMaxHoldBars; }
+
+    /**
+     * 获取MA20趋势判断的回看K线数量。
+     */
+    public int getMa20TrendLookbackBars() { return ma20TrendLookbackBars; }
+
+    /**
+     * 获取MA20明确趋势的最小归一化斜率百分比。
+     */
+    public double getMa20TrendThresholdPct() { return ma20TrendThresholdPct; }
 
     /**
      * 获取盈利长单反手过滤的最小持仓K线数量。

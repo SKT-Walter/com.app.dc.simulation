@@ -409,6 +409,42 @@ public class DifDeaLifecycleDecisionEngine {
     }
 
     /**
+     * 计算MA20在配置窗口内的归一化趋势斜率百分比。
+     */
+    public double calculateMa20TrendPct(LifecycleContext context) {
+        if (context == null || context.getConfig() == null || context.getSamples() == null
+                || context.getSamples().isEmpty() || context.current().getClose() <= 0.0d) {
+            return Double.NaN;
+        }
+        LifecycleIndicatorSample current = context.current();
+        int targetIndex = current.getIndex() - context.getConfig().getMa20TrendLookbackBars();
+        for (int i = context.getSamples().size() - 1; i >= 0; i--) {
+            LifecycleIndicatorSample sample = context.getSamples().get(i);
+            if (sample.getIndex() == targetIndex) {
+                return (current.getMa20() - sample.getMa20()) / current.getClose() * 100.0d;
+            }
+        }
+        return Double.NaN;
+    }
+
+    /**
+     * 根据MA20趋势斜率识别明确方向，走平时返回NONE。
+     */
+    public LifecycleDirection detectMa20TrendDirection(LifecycleContext context) {
+        double trendPct = calculateMa20TrendPct(context);
+        if (Double.isNaN(trendPct) || context == null || context.getConfig() == null) {
+            return LifecycleDirection.NONE;
+        }
+        if (trendPct >= context.getConfig().getMa20TrendThresholdPct()) {
+            return LifecycleDirection.LONG;
+        }
+        if (trendPct <= -context.getConfig().getMa20TrendThresholdPct()) {
+            return LifecycleDirection.SHORT;
+        }
+        return LifecycleDirection.NONE;
+    }
+
+    /**
      * 判断新仓是否同时失去突破价格结构和MACD动能。
      */
     public boolean isEarlyTrendFailure(LifecycleState state, LifecycleIndicatorSample sample,

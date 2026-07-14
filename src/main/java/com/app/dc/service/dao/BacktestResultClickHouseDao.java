@@ -37,15 +37,38 @@ public class BacktestResultClickHouseDao {
     private String trialTableName;
 
     public void insertResults(String sid, String reportPath, BacktestModels.BacktestResponse response) {
+        insertResults(sid, reportPath, response, false);
+    }
+
+    /**
+     * Persists the complete evidence set required before a strategy may be published live.
+     */
+    public void insertResultsRequired(String sid, String reportPath, BacktestModels.BacktestResponse response) {
+        insertResults(sid, reportPath, response, true);
+    }
+
+    private void insertResults(String sid,
+                               String reportPath,
+                               BacktestModels.BacktestResponse response,
+                               boolean required) {
         if (!storeEnabled || response == null) {
+            if (required) {
+                throw new IllegalStateException("backtest result persistence is disabled or response is empty");
+            }
             return;
         }
         if (!isClickHouseReady()) {
+            if (required) {
+                throw new IllegalStateException("clickhouse is not ready for backtest result persistence");
+            }
             return;
         }
         List<BacktestModels.BacktestResult> results =
                 response.results == null ? Collections.<BacktestModels.BacktestResult>emptyList() : response.results;
         if (results.isEmpty()) {
+            if (required) {
+                throw new IllegalStateException("backtest result persistence requires at least one result");
+            }
             return;
         }
 
@@ -78,14 +101,20 @@ public class BacktestResultClickHouseDao {
         Connection con = null;
         try {
             con = ClickHouseDBUtils.getDatabaseConnection().getConnection();
-            insertBacktestResults(con, sql, sliceSql, sid, reportPath, results);
-            insertOptimizationTrials(con, trialSql, sid, response);
+            if (con == null) {
+                throw new IllegalStateException("clickhouse connection is null");
+            }
+            insertBacktestResults(con, sql, sliceSql, sid, reportPath, results, required);
+            insertOptimizationTrials(con, trialSql, sid, response, required);
         } catch (Exception e) {
             log.error("BacktestResultClickHouseDao insert session error, sid:{}, resultCount:{}, trialCount:{}",
                     sid,
                     results.size(),
                     response.trials == null ? 0 : response.trials.size(),
                     e);
+            if (required) {
+                throw new IllegalStateException("required backtest evidence persistence failed, sid:" + sid, e);
+            }
         } finally {
             if (con != null) {
                 try {
@@ -101,7 +130,8 @@ public class BacktestResultClickHouseDao {
                                        String sliceSql,
                                        String sid,
                                        String reportPath,
-                                       List<BacktestModels.BacktestResult> results) throws Exception {
+                                       List<BacktestModels.BacktestResult> results,
+                                       boolean required) throws Exception {
         PreparedStatement resultPs = null;
         PreparedStatement slicePs = null;
         try {
@@ -110,10 +140,13 @@ public class BacktestResultClickHouseDao {
             for (BacktestModels.BacktestResult result : results) {
                 try {
                     executePrepared(resultPs, buildResultArgs(sid, reportPath, result));
-                    insertSliceResults(slicePs, sid, result);
+                    insertSliceResults(slicePs, sid, result, required);
                 } catch (Exception e) {
                     log.error("BacktestResultClickHouseDao insert error, strategy:{}, symbol:{}",
                             result.strategyName, result.symbol, e);
+                    if (required) {
+                        throw e;
+                    }
                 }
             }
         } finally {
@@ -122,7 +155,10 @@ public class BacktestResultClickHouseDao {
         }
     }
 
-    private void insertSliceResults(PreparedStatement slicePs, String sid, BacktestModels.BacktestResult result) {
+    private void insertSliceResults(PreparedStatement slicePs,
+                                    String sid,
+                                    BacktestModels.BacktestResult result,
+                                    boolean required) throws Exception {
         if (result == null || result.sliceResults == null || result.sliceResults.isEmpty()) {
             return;
         }
@@ -132,6 +168,9 @@ public class BacktestResultClickHouseDao {
             } catch (Exception e) {
                 log.error("BacktestResultClickHouseDao insert slice error, strategy:{}, symbol:{}, slice:{}",
                         result.strategyName, result.symbol, slice.sliceNo, e);
+                if (required) {
+                    throw e;
+                }
             }
         }
     }
@@ -139,7 +178,8 @@ public class BacktestResultClickHouseDao {
     private void insertOptimizationTrials(Connection con,
                                           String sql,
                                           String sid,
-                                          BacktestModels.BacktestResponse response) throws Exception {
+                                          BacktestModels.BacktestResponse response,
+                                          boolean required) throws Exception {
         if (response == null || response.trials == null || response.trials.isEmpty()) {
             return;
         }
@@ -152,6 +192,9 @@ public class BacktestResultClickHouseDao {
                 } catch (Exception e) {
                     log.error("BacktestResultClickHouseDao insert optimization trial error, strategy:{}, trial:{}",
                             trial.strategyName, trial.trialNo, e);
+                    if (required) {
+                        throw e;
+                    }
                 }
             }
         } finally {

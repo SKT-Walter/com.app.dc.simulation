@@ -221,6 +221,21 @@ public class StrategyBacktestPullJob {
                     "", backtestStart, optimizePayload);
             markPipeline(task, candidate, StrategyPipelineModels.OPTIMIZE, StrategyPipelineModels.SUCCESS,
                     "", backtestStart, optimizePayload);
+            String reportPath = backtestReportService.writeReport(task.id, response, null);
+            String compareReportPath = backtestReportService.writeCompareReport(response);
+            log.info("StrategyBacktestPullJob report generation finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, reportPath:{}, compareReportPath:{}",
+                    task.id,
+                    task.generationTaskId,
+                    firstNotBlank(task.candidateId, candidate.id),
+                    candidate.strategyName,
+                    candidate.strategyVersion,
+                    threadName,
+                    reportPath,
+                    compareReportPath);
+            backtestResultClickHouseDao.insertResultsRequired(task.id, reportPath, response);
+            log.info("StrategyBacktestPullJob result persistence finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}",
+                    task.id, task.generationTaskId, firstNotBlank(task.candidateId, candidate.id),
+                    candidate.strategyName, candidate.strategyVersion, threadName);
             StrategyAutoPublishDecision publishDecision =
                     strategyAutoPublishService.maybePublish(task, candidate, response);
             log.info("StrategyBacktestPullJob publish decision finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, published:{}, action:{}, reason:{}",
@@ -233,21 +248,8 @@ public class StrategyBacktestPullJob {
                     publishDecision != null && publishDecision.published,
                     publishDecision == null ? "" : publishDecision.action,
                     publishDecision == null ? "" : publishDecision.reason);
-            String reportPath = backtestReportService.writeReport(task.id, response, publishDecision);
-            String compareReportPath = backtestReportService.writeCompareReport(response);
-            log.info("StrategyBacktestPullJob report generation finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, reportPath:{}, compareReportPath:{}",
-                    task.id,
-                    task.generationTaskId,
-                    firstNotBlank(task.candidateId, candidate.id),
-                    candidate.strategyName,
-                    candidate.strategyVersion,
-                    threadName,
-                    reportPath,
-                    compareReportPath);
-            backtestResultClickHouseDao.insertResults(task.id, reportPath, response);
-            log.info("StrategyBacktestPullJob result persistence finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}",
-                    task.id, task.generationTaskId, firstNotBlank(task.candidateId, candidate.id),
-                    candidate.strategyName, candidate.strategyVersion, threadName);
+            // Rewrite the deterministic report after publishing so it includes the final release decision.
+            reportPath = backtestReportService.writeReport(task.id, response, publishDecision);
 
             Map<String, Object> taskResult = new LinkedHashMap<String, Object>();
             taskResult.put("taskId", task.id);

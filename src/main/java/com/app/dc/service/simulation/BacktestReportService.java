@@ -41,13 +41,20 @@ public class BacktestReportService {
     private int reportMaxTrades;
 
     public String writeReport(BacktestResponse response) {
+        return writeReport(response, "");
+    }
+
+    /**
+     * 输出带业务标签的回测报告，便于批量回测区分日期段。
+     */
+    public String writeReport(BacktestResponse response, String fileTag) {
         if (!reportEnabled || response == null) {
             return "";
         }
         try {
             Path dir = Paths.get(reportDir);
             Files.createDirectories(dir);
-            String fileName = buildFileName(response);
+            String fileName = buildFileName(response, fileTag);
             Path filePath = dir.resolve(fileName);
             Files.write(filePath, buildMarkdown(response).getBytes(StandardCharsets.UTF_8));
             return filePath.toString().replace("\\", "/");
@@ -78,12 +85,15 @@ public class BacktestReportService {
         }
     }
 
-    private String buildFileName(BacktestResponse response) {
+    private String buildFileName(BacktestResponse response, String fileTag) {
         String strategy = safeFilePart(response.strategyName);
         String symbol = safeFilePart(response.symbol);
         String text = safeFilePart(response.text);
+        String tag = fileTag == null || fileTag.trim().isEmpty()
+                ? ""
+                : "_" + safeFilePart(fileTag.trim());
         String time = LocalDateTime.now().format(FILE_TIME);
-        return strategy + "_" + symbol + "_" + text + "_" + time + ".md";
+        return strategy + "_" + symbol + "_" + text + tag + "_" + time + ".md";
     }
 
     private String buildCompareFileName(BacktestResponse response) {
@@ -628,6 +638,12 @@ public class BacktestReportService {
         if ("entry_blocked_by_cross_density".equalsIgnoreCase(reason)) {
             return "交叉密度过滤";
         }
+        if ("extreme_countertrend_stop_synced".equalsIgnoreCase(reason)) {
+            return "强趋势逆势硬止损状态同步";
+        }
+        if ("flat_ma20_stop_synced".equalsIgnoreCase(reason)) {
+            return "MA20走平专属止损状态同步";
+        }
         if ("entry_blocked_by_ma20_trend".equalsIgnoreCase(reason)) {
             return "交叉确认与MA20趋势反向";
         }
@@ -652,11 +668,23 @@ public class BacktestReportService {
         if ("entry_confirmation_overextended".equalsIgnoreCase(reason)) {
             return "交叉确认K线过度延伸";
         }
+        if ("entry_confirmation_extreme_countertrend_overextended".equalsIgnoreCase(reason)) {
+            return "极端逆势确认K线过度延伸";
+        }
+        if ("entry_confirmation_extreme_countertrend_structure_missing".equalsIgnoreCase(reason)) {
+            return "极端逆势确认尚未突破MA20";
+        }
         if ("early_trend_failure_long".equalsIgnoreCase(reason)) {
             return "多头突破及动能早期失效";
         }
         if ("early_trend_failure_short".equalsIgnoreCase(reason)) {
             return "空头突破及动能早期失效";
+        }
+        if ("trend_fifth_bar_failure_long".equalsIgnoreCase(reason)) {
+            return "多头第5-7根未启动且动能衰减";
+        }
+        if ("trend_fifth_bar_failure_short".equalsIgnoreCase(reason)) {
+            return "空头第5-7根未启动且动能衰减";
         }
         if ("trend_not_launched_long".equalsIgnoreCase(reason)) {
             return "多头入场八根仍未启动";
@@ -675,6 +703,36 @@ public class BacktestReportService {
         }
         if ("trend_checkpoint_giveback_short".equalsIgnoreCase(reason)) {
             return "空头第8-12根有效浮盈全部回吐";
+        }
+        if ("early_profit_round_trip_long".equalsIgnoreCase(reason)) {
+            return "多头前8根浮盈全部回吐";
+        }
+        if ("early_profit_round_trip_short".equalsIgnoreCase(reason)) {
+            return "空头前8根浮盈全部回吐";
+        }
+        if ("mature_profit_giveback_long".equalsIgnoreCase(reason)) {
+            return "多头成熟趋势浮盈衰减回吐";
+        }
+        if ("mature_profit_giveback_short".equalsIgnoreCase(reason)) {
+            return "空头成熟趋势浮盈衰减回吐";
+        }
+        if ("profit_extension_started_long".equalsIgnoreCase(reason)) {
+            return "多头成熟盈利弱反向延迟退出";
+        }
+        if ("profit_extension_started_short".equalsIgnoreCase(reason)) {
+            return "空头成熟盈利弱反向延迟退出";
+        }
+        if ("profit_extension_reversal_confirmed_long".equalsIgnoreCase(reason)) {
+            return "多头盈利延续结构反转确认";
+        }
+        if ("profit_extension_reversal_confirmed_short".equalsIgnoreCase(reason)) {
+            return "空头盈利延续结构反转确认";
+        }
+        if ("profit_extension_floor_long".equalsIgnoreCase(reason)) {
+            return "多头盈利延续触及利润保护线";
+        }
+        if ("profit_extension_floor_short".equalsIgnoreCase(reason)) {
+            return "空头盈利延续触及利润保护线";
         }
         if ("reverse_pending_started".equalsIgnoreCase(reason)) {
             return "反手入场等待下一根确认";

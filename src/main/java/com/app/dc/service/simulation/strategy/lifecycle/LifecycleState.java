@@ -16,6 +16,9 @@ public class LifecycleState {
     private double entrySignalHigh = Double.NaN;
     private double entrySignalLow = Double.NaN;
     private double entryMacdStrength = Double.NaN;
+    private double protectiveStopPrice = Double.NaN;
+    private String protectiveStopSource = "";
+    private boolean profitExtensionActive;
     private int cooldownUntilIndex = -1;
     private LifecycleDirection pendingEntryDirection = LifecycleDirection.NONE;
     private int pendingEntryIndex = -1;
@@ -68,6 +71,8 @@ public class LifecycleState {
         entrySource = "";
         entryIndex = -1;
         entryPrice = Double.NaN;
+        clearProtectiveStop();
+        clearProfitExtension();
         clearEarlyFailureGuard();
         clearPendingEntry();
     }
@@ -257,6 +262,34 @@ public class LifecycleState {
     public double getEntryMacdStrength() { return entryMacdStrength; }
 
     /**
+     * 获取当前仓位的保护止损价。
+     */
+    public double getProtectiveStopPrice() { return protectiveStopPrice; }
+
+    /**
+     * 获取当前仓位的保护止损来源。
+     */
+    public String getProtectiveStopSource() {
+        return protectiveStopSource == null ? "" : protectiveStopSource;
+    }
+
+    /**
+     * 设置当前仓位的保护止损。
+     */
+    public void setProtectiveStop(double stopPrice, String source) {
+        protectiveStopPrice = stopPrice;
+        protectiveStopSource = source == null ? "" : source;
+    }
+
+    /**
+     * 清除当前仓位的保护止损。
+     */
+    public void clearProtectiveStop() {
+        protectiveStopPrice = Double.NaN;
+        protectiveStopSource = "";
+    }
+
+    /**
      * 获取短持仓反复交叉后的冷却截止样本序号。
      */
     public int getCooldownUntilIndex() { return cooldownUntilIndex; }
@@ -344,4 +377,20 @@ public class LifecycleState {
      * 获取待确认反手来源。
      */
     public String getPendingReverseSource() { return pendingReverseSource == null ? "" : pendingReverseSource; }
+
+    /**
+     * 判断当前仓位是否处于成熟盈利延续保护中。
+     */
+    public boolean isProfitExtensionActive() { return profitExtensionActive; }
+
+    /**
+     * 启用成熟盈利延续保护。
+     */
+    public void startProfitExtension() { profitExtensionActive = true; }
+
+    /**
+     * 清理成熟盈利延续保护状态。
+     */
+    public void clearProfitExtension() { profitExtensionActive = false; }
+
 }

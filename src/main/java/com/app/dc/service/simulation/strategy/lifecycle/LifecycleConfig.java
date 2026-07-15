@@ -18,6 +18,8 @@ public class LifecycleConfig {
     private final double overextendedConfirmBreakoutRatio = 1.50d;
     private final int earlyFailureMaxHoldBars = 8;
     private final double earlyFailureMacdRetentionRatio = 0.60d;
+    private final int earlyNonLaunchCheckHoldBars = 5;
+    private final int earlyNonLaunchCheckMaxHoldBars = 7;
     private final int nonLaunchCheckHoldBars = 8;
     private final double nonLaunchMinFavorableProgressPct = 0.20d;
     private final double nonLaunchZeroProgressPct = 0.10d;
@@ -26,6 +28,18 @@ public class LifecycleConfig {
     private final int checkpointGivebackMaxHoldBars = 12;
     private final int ma20TrendLookbackBars = 36;
     private final double ma20TrendThresholdPct = 0.10d;
+    private final double flatMa20StopLossPct = 0.35d;
+    private final double extremeCounterTrendThresholdPct = 1.0d;
+    private final double extremeCounterTrendOverextendedBarRangePct = 0.50d;
+    private final double extremeCounterTrendOverextendedBreakoutRatio = 0.80d;
+    private final double extremeCounterTrendStrongBreakoutRatio = 0.80d;
+    private final double extremeCounterTrendStopLossPct = 0.5d;
+    private final double extremeCounterTrendWideStopLossPct = 0.8d;
+    private final double profitGivebackActivationPct = 0.50d;
+    private final int earlyProfitRoundTripMaxHoldBars = 8;
+    private final int matureProfitGivebackMinHoldBars = 9;
+    private final double matureProfitRetainedPct = 0.15d;
+    private final double matureProfitMacdRetentionRatio = 1.0d;
     private final int profitableReverseFilterHoldBars = 20;
     private final double profitableReverseFilterMinProfitPct = 0.3d;
     private final double profitableReverseDifDeaGapMin = 0.12d;
@@ -96,6 +110,16 @@ public class LifecycleConfig {
     public double getEarlyFailureMacdRetentionRatio() { return earlyFailureMacdRetentionRatio; }
 
     /**
+     * 获取早期趋势未启动检查的持仓K线数量。
+     */
+    public int getEarlyNonLaunchCheckHoldBars() { return earlyNonLaunchCheckHoldBars; }
+
+    /**
+     * 获取早期趋势未启动检查的最大持仓K线数量。
+     */
+    public int getEarlyNonLaunchCheckMaxHoldBars() { return earlyNonLaunchCheckMaxHoldBars; }
+
+    /**
      * 获取趋势未启动检查的持仓K线数量。
      */
     public int getNonLaunchCheckHoldBars() { return nonLaunchCheckHoldBars; }
@@ -136,6 +160,72 @@ public class LifecycleConfig {
     public double getMa20TrendThresholdPct() { return ma20TrendThresholdPct; }
 
     /**
+     * 获取MA20走平普通入场的专属止损百分比。
+     */
+    public double getFlatMa20StopLossPct() { return flatMa20StopLossPct; }
+
+    /**
+     * 获取启用极端逆势止损的MA20趋势阈值。
+     */
+    public double getExtremeCounterTrendThresholdPct() { return extremeCounterTrendThresholdPct; }
+
+    /**
+     * 获取极端逆势确认K线过度延伸的最小波幅百分比。
+     */
+    public double getExtremeCounterTrendOverextendedBarRangePct() {
+        return extremeCounterTrendOverextendedBarRangePct;
+    }
+
+    /**
+     * 获取极端逆势确认K线过度延伸的最小突破比例。
+     */
+    public double getExtremeCounterTrendOverextendedBreakoutRatio() {
+        return extremeCounterTrendOverextendedBreakoutRatio;
+    }
+
+    /**
+     * 获取极端逆势紧止损要求的最小确认突破比率。
+     */
+    public double getExtremeCounterTrendStrongBreakoutRatio() {
+        return extremeCounterTrendStrongBreakoutRatio;
+    }
+
+    /**
+     * 获取极端逆势入场的专属止损百分比。
+     */
+    public double getExtremeCounterTrendStopLossPct() { return extremeCounterTrendStopLossPct; }
+
+    /**
+     * 获取弱突破极端逆势入场的宽止损百分比。
+     */
+    public double getExtremeCounterTrendWideStopLossPct() { return extremeCounterTrendWideStopLossPct; }
+
+    /**
+     * 获取浮盈回吐保护的激活收益百分比。
+     */
+    public double getProfitGivebackActivationPct() { return profitGivebackActivationPct; }
+
+    /**
+     * 获取早期利润往返保护的最大持仓K线数量。
+     */
+    public int getEarlyProfitRoundTripMaxHoldBars() { return earlyProfitRoundTripMaxHoldBars; }
+
+    /**
+     * 获取成熟利润回吐保护的最小持仓K线数量。
+     */
+    public int getMatureProfitGivebackMinHoldBars() { return matureProfitGivebackMinHoldBars; }
+
+    /**
+     * 获取成熟利润回吐保护允许保留的最大收益百分比。
+     */
+    public double getMatureProfitRetainedPct() { return matureProfitRetainedPct; }
+
+    /**
+     * 获取成熟利润回吐保护允许的最大MACD动能保留率。
+     */
+    public double getMatureProfitMacdRetentionRatio() { return matureProfitMacdRetentionRatio; }
+
+    /**
      * 获取盈利长单反手过滤的最小持仓K线数量。
      */
     public int getProfitableReverseFilterHoldBars() { return profitableReverseFilterHoldBars; }
@@ -149,4 +239,5 @@ public class LifecycleConfig {
      * 获取盈利长单弱反向交叉的DIF/DEA最小张口。
      */
     public double getProfitableReverseDifDeaGapMin() { return profitableReverseDifDeaGapMin; }
+
 }

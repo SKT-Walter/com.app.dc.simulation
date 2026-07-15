@@ -12,6 +12,15 @@ import java.util.Map;
 
 public class StrategyBacktestPullJobTest {
 
+    @Test
+    public void runnableWorkerShouldCountAsActiveWatchdogProgress() {
+        Assert.assertTrue(StrategyBacktestPullJob.isActivelyComputing(Thread.State.RUNNABLE));
+        Assert.assertFalse(StrategyBacktestPullJob.isActivelyComputing(Thread.State.BLOCKED));
+        Assert.assertFalse(StrategyBacktestPullJob.isActivelyComputing(Thread.State.WAITING));
+        Assert.assertFalse(StrategyBacktestPullJob.isActivelyComputing(Thread.State.TIMED_WAITING));
+        Assert.assertFalse(StrategyBacktestPullJob.isActivelyComputing(Thread.State.TERMINATED));
+    }
+
     @SuppressWarnings("unchecked")
     @Test
     public void buildSuccessPayloadShouldStripStrategyPayloadFromBacktestParam() throws Exception {

@@ -159,7 +159,7 @@ public class StrategyBacktestPullJob {
         final BacktestParam[] resolvedParamHolder = new BacktestParam[1];
         final RunningTaskContext context = task == null ? null : runningTaskContexts.get(task.id);
         if (context != null) {
-            context.bindThread(threadName);
+            context.bindThread(Thread.currentThread());
         }
         try {
             log.info("StrategyBacktestPullJob task start, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, fromStatus:{}, heap:{}",
@@ -1010,6 +1010,10 @@ public class StrategyBacktestPullJob {
         return !isBlank(message) && message.contains("index = -");
     }
 
+    static boolean isActivelyComputing(Thread.State state) {
+        return state == Thread.State.RUNNABLE;
+    }
+
     private static final class RunningTaskContext {
         private final String taskId;
         private final String generationTaskId;
@@ -1019,6 +1023,7 @@ public class StrategyBacktestPullJob {
         private final long startedAtMs = System.currentTimeMillis();
         private volatile long lastProgressAtMs = startedAtMs;
         private volatile String threadName = "";
+        private volatile Thread workerThread;
         private volatile String cancelReason = "";
         private volatile Future<?> future;
         private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
@@ -1031,8 +1036,9 @@ public class StrategyBacktestPullJob {
             this.strategyVersion = task == null ? "" : task.strategyVersion;
         }
 
-        private void bindThread(String threadName) {
-            this.threadName = threadName == null ? "" : threadName;
+        private void bindThread(Thread thread) {
+            this.workerThread = thread;
+            this.threadName = thread == null ? "" : thread.getName();
         }
 
         private void touch() {
@@ -1050,6 +1056,11 @@ public class StrategyBacktestPullJob {
                 return cancelRequested.compareAndSet(false, true);
             }
             if (idleMs >= maxIdleMs) {
+                Thread worker = workerThread;
+                if (worker != null && worker.isAlive() && isActivelyComputing(worker.getState())) {
+                    lastProgressAtMs = now;
+                    return false;
+                }
                 cancelReason = "no_progress_exceeded_" + (maxIdleMs / 60000L) + "m";
                 return cancelRequested.compareAndSet(false, true);
             }

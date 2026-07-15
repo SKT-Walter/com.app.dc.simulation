@@ -106,7 +106,7 @@ public class StrategyBacktestPullJob {
         if (availableSlots <= 0) {
             return;
         }
-        int fetchLimit = Math.min(Math.max(1, batchSize), availableSlots);
+        int fetchLimit = computeFetchLimit(batchSize, effectiveParallelism, currentInFlight);
         String reclaimRunningBefore = computeReclaimRunningBefore();
         List<StrategyBacktestTaskRow> tasks = taskDao.pullRunnable(fetchLimit, reclaimRunningBefore);
         int pulledCount = tasks == null ? 0 : tasks.size();
@@ -115,19 +115,37 @@ public class StrategyBacktestPullJob {
         if (tasks == null || tasks.isEmpty()) {
             return;
         }
+        int dispatched = 0;
         for (StrategyBacktestTaskRow task : tasks) {
-            dispatchTask(task);
+            if (dispatched >= availableSlots) {
+                break;
+            }
+            if (dispatchTask(task)) {
+                dispatched++;
+            }
         }
     }
 
-    private void dispatchTask(final StrategyBacktestTaskRow task) {
+    static int computeFetchLimit(int batchSize, int parallelism, int currentInFlight) {
+        int safeParallelism = Math.max(1, parallelism);
+        int availableSlots = Math.max(0, safeParallelism - Math.max(0, currentInFlight));
+        if (availableSlots <= 0) {
+            return 0;
+        }
+        // Stale RUNNING rows can sort ahead of PENDING rows. Fetch enough rows to skip every
+        // locally active duplicate while still dispatching no more than the available slots.
+        int candidateWindow = availableSlots + Math.max(0, currentInFlight);
+        return Math.min(Math.max(Math.max(1, batchSize), safeParallelism), candidateWindow);
+    }
+
+    private boolean dispatchTask(final StrategyBacktestTaskRow task) {
         if (task == null || isBlank(task.id)) {
-            return;
+            return false;
         }
         if (!inFlightTaskIds.add(task.id)) {
             log.info("StrategyBacktestPullJob skip duplicate in-flight task:{}, strategy:{}@{}",
                     task.id, task.strategyName, task.strategyVersion);
-            return;
+            return false;
         }
         final RunningTaskContext context = new RunningTaskContext(task);
         runningTaskContexts.put(task.id, context);
@@ -139,16 +157,19 @@ public class StrategyBacktestPullJob {
                 }
             });
             context.future = future;
+            return true;
         } catch (RejectedExecutionException e) {
             runningTaskContexts.remove(task.id);
             inFlightTaskIds.remove(task.id);
             log.warn("StrategyBacktestPullJob rejected task dispatch, task:{}, strategy:{}@{}",
                     task.id, task.strategyName, task.strategyVersion, e);
+            return false;
         } catch (Exception e) {
             runningTaskContexts.remove(task.id);
             inFlightTaskIds.remove(task.id);
             log.error("StrategyBacktestPullJob dispatch error, task:{}, strategy:{}@{}",
                     task.id, task.strategyName, task.strategyVersion, e);
+            return false;
         }
     }
 

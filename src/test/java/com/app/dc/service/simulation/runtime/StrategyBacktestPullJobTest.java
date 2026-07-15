@@ -21,6 +21,14 @@ public class StrategyBacktestPullJobTest {
         Assert.assertFalse(StrategyBacktestPullJob.isActivelyComputing(Thread.State.TERMINATED));
     }
 
+    @Test
+    public void fetchWindowShouldIncludeInFlightDuplicatesWithoutOverfillingWorkers() {
+        Assert.assertEquals(3, StrategyBacktestPullJob.computeFetchLimit(1, 3, 2));
+        Assert.assertEquals(3, StrategyBacktestPullJob.computeFetchLimit(20, 3, 2));
+        Assert.assertEquals(3, StrategyBacktestPullJob.computeFetchLimit(3, 3, 0));
+        Assert.assertEquals(0, StrategyBacktestPullJob.computeFetchLimit(3, 3, 3));
+    }
+
     @SuppressWarnings("unchecked")
     @Test
     public void buildSuccessPayloadShouldStripStrategyPayloadFromBacktestParam() throws Exception {

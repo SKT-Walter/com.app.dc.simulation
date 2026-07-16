@@ -36,6 +36,9 @@ public class BacktestResultClickHouseDao {
     @Value("${binanceBacktestOptimizationTrialTable:backtest_optimization_trial}")
     private String trialTableName;
 
+    @Value("${binanceBacktestOptimizationTrialInsertBatchSize:100}")
+    private int optimizationTrialInsertBatchSize;
+
     public void insertResults(String sid, String reportPath, BacktestModels.BacktestResponse response) {
         insertResults(sid, reportPath, response, false);
     }
@@ -186,19 +189,28 @@ public class BacktestResultClickHouseDao {
         PreparedStatement trialPs = null;
         try {
             trialPs = con.prepareStatement(sql);
-            for (BacktestModels.OptimizationTrial trial : response.trials) {
-                try {
-                    executePrepared(trialPs, buildTrialArgs(sid, trial));
-                } catch (Exception e) {
-                    log.error("BacktestResultClickHouseDao insert optimization trial error, strategy:{}, trial:{}",
-                            trial.strategyName, trial.trialNo, e);
-                    if (required) {
-                        throw e;
-                    }
-                }
-            }
+            insertOptimizationTrialBatches(trialPs, sid, response.trials);
         } finally {
             closeQuietly(trialPs);
+        }
+    }
+
+    void insertOptimizationTrialBatches(PreparedStatement trialPs,
+                                        String sid,
+                                        List<BacktestModels.OptimizationTrial> trials) throws Exception {
+        int pendingBatchSize = 0;
+        int batchSize = normalizedTrialInsertBatchSize();
+        for (BacktestModels.OptimizationTrial trial : trials) {
+            bindPrepared(trialPs, buildTrialArgs(sid, trial));
+            trialPs.addBatch();
+            pendingBatchSize++;
+            if (pendingBatchSize >= batchSize) {
+                trialPs.executeBatch();
+                pendingBatchSize = 0;
+            }
+        }
+        if (pendingBatchSize > 0) {
+            trialPs.executeBatch();
         }
     }
 
@@ -336,11 +348,19 @@ public class BacktestResultClickHouseDao {
     }
 
     private void executePrepared(PreparedStatement ps, Object[] args) throws Exception {
+        bindPrepared(ps, args);
+        ps.executeUpdate();
+    }
+
+    private void bindPrepared(PreparedStatement ps, Object[] args) throws Exception {
         ps.clearParameters();
         for (int i = 0; i < args.length; i++) {
             ps.setObject(i + 1, args[i]);
         }
-        ps.executeUpdate();
+    }
+
+    int normalizedTrialInsertBatchSize() {
+        return optimizationTrialInsertBatchSize > 0 ? optimizationTrialInsertBatchSize : 100;
     }
 
     private void closeQuietly(PreparedStatement ps) {

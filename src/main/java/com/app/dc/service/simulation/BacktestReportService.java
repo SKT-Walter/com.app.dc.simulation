@@ -680,6 +680,9 @@ public class BacktestReportService {
         if ("entry_blocked_by_5m_ma20_overextended".equalsIgnoreCase(reason)) {
             return "价格距离5M MA20过远，避免趋势尾端追入";
         }
+        if ("entry_blocked_by_steep_ma20_weak_macd".equalsIgnoreCase(reason)) {
+            return "MA20趋势过陡但交叉MACD动能不足";
+        }
         if ("entry_blocked_by_ma20_trend".equalsIgnoreCase(reason)) {
             return "交叉确认与MA20趋势反向";
         }

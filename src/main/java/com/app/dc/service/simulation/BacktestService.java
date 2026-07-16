@@ -115,6 +115,39 @@ public class BacktestService {
         return response;
     }
 
+    /**
+     * 按查询块连续回放单个策略，块之间保留指标、仓位、资金和策略状态。
+     */
+    public BacktestResponse runContinuousChunked(BacktestParam param, int chunkDays) throws Exception {
+        BacktestParam req = normalizeParam(param);
+        if ("all".equalsIgnoreCase(req.strategyName)) {
+            throw new IllegalArgumentException("continuous chunked backtest requires a single strategy");
+        }
+        List<String> symbols = supportService.resolveSymbols(req.symbols, req.symbol);
+
+        BacktestResponse response = new BacktestResponse();
+        response.symbol = symbols.size() == 1 ? symbols.get(0) : "MULTI";
+        response.symbols = symbols;
+        response.text = req.text;
+        response.beginDate = req.beginDate;
+        response.endDate = req.endDate;
+        response.strategyName = req.strategyName;
+
+        int safeChunkDays = Math.max(1, Math.min(20, chunkDays));
+        List<BacktestResult> results = new ArrayList<>();
+        for (String symbol : symbols) {
+            BacktestParam symbolParam = copyParamForSymbol(req, symbol);
+            SingleStrategySession session = initializeSingleStrategySession(req.strategyName, symbolParam);
+            queryService.forEachOhlcChunk(symbol, req.text, req.beginDate, req.endDate, safeChunkDays,
+                    (chunkBeginDate, chunkEndDate, ohlcList) -> processSingleStrategyChunk(session, ohlcList));
+            if (session.result.totalBars > 0) {
+                results.add(finishSingleStrategySession(session));
+            }
+        }
+        response.results = results.isEmpty() ? Collections.<BacktestResult>emptyList() : results;
+        return response;
+    }
+
     private BacktestParam copyParamForSymbol(BacktestParam source, String symbol) {
         BacktestParam target = new BacktestParam();
         target.strategyName = source.strategyName;
@@ -132,80 +165,143 @@ public class BacktestService {
         return target;
     }
 
+    /**
+     * 使用统一会话执行单策略回放，兼容原有一次性数据列表入口。
+     */
     public BacktestResult runSingleStrategy(String strategyName, BacktestParam param,
                                             List<TTbookOhlc> ohlcList) throws Exception {
+        SingleStrategySession session = initializeSingleStrategySession(strategyName, param);
+        processSingleStrategyChunk(session, ohlcList);
+        return finishSingleStrategySession(session);
+    }
+
+    /**
+     * 初始化一次单策略连续回放会话。
+     */
+    private SingleStrategySession initializeSingleStrategySession(String strategyName,
+                                                                  BacktestParam param) throws Exception {
         String normalizedStrategy = supportService.normalizeStrategyName(strategyName);
         Duration duration = supportService.resolveDuration(param.text);
         BarSeries replaySeries = new BaseBarSeries(param.symbol + "-" + param.text + "-" + normalizedStrategy);
         strategyService.getStrategy(normalizedStrategy).resetRejectStats(param.symbol);
-
         BacktestResult result = initResult(normalizedStrategy, param);
         EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue());
         BinanceBacktestMarketGuard.GuardContext guardContext =
                 marketGuard.prepareContext(param.symbol, param.beginDate, param.endDate);
-        Position position = null;
+        return new SingleStrategySession(normalizedStrategy, param, duration, replaySeries,
+                result, equityContext, guardContext);
+    }
 
+    /**
+     * 将当前查询块逐根送入既有回放会话，块结束时不结算仓位。
+     */
+    private void processSingleStrategyChunk(SingleStrategySession session,
+                                            List<TTbookOhlc> ohlcList) throws Exception {
+        if (ohlcList == null || ohlcList.isEmpty()) {
+            return;
+        }
         for (TTbookOhlc ohlc : ohlcList) {
-            Bar bar = toBar(ohlc, duration);
-            addBar(replaySeries, bar);
-            result.totalBars = replaySeries.getBarCount();
+            Bar bar = toBar(ohlc, session.duration);
+            addBar(session.replaySeries, bar);
+            session.result.totalBars = session.replaySeries.getBarCount();
 
-            if (position != null && position.entryIndex < replaySeries.getEndIndex()) {
-                TradeRecord riskClosed = tradeService.tryCloseByRisk(position, bar, replaySeries.getEndIndex(),
-                        param.feeRatePct.doubleValue());
+            if (session.position != null && session.position.entryIndex < session.replaySeries.getEndIndex()) {
+                TradeRecord riskClosed = tradeService.tryCloseByRisk(session.position, bar,
+                        session.replaySeries.getEndIndex(), session.param.feeRatePct.doubleValue());
                 if (riskClosed != null) {
-                    metricService.applyTrade(result, riskClosed, equityContext);
-                    position = null;
+                    metricService.applyTrade(session.result, riskClosed, session.equityContext);
+                    session.position = null;
                 }
             }
 
-            Signal signal = strategyService.evaluateSignal(normalizedStrategy, param.symbol, param.text, replaySeries, ohlc);
-            // NONE 表示无信号，不开仓也不反手。
+            Signal signal = strategyService.evaluateSignal(session.normalizedStrategy, session.param.symbol,
+                    session.param.text, session.replaySeries, ohlc);
             if (signal.side == null || signal.side == Side.NONE) {
                 continue;
             }
-            boolean ignoreSentimentGuard = Boolean.TRUE.equals(param.ignoreSentimentGuard);
-            if (marketGuard.shouldBlock(normalizedStrategy, guardContext, bar.getEndTime().toInstant(), ignoreSentimentGuard)) {
+            boolean ignoreSentimentGuard = Boolean.TRUE.equals(session.param.ignoreSentimentGuard);
+            if (marketGuard.shouldBlock(session.normalizedStrategy, session.guardContext,
+                    bar.getEndTime().toInstant(), ignoreSentimentGuard)) {
                 continue;
             }
 
             if (isCloseSignal(signal)) {
-                if (position != null && tradeService.isOpposite(position.side, signal.side)) {
+                if (session.position != null && tradeService.isOpposite(session.position.side, signal.side)) {
                     String exitReason = isReverseCloseSignal(signal) ? "reverse_signal" : "strategy_close_signal";
-                    TradeRecord closed = tradeService.closePosition(position, bar.getClosePrice().doubleValue(),
-                            bar, exitReason, replaySeries.getEndIndex(), param.feeRatePct.doubleValue());
-                    metricService.applyTrade(result, closed, equityContext);
-                    position = isReverseCloseSignal(signal)
-                            ? tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param)
+                    TradeRecord closed = tradeService.closePosition(session.position, bar.getClosePrice().doubleValue(),
+                            bar, exitReason, session.replaySeries.getEndIndex(),
+                            session.param.feeRatePct.doubleValue());
+                    metricService.applyTrade(session.result, closed, session.equityContext);
+                    session.position = isReverseCloseSignal(signal)
+                            ? tradeService.openPosition(signal, session.replaySeries.getEndIndex(), bar, session.param)
                             : null;
                 }
                 continue;
             }
 
-            if (position == null) {
-                position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param);
+            if (session.position == null) {
+                session.position = tradeService.openPosition(signal, session.replaySeries.getEndIndex(), bar,
+                        session.param);
                 continue;
             }
 
-            if (tradeService.isOpposite(position.side, signal.side)) {
-                TradeRecord reversed = tradeService.closePosition(position, bar.getClosePrice().doubleValue(),
-                        bar, "reverse_signal", replaySeries.getEndIndex(), param.feeRatePct.doubleValue());
-                metricService.applyTrade(result, reversed, equityContext);
-                position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param);
+            if (tradeService.isOpposite(session.position.side, signal.side)) {
+                TradeRecord reversed = tradeService.closePosition(session.position, bar.getClosePrice().doubleValue(),
+                        bar, "reverse_signal", session.replaySeries.getEndIndex(),
+                        session.param.feeRatePct.doubleValue());
+                metricService.applyTrade(session.result, reversed, session.equityContext);
+                session.position = tradeService.openPosition(signal, session.replaySeries.getEndIndex(), bar,
+                        session.param);
             }
         }
+    }
 
-        if (position != null) {
-            Bar lastBar = replaySeries.getLastBar();
-            TradeRecord ended = tradeService.closePosition(position, lastBar.getClosePrice().doubleValue(),
-                    lastBar, "end_of_test", replaySeries.getEndIndex(), param.feeRatePct.doubleValue());
-            metricService.applyTrade(result, ended, equityContext);
+    /**
+     * 完成连续回放，仅在所有查询块处理完毕后强制平仓并汇总指标。
+     */
+    private BacktestResult finishSingleStrategySession(SingleStrategySession session) {
+        if (session.position != null && session.replaySeries.getBarCount() > 0) {
+            Bar lastBar = session.replaySeries.getLastBar();
+            TradeRecord ended = tradeService.closePosition(session.position, lastBar.getClosePrice().doubleValue(),
+                    lastBar, "end_of_test", session.replaySeries.getEndIndex(),
+                    session.param.feeRatePct.doubleValue());
+            metricService.applyTrade(session.result, ended, session.equityContext);
+            session.position = null;
         }
+        metricService.finishResult(session.result, session.equityContext);
+        session.result.rejectReasonCounts = new LinkedHashMap<>(strategyService
+                .getStrategy(session.normalizedStrategy).snapshotRejectStats(session.param.symbol));
+        return session.result;
+    }
 
-        metricService.finishResult(result, equityContext);
-        result.rejectReasonCounts = new LinkedHashMap<>(
-                strategyService.getStrategy(normalizedStrategy).snapshotRejectStats(param.symbol));
-        return result;
+    /**
+     * 保存跨查询块连续使用的单策略回放上下文。
+     */
+    private static class SingleStrategySession {
+        private final String normalizedStrategy;
+        private final BacktestParam param;
+        private final Duration duration;
+        private final BarSeries replaySeries;
+        private final BacktestResult result;
+        private final EquityContext equityContext;
+        private final BinanceBacktestMarketGuard.GuardContext guardContext;
+        private Position position;
+
+        private SingleStrategySession(String normalizedStrategy,
+                                      BacktestParam param,
+                                      Duration duration,
+                                      BarSeries replaySeries,
+                                      BacktestResult result,
+                                      EquityContext equityContext,
+                                      BinanceBacktestMarketGuard.GuardContext guardContext) {
+            this.normalizedStrategy = normalizedStrategy;
+            this.param = param;
+            this.duration = duration;
+            this.replaySeries = replaySeries;
+            this.result = result;
+            this.equityContext = equityContext;
+            this.guardContext = guardContext;
+        }
     }
 
     public BacktestParam normalizeParam(BacktestParam param) {

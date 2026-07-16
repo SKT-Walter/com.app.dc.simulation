@@ -330,6 +330,11 @@ public class DifDeaLifecycleDecisionEngine {
                 state.clearPendingEntry();
                 return LifecycleDecision.none(ma20DistanceRejection);
             }
+            String steepTrendRejection = steepMa20WeakMacdRejection(context);
+            if (!steepTrendRejection.isEmpty()) {
+                state.clearPendingEntry();
+                return LifecycleDecision.none(steepTrendRejection);
+            }
             state.armEarlyFailureGuard(LifecycleDirection.LONG,
                     state.getPendingEntryHigh(), state.getPendingEntryLow(), cur.getMacdBar());
             state.clearPendingEntry();
@@ -379,6 +384,11 @@ public class DifDeaLifecycleDecisionEngine {
                 state.clearPendingEntry();
                 return LifecycleDecision.none(ma20DistanceRejection);
             }
+            String steepTrendRejection = steepMa20WeakMacdRejection(context);
+            if (!steepTrendRejection.isEmpty()) {
+                state.clearPendingEntry();
+                return LifecycleDecision.none(steepTrendRejection);
+            }
             state.armEarlyFailureGuard(LifecycleDirection.SHORT,
                     state.getPendingEntryHigh(), state.getPendingEntryLow(), cur.getMacdBar());
             state.clearPendingEntry();
@@ -425,6 +435,11 @@ public class DifDeaLifecycleDecisionEngine {
         if (!ma20DistanceRejection.isEmpty()) {
             state.clearPendingEntry();
             return LifecycleDecision.none(ma20DistanceRejection);
+        }
+        String steepTrendRejection = steepMa20WeakMacdRejection(context);
+        if (!steepTrendRejection.isEmpty()) {
+            state.clearPendingEntry();
+            return LifecycleDecision.none(steepTrendRejection);
         }
 
         state.armEarlyFailureGuard(direction, signalHigh, signalLow, cur.getMacdBar());
@@ -514,6 +529,11 @@ public class DifDeaLifecycleDecisionEngine {
         if (!ma20DistanceRejection.isEmpty()) {
             state.clearPendingEntry();
             return LifecycleDecision.none(ma20DistanceRejection);
+        }
+        String steepTrendRejection = steepMa20WeakMacdRejection(context);
+        if (!steepTrendRejection.isEmpty()) {
+            state.clearPendingEntry();
+            return LifecycleDecision.none(steepTrendRejection);
         }
 
         state.armEarlyFailureGuard(direction, signalHigh, signalLow, cur.getMacdBar());
@@ -649,6 +669,11 @@ public class DifDeaLifecycleDecisionEngine {
                 state.clearPendingReverse();
                 return LifecycleDecision.none(ma20DistanceRejection);
             }
+            String steepTrendRejection = steepMa20WeakMacdRejection(context);
+            if (!steepTrendRejection.isEmpty()) {
+                state.clearPendingReverse();
+                return LifecycleDecision.none(steepTrendRejection);
+            }
             state.armEarlyFailureGuard(LifecycleDirection.LONG,
                     state.getPendingReverseHigh(), state.getPendingReverseLow(), cur.getMacdBar());
             state.clearPendingReverse();
@@ -675,6 +700,11 @@ public class DifDeaLifecycleDecisionEngine {
                 state.clearPendingReverse();
                 return LifecycleDecision.none(ma20DistanceRejection);
             }
+            String steepTrendRejection = steepMa20WeakMacdRejection(context);
+            if (!steepTrendRejection.isEmpty()) {
+                state.clearPendingReverse();
+                return LifecycleDecision.none(steepTrendRejection);
+            }
             state.armEarlyFailureGuard(LifecycleDirection.SHORT,
                     state.getPendingReverseHigh(), state.getPendingReverseLow(), cur.getMacdBar());
             state.clearPendingReverse();
@@ -698,6 +728,35 @@ public class DifDeaLifecycleDecisionEngine {
             return "entry_blocked_by_5m_ma20_overextended";
         }
         return "";
+    }
+
+    /**
+     * MA20已经明显陡峭但当前交叉动能偏弱时拒绝开仓。
+     */
+    private String steepMa20WeakMacdRejection(LifecycleContext context) {
+        if (context == null || context.getConfig() == null || context.current() == null) {
+            return "";
+        }
+        double ma20TrendPct = calculateMa20TrendPct(context);
+        double macdStrengthPct = calculateEntryMacdStrengthPct(context.current());
+        if (Double.isFinite(ma20TrendPct)
+                && Double.isFinite(macdStrengthPct)
+                && Math.abs(ma20TrendPct) >= context.getConfig().getSteepMa20TrendThresholdPct()
+                && macdStrengthPct < context.getConfig().getWeakEntryMacdStrengthPct()) {
+            return "entry_blocked_by_steep_ma20_weak_macd";
+        }
+        return "";
+    }
+
+    /**
+     * 计算MACD柱相对当前收盘价的归一化强度百分比。
+     */
+    public double calculateEntryMacdStrengthPct(LifecycleIndicatorSample sample) {
+        if (sample == null || !Double.isFinite(sample.getClose()) || sample.getClose() <= 0.0d
+                || !Double.isFinite(sample.getMacdBar())) {
+            return Double.NaN;
+        }
+        return Math.abs(sample.getMacdBar()) / sample.getClose() * 100.0d;
     }
 
     /**

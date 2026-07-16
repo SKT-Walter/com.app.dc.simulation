@@ -30,10 +30,11 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
     private static final String STOP_SOURCE_FLAT_MA20 = "flat_ma20";
     private static final String STOP_SOURCE_EMERGENCY = "emergency_stop";
 
-    private final LifecycleIndicatorCalculator indicatorCalculator = new LifecycleIndicatorCalculator(MACD_WINDOW);
     private final DifDeaLifecycleDecisionEngine decisionEngine;
     private final LifecycleConfigProvider configProvider;
     private final Map<String, LifecycleState> stateMap = new ConcurrentHashMap<String, LifecycleState>();
+    private final Map<String, LifecycleIndicatorCalculator> indicatorCalculatorMap =
+            new ConcurrentHashMap<String, LifecycleIndicatorCalculator>();
     private final Map<String, Map<String, Integer>> rejectStats =
             new ConcurrentHashMap<String, Map<String, Integer>>();
 
@@ -68,13 +69,16 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
             reject(normalizedSymbol, "not_enough_warmup_bars");
             return signal;
         }
+        String lifecycleKey = key(normalizedSymbol, normalizedText);
+        LifecycleIndicatorCalculator indicatorCalculator = indicatorCalculatorMap.computeIfAbsent(
+                lifecycleKey, item -> new LifecycleIndicatorCalculator(MACD_WINDOW));
         List<LifecycleIndicatorSample> samples = indicatorCalculator.calculate(series);
         if (samples.size() < config.getWarmupBars()) {
             reject(normalizedSymbol, "not_enough_warmup_bars");
             return signal;
         }
         LifecycleIndicatorSample latest = samples.get(samples.size() - 1);
-        LifecycleState state = stateMap.computeIfAbsent(key(normalizedSymbol, normalizedText),
+        LifecycleState state = stateMap.computeIfAbsent(lifecycleKey,
                 item -> new LifecycleState());
         if (latest.getEndTime().equals(state.getLastBarTime())) {
             reject(normalizedSymbol, "duplicate_bar");
@@ -87,6 +91,7 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
         LifecycleDirection entryEvaluationDirection = entryEvaluationDirection(state);
         double ma20EntryDistancePct = decisionEngine.calculateMa20EntryDistancePct(
                 context, entryEvaluationDirection);
+        double entryMacdStrengthPct = decisionEngine.calculateEntryMacdStrengthPct(latest);
         double breakoutConfirmRatio = decisionEngine.calculatePendingBreakoutRatio(state, latest);
         double ma20TrendPct = decisionEngine.calculateMa20TrendPct(context);
         LifecycleDirection ma20TrendDirection = decisionEngine.detectMa20TrendDirection(context);
@@ -114,7 +119,7 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 entryMacdStrength, currentMacdRetentionRatio, earlyFailureWindow,
                 maxFavorableProgressPct, currentProgressPct, entrySignalBoundaryInvalidated,
                 ma20TrendPct, ma20TrendDirection, profitExtensionActive, profitExtensionReverseGap,
-                ma20EntryDistancePct);
+                ma20EntryDistancePct, entryMacdStrengthPct);
         if (!decision.hasAction()) {
             reject(normalizedSymbol, decision.getReason());
             return signal;
@@ -129,7 +134,7 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 currentMacdRetentionRatio, earlyFailureWindow,
                 maxFavorableProgressPct, currentProgressPct, entrySignalBoundaryInvalidated,
                 ma20TrendPct, ma20TrendDirection, profitExtensionActive, profitExtensionReverseGap,
-                ma20EntryDistancePct);
+                ma20EntryDistancePct, entryMacdStrengthPct);
         return signal;
     }
 
@@ -140,6 +145,7 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
         String normalizedSymbol = normalizeSymbol(symbol);
         rejectStats.remove(normalizedSymbol);
         stateMap.keySet().removeIf(key -> key.startsWith(normalizedSymbol + "|"));
+        indicatorCalculatorMap.keySet().removeIf(key -> key.startsWith(normalizedSymbol + "|"));
     }
 
     @Override
@@ -497,7 +503,8 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                                LifecycleDirection ma20TrendDirection,
                                boolean profitExtensionActive,
                                double profitExtensionReverseGap,
-                               double ma20EntryDistancePct) {
+                               double ma20EntryDistancePct,
+                               double entryMacdStrengthPct) {
         return getName()
                 + " decision=" + decision.getType()
                 + ", reason=" + decision.getReason()
@@ -595,7 +602,10 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 + ", profitExtensionReverseGapMin=" + config.getProfitableReverseDifDeaGapMin()
                 + ", ma20EntryDistancePct=" + ma20EntryDistancePct
                 + ", ma20EntryDistanceMinPct=" + config.getMa20EntryDistanceMinPct()
-                + ", ma20EntryDistanceMaxPct=" + config.getMa20EntryDistanceMaxPct();
+                + ", ma20EntryDistanceMaxPct=" + config.getMa20EntryDistanceMaxPct()
+                + ", entryMacdStrengthPct=" + entryMacdStrengthPct
+                + ", steepMa20TrendThresholdPct=" + config.getSteepMa20TrendThresholdPct()
+                + ", weakEntryMacdStrengthPct=" + config.getWeakEntryMacdStrengthPct();
     }
 
     /**
@@ -621,7 +631,8 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                                   LifecycleDirection ma20TrendDirection,
                                   boolean profitExtensionActive,
                                   double profitExtensionReverseGap,
-                                  double ma20EntryDistancePct) {
+                                  double ma20EntryDistancePct,
+                                  double entryMacdStrengthPct) {
         log.info("difDeaLifecycle decision kline, symbol:{}, text:{}, index:{}, barTime:{}, "
                         + "open:{}, high:{}, low:{}, close:{}, dif:{}, dea:{}, macd:{}, ma10:{}, ma20:{}, "
                         + "barRangePct:{}, phase:{}, direction:{}, decision:{}, reason:{}, reverseEntry:{}, "
@@ -658,7 +669,8 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                         + "profitExtensionMinHoldBars:{}, profitExtensionActivationPct:{}, "
                         + "profitExtensionFloorPct:{}, profitExtensionReverseGapMin:{}, "
                         + "ma20EntryDistancePct:{}, ma20EntryDistanceMinPct:{}, "
-                        + "ma20EntryDistanceMaxPct:{}",
+                        + "ma20EntryDistanceMaxPct:{}, entryMacdStrengthPct:{}, "
+                        + "steepMa20TrendThresholdPct:{}, weakEntryMacdStrengthPct:{}",
                 symbol,
                 text,
                 latest.getIndex(),
@@ -752,7 +764,10 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 config.getProfitableReverseDifDeaGapMin(),
                 ma20EntryDistancePct,
                 config.getMa20EntryDistanceMinPct(),
-                config.getMa20EntryDistanceMaxPct());
+                config.getMa20EntryDistanceMaxPct(),
+                entryMacdStrengthPct,
+                config.getSteepMa20TrendThresholdPct(),
+                config.getWeakEntryMacdStrengthPct());
     }
 
     /**

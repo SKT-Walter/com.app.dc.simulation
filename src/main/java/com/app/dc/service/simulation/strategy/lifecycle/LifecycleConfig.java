@@ -30,6 +30,8 @@ public class LifecycleConfig {
     private final double ma20TrendThresholdPct = 0.10d;
     private final double ma20EntryDistanceMinPct = 0.20d;
     private final double ma20EntryDistanceMaxPct = 0.35d;
+    private final double steepMa20TrendThresholdPct = 0.50d;
+    private final double weakEntryMacdStrengthPct = 0.025d;
     private final double flatMa20StopLossPct = 0.35d;
     private final double launchSuccessProgressPct = 0.20d;
     private final int launchFailureTriggerCount = 3;
@@ -182,6 +184,16 @@ public class LifecycleConfig {
      * 获取5M入场价格距离MA20的最大方向性百分比。
      */
     public double getMa20EntryDistanceMaxPct() { return ma20EntryDistanceMaxPct; }
+
+    /**
+     * 获取MA20趋势过陡过滤的最小绝对变化百分比。
+     */
+    public double getSteepMa20TrendThresholdPct() { return steepMa20TrendThresholdPct; }
+
+    /**
+     * 获取陡峭MA20环境允许入场的最小归一化MACD强度。
+     */
+    public double getWeakEntryMacdStrengthPct() { return weakEntryMacdStrengthPct; }
 
     /**
      * 获取MA20走平普通入场的专属止损百分比。

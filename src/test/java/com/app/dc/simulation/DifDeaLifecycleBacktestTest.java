@@ -4,7 +4,10 @@ import com.app.dc.po.backtest.BacktestParam;
 import com.app.dc.service.simulation.BacktestModels;
 import com.app.dc.service.simulation.BacktestReportService;
 import com.app.dc.service.simulation.BacktestService;
+import com.app.dc.service.simulation.strategy.lifecycle.DifDeaLifecycleBacktestStrategy;
 import org.apache.log4j.BasicConfigurator;
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
 import org.apache.log4j.PropertyConfigurator;
 import org.junit.Assert;
 import org.junit.Test;
@@ -28,6 +31,9 @@ public class DifDeaLifecycleBacktestTest {
 
     private static final LocalDate TWENTY_DAY_BACKTEST_BEGIN_DATE = LocalDate.of(2025, 4, 1);
     private static final int TWENTY_DAY_BACKTEST_PERIOD_DAYS = 20;
+    private static final LocalDate CONTINUOUS_ANNUAL_BEGIN_DATE = LocalDate.of(2025, 4, 1);
+    private static final LocalDate CONTINUOUS_ANNUAL_END_DATE = LocalDate.of(2026, 4, 1);
+    private static final int CONTINUOUS_QUERY_CHUNK_DAYS = 2;
 
     /**
      * 直接启动精简Spring上下文并运行生命周期策略回测。
@@ -138,6 +144,47 @@ public class DifDeaLifecycleBacktestTest {
     }
 
     /**
+     * 按2天查询块连续回放全年数据，并只输出一份全年报告。
+     */
+    @Test
+    public void runDifDeaLifecycleContinuousAnnualBacktest() throws Exception {
+        BasicConfigurator.configure();
+        PropertyConfigurator.configure("./config/log4j.ini");
+
+        Logger lifecycleLogger = Logger.getLogger(DifDeaLifecycleBacktestStrategy.class);
+        Level originalLevel = lifecycleLogger.getLevel();
+        lifecycleLogger.setLevel(Level.WARN);
+        ConfigurableApplicationContext context = null;
+        try {
+            context = new SpringApplicationBuilder(TestApp.class)
+                    .properties("spring.config.location=file:./config/application.properties")
+                    .properties("binanceBacktestStageGuardEnabled=false")
+                    .properties("binanceBacktestSentimentGuardEnabled=false")
+                    .run();
+            BacktestService backtestService = context.getBean(BacktestService.class);
+            BacktestReportService reportService = context.getBean(BacktestReportService.class);
+            BacktestParam annualParam = copyRangeParam(defaultParam(),
+                    CONTINUOUS_ANNUAL_BEGIN_DATE, CONTINUOUS_ANNUAL_END_DATE);
+
+            BacktestModels.BacktestResponse response = backtestService
+                    .runContinuousChunked(annualParam, CONTINUOUS_QUERY_CHUNK_DAYS);
+            String reportPath = reportService.writeReport(response, "continuous_20250401_20260401");
+
+            Assert.assertNotNull(response);
+            Assert.assertNotNull(response.results);
+            System.out.println("continuous_annual_beginDate=" + CONTINUOUS_ANNUAL_BEGIN_DATE
+                    + ", endDate=" + CONTINUOUS_ANNUAL_END_DATE
+                    + ", chunkDays=" + CONTINUOUS_QUERY_CHUNK_DAYS);
+            printSummary(response, reportPath, "");
+        } finally {
+            if (context != null) {
+                context.close();
+            }
+            lifecycleLogger.setLevel(originalLevel);
+        }
+    }
+
+    /**
      * 构造默认回测参数。
      */
     private BacktestParam defaultParam() {
@@ -145,9 +192,9 @@ public class DifDeaLifecycleBacktestTest {
         param.strategyName = "difDeaLifecycle";
         param.symbols = "ETHUSDT";
         param.text = "5m";
-
-        param.beginDate = "2025-04-01";
-        param.endDate = "2025-04-20";
+//        2026-01-21～2026-02-27
+        param.beginDate = "2026-01-21";
+        param.endDate = "2026-02-27";
 
 //        param.beginDate = "2025-04-20";
 //        param.endDate = "2025-05-10";

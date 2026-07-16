@@ -28,6 +28,7 @@ import java.util.List;
 @Slf4j
 public class BacktestQueryService {
 
+    private static final int MAX_CHUNK_DAYS = 20;
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
     private static final ZoneId UTC_ZONE = ZoneId.of("UTC");
     private static final ZoneId BEIJING_ZONE = ZoneId.of("Asia/Shanghai");
@@ -58,6 +59,35 @@ public class BacktestQueryService {
             return result;
         }
         return querySingleRange(symbol, text, beginDate, endDate);
+    }
+
+    /**
+     * 按指定天数分块查询K线，并在每块查询完成后立即交给消费方处理。
+     */
+    public void forEachOhlcChunk(String symbol,
+                                 String text,
+                                 String beginDate,
+                                 String endDate,
+                                 int chunkDays,
+                                 OhlcChunkConsumer consumer) throws Exception {
+        if (consumer == null) {
+            throw new IllegalArgumentException("ohlc chunk consumer must not be null");
+        }
+        if (StringUtils.isBlank(clickHouseDBUtils.getDbSourceName())) {
+            return;
+        }
+
+        int safeChunkDays = Math.max(1, Math.min(MAX_CHUNK_DAYS, chunkDays));
+        List<DateRange> ranges = splitDateRanges(beginDate, endDate, safeChunkDays);
+        for (DateRange range : ranges) {
+            List<TTbookOhlc> queryList = querySingleRange(symbol, text, range.beginDate, range.endDate);
+            if (queryList == null || queryList.isEmpty()) {
+                log.warn("BacktestQueryService empty chunk, symbol:{}, text:{}, beginDate:{}, endDate:{}",
+                        symbol, text, range.beginDate, range.endDate);
+                continue;
+            }
+            consumer.accept(range.beginDate, range.endDate, queryList);
+        }
     }
 
     /**
@@ -289,6 +319,13 @@ public class BacktestQueryService {
      * 将日期区间拆成按天查询的小区间。
      */
     private List<DateRange> splitDateRanges(String beginDate, String endDate) {
+        return splitDateRanges(beginDate, endDate, 1);
+    }
+
+    /**
+     * 将日期区间拆成连续、无重叠且包含首尾日期的查询块。
+     */
+    private List<DateRange> splitDateRanges(String beginDate, String endDate, int chunkDays) {
         if (StringUtils.isBlank(beginDate) || StringUtils.isBlank(endDate)) {
             return Collections.emptyList();
         }
@@ -301,15 +338,26 @@ public class BacktestQueryService {
             List<DateRange> ranges = new ArrayList<DateRange>();
             LocalDate cursor = begin;
             while (!cursor.isAfter(end)) {
-                String value = cursor.toString();
-                ranges.add(new DateRange(value, value));
-                cursor = cursor.plusDays(1);
+                LocalDate rangeEnd = cursor.plusDays(Math.max(1, chunkDays) - 1L);
+                if (rangeEnd.isAfter(end)) {
+                    rangeEnd = end;
+                }
+                ranges.add(new DateRange(cursor.toString(), rangeEnd.toString()));
+                cursor = rangeEnd.plusDays(1);
             }
             return ranges;
         } catch (DateTimeParseException e) {
             log.warn("BacktestQueryService split date range skip, beginDate:{}, endDate:{}", beginDate, endDate);
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * 消费单个ClickHouse查询块，允许将回放异常直接向上抛出。
+     */
+    @FunctionalInterface
+    public interface OhlcChunkConsumer {
+        void accept(String beginDate, String endDate, List<TTbookOhlc> ohlcList) throws Exception;
     }
 
     /**

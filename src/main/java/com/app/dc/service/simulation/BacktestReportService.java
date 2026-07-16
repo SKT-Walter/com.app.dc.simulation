@@ -638,11 +638,47 @@ public class BacktestReportService {
         if ("entry_blocked_by_cross_density".equalsIgnoreCase(reason)) {
             return "交叉密度过滤";
         }
+        if ("entry_blocked_by_recent_launch_failure".equalsIgnoreCase(reason)) {
+            return "近期趋势连续未启动，跳过一次逆势入场";
+        }
+        if ("launch_recovery_first_confirmed".equalsIgnoreCase(reason)) {
+            return "连续失败后等待第二根确认";
+        }
+        if ("launch_recovery_not_confirmed".equalsIgnoreCase(reason)) {
+            return "恢复期第二根未延续";
+        }
+        if ("launch_recovery_breakout_too_shallow".equalsIgnoreCase(reason)) {
+            return "恢复期第二根真实突破强度不足";
+        }
+        if ("launch_recovery_blocked_by_large_bar".equalsIgnoreCase(reason)) {
+            return "恢复期第二根确认K线波幅过大";
+        }
+        if ("weak_countertrend_first_confirmed".equalsIgnoreCase(reason)) {
+            return "\u8f7b\u5ea6\u9006\u52bf\u7a81\u7834\u5931\u771f\uff0c\u7b49\u5f85\u7b2c\u4e8c\u6839\u786e\u8ba4";
+        }
+        if ("weak_countertrend_not_confirmed".equalsIgnoreCase(reason)) {
+            return "\u8f7b\u5ea6\u9006\u52bf\u7b2c\u4e8c\u6839\u672a\u5ef6\u7eed";
+        }
+        if ("weak_countertrend_blocked_by_large_bar".equalsIgnoreCase(reason)) {
+            return "\u8f7b\u5ea6\u9006\u52bf\u7b2c\u4e8c\u6839\u786e\u8ba4K\u7ebf\u6ce2\u5e45\u8fc7\u5927";
+        }
         if ("extreme_countertrend_stop_synced".equalsIgnoreCase(reason)) {
             return "强趋势逆势硬止损状态同步";
         }
+        if ("moderate_countertrend_stop_synced".equalsIgnoreCase(reason)) {
+            return "中度逆MA20趋势保护止损状态同步";
+        }
         if ("flat_ma20_stop_synced".equalsIgnoreCase(reason)) {
             return "MA20走平专属止损状态同步";
+        }
+        if ("emergency_stop_synced".equalsIgnoreCase(reason)) {
+            return "\u5168\u5c401%\u707e\u96be\u6b62\u635f\u72b6\u6001\u540c\u6b65";
+        }
+        if ("entry_blocked_by_5m_ma20_distance_too_close".equalsIgnoreCase(reason)) {
+            return "价格距离5M MA20过近，交叉趋势强度不足";
+        }
+        if ("entry_blocked_by_5m_ma20_overextended".equalsIgnoreCase(reason)) {
+            return "价格距离5M MA20过远，避免趋势尾端追入";
         }
         if ("entry_blocked_by_ma20_trend".equalsIgnoreCase(reason)) {
             return "交叉确认与MA20趋势反向";
@@ -709,6 +745,12 @@ public class BacktestReportService {
         }
         if ("early_profit_round_trip_short".equalsIgnoreCase(reason)) {
             return "空头前8根浮盈全部回吐";
+        }
+        if ("weak_mature_profit_giveback_long".equalsIgnoreCase(reason)) {
+            return "多头第9根后小趋势浮盈基本回吐";
+        }
+        if ("weak_mature_profit_giveback_short".equalsIgnoreCase(reason)) {
+            return "空头第9根后小趋势浮盈基本回吐";
         }
         if ("mature_profit_giveback_long".equalsIgnoreCase(reason)) {
             return "多头成熟趋势浮盈衰减回吐";

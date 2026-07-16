@@ -64,6 +64,10 @@ public class DifDeaLifecycleDecisionEngine {
                 return LifecycleDecision.of(LifecycleDecisionType.LEAVE_LONG,
                         "early_profit_round_trip_long", false);
             }
+            if (isWeakMatureProfitGiveback(context)) {
+                return LifecycleDecision.of(LifecycleDecisionType.LEAVE_LONG,
+                        "weak_mature_profit_giveback_long", false);
+            }
             if (isMatureProfitGiveback(context)) {
                 return LifecycleDecision.of(LifecycleDecisionType.LEAVE_LONG,
                         "mature_profit_giveback_long", false);
@@ -106,6 +110,10 @@ public class DifDeaLifecycleDecisionEngine {
             if (isEarlyProfitRoundTrip(context)) {
                 return LifecycleDecision.of(LifecycleDecisionType.LEAVE_SHORT,
                         "early_profit_round_trip_short", false);
+            }
+            if (isWeakMatureProfitGiveback(context)) {
+                return LifecycleDecision.of(LifecycleDecisionType.LEAVE_SHORT,
+                        "weak_mature_profit_giveback_short", false);
             }
             if (isMatureProfitGiveback(context)) {
                 return LifecycleDecision.of(LifecycleDecisionType.LEAVE_SHORT,
@@ -265,6 +273,12 @@ public class DifDeaLifecycleDecisionEngine {
     private LifecycleDecision decidePendingEntry(LifecycleContext context, boolean crossUp, boolean crossDown) {
         LifecycleState state = context.getState();
         LifecycleIndicatorSample cur = context.current();
+        if (state.isLaunchRecoverySecondConfirmationPending()) {
+            return decideLaunchRecoverySecondConfirmation(context);
+        }
+        if (state.isWeakCounterTrendSecondConfirmationPending()) {
+            return decideWeakCounterTrendSecondConfirmation(context);
+        }
         int pendingAge = pendingEntryAge(state, cur);
         if (pendingAge > context.getConfig().getPendingEntryMaxBars()) {
             state.clearPendingEntry();
@@ -297,6 +311,25 @@ public class DifDeaLifecycleDecisionEngine {
                 state.clearPendingEntry();
                 return LifecycleDecision.none("entry_pending_breakout_too_shallow");
             }
+            if (isEntryBlockedByRecentLaunchFailure(context, LifecycleDirection.LONG)) {
+                state.clearPendingEntry();
+                state.startLaunchRecovery(context.getConfig().getLaunchRecoveryConfirmAttempts());
+                return LifecycleDecision.none("entry_blocked_by_recent_launch_failure");
+            }
+            if (state.getLaunchRecoveryConfirmAttemptsRemaining() > 0) {
+                state.startLaunchRecoverySecondConfirmation(LifecycleDirection.LONG, cur);
+                return LifecycleDecision.none("launch_recovery_first_confirmed");
+            }
+            if (shouldStartWeakCounterTrendSecondConfirmation(context, LifecycleDirection.LONG,
+                    state.getPendingEntryHigh(), state.getPendingEntryLow())) {
+                state.startWeakCounterTrendSecondConfirmation(LifecycleDirection.LONG, cur);
+                return LifecycleDecision.none("weak_countertrend_first_confirmed");
+            }
+            String ma20DistanceRejection = ma20EntryDistanceRejection(context, LifecycleDirection.LONG);
+            if (!ma20DistanceRejection.isEmpty()) {
+                state.clearPendingEntry();
+                return LifecycleDecision.none(ma20DistanceRejection);
+            }
             state.armEarlyFailureGuard(LifecycleDirection.LONG,
                     state.getPendingEntryHigh(), state.getPendingEntryLow(), cur.getMacdBar());
             state.clearPendingEntry();
@@ -327,6 +360,25 @@ public class DifDeaLifecycleDecisionEngine {
                 state.clearPendingEntry();
                 return LifecycleDecision.none("entry_pending_breakout_too_shallow");
             }
+            if (isEntryBlockedByRecentLaunchFailure(context, LifecycleDirection.SHORT)) {
+                state.clearPendingEntry();
+                state.startLaunchRecovery(context.getConfig().getLaunchRecoveryConfirmAttempts());
+                return LifecycleDecision.none("entry_blocked_by_recent_launch_failure");
+            }
+            if (state.getLaunchRecoveryConfirmAttemptsRemaining() > 0) {
+                state.startLaunchRecoverySecondConfirmation(LifecycleDirection.SHORT, cur);
+                return LifecycleDecision.none("launch_recovery_first_confirmed");
+            }
+            if (shouldStartWeakCounterTrendSecondConfirmation(context, LifecycleDirection.SHORT,
+                    state.getPendingEntryHigh(), state.getPendingEntryLow())) {
+                state.startWeakCounterTrendSecondConfirmation(LifecycleDirection.SHORT, cur);
+                return LifecycleDecision.none("weak_countertrend_first_confirmed");
+            }
+            String ma20DistanceRejection = ma20EntryDistanceRejection(context, LifecycleDirection.SHORT);
+            if (!ma20DistanceRejection.isEmpty()) {
+                state.clearPendingEntry();
+                return LifecycleDecision.none(ma20DistanceRejection);
+            }
             state.armEarlyFailureGuard(LifecycleDirection.SHORT,
                     state.getPendingEntryHigh(), state.getPendingEntryLow(), cur.getMacdBar());
             state.clearPendingEntry();
@@ -335,6 +387,189 @@ public class DifDeaLifecycleDecisionEngine {
         }
         state.clearPendingEntry();
         return LifecycleDecision.none("entry_pending_not_confirmed");
+    }
+
+    /**
+     * 判断恢复期第一根确认后的下一根K线是否继续沿原方向推进。
+     */
+    private LifecycleDecision decideLaunchRecoverySecondConfirmation(LifecycleContext context) {
+        LifecycleState state = context.getState();
+        LifecycleIndicatorSample cur = context.current();
+        int pendingAge = pendingEntryAge(state, cur);
+        if (pendingAge < 1) {
+            return LifecycleDecision.none("launch_recovery_first_confirmed");
+        }
+        if (pendingAge > 1) {
+            state.clearPendingEntry();
+            return LifecycleDecision.none("launch_recovery_not_confirmed");
+        }
+        if (isLargeBar(cur, context.getConfig())) {
+            state.clearPendingEntry();
+            return LifecycleDecision.none("launch_recovery_blocked_by_large_bar");
+        }
+
+        LifecycleDirection direction = state.getPendingEntryDirection();
+        double signalHigh = state.getPendingEntryHigh();
+        double signalLow = state.getPendingEntryLow();
+        boolean confirmed = isLaunchRecoverySecondConfirmed(state, cur, direction);
+        if (!confirmed) {
+            state.clearPendingEntry();
+            return LifecycleDecision.none("launch_recovery_not_confirmed");
+        }
+        if (!isBreakoutConfirmRatioReached(direction, signalHigh, signalLow,
+                cur.getClose(), context.getConfig())) {
+            state.clearPendingEntry();
+            return LifecycleDecision.none("launch_recovery_breakout_too_shallow");
+        }
+        String ma20DistanceRejection = ma20EntryDistanceRejection(context, direction);
+        if (!ma20DistanceRejection.isEmpty()) {
+            state.clearPendingEntry();
+            return LifecycleDecision.none(ma20DistanceRejection);
+        }
+
+        state.armEarlyFailureGuard(direction, signalHigh, signalLow, cur.getMacdBar());
+        state.clearPendingEntry();
+        if (direction == LifecycleDirection.LONG) {
+            return LifecycleDecision.entry(LifecycleDecisionType.ENTER_LONG,
+                    "dif_dea_cross_up", "launch_recovery_confirmed_dif_dea_cross_up");
+        }
+        return LifecycleDecision.entry(LifecycleDecisionType.ENTER_SHORT,
+                "dif_dea_cross_down", "launch_recovery_confirmed_dif_dea_cross_down");
+    }
+
+    /**
+     * 检查恢复期第二根K线的方向、MACD和收盘是否延续。
+     */
+    private boolean isLaunchRecoverySecondConfirmed(LifecycleState state,
+                                                    LifecycleIndicatorSample cur,
+                                                    LifecycleDirection direction) {
+        if (direction == LifecycleDirection.LONG) {
+            return cur.getDif() >= cur.getDea()
+                    && cur.getMacdBar() > 0.0d
+                    && cur.getClose() >= state.getPendingEntryClose();
+        }
+        if (direction == LifecycleDirection.SHORT) {
+            return cur.getDif() <= cur.getDea()
+                    && cur.getMacdBar() < 0.0d
+                    && cur.getClose() <= state.getPendingEntryClose();
+        }
+        return false;
+    }
+
+    /**
+     * 判断普通确认是否处于轻度逆势且突破强度失真的区间。
+     */
+    private boolean shouldStartWeakCounterTrendSecondConfirmation(LifecycleContext context,
+                                                                  LifecycleDirection direction,
+                                                                  double signalHigh,
+                                                                  double signalLow) {
+        if (context == null || context.getConfig() == null || direction == null
+                || direction == LifecycleDirection.NONE) {
+            return false;
+        }
+        LifecycleConfig config = context.getConfig();
+        double ma20TrendPct = calculateMa20TrendPct(context);
+        double weakThreshold = config.getMa20TrendThresholdPct();
+        double moderateThreshold = config.getModerateCounterTrendThresholdPct();
+        boolean weakCounterTrend = direction == LifecycleDirection.LONG
+                ? ma20TrendPct <= -weakThreshold && ma20TrendPct > -moderateThreshold
+                : ma20TrendPct >= weakThreshold && ma20TrendPct < moderateThreshold;
+        if (!weakCounterTrend) {
+            return false;
+        }
+        double breakoutRatio = calculateBreakoutConfirmRatio(direction,
+                signalHigh, signalLow, context.current().getClose());
+        return Double.isFinite(breakoutRatio)
+                && (breakoutRatio < config.getWeakCounterTrendBreakoutMinRatio()
+                || breakoutRatio >= config.getWeakCounterTrendBreakoutMaxRatio());
+    }
+
+    /**
+     * 处理轻度逆势第一根确认后的下一根K线。
+     */
+    private LifecycleDecision decideWeakCounterTrendSecondConfirmation(LifecycleContext context) {
+        LifecycleState state = context.getState();
+        LifecycleIndicatorSample cur = context.current();
+        int pendingAge = pendingEntryAge(state, cur);
+        if (pendingAge < 1) {
+            return LifecycleDecision.none("weak_countertrend_first_confirmed");
+        }
+        if (pendingAge > 1) {
+            state.clearPendingEntry();
+            return LifecycleDecision.none("weak_countertrend_not_confirmed");
+        }
+        if (isLargeBar(cur, context.getConfig())) {
+            state.clearPendingEntry();
+            return LifecycleDecision.none("weak_countertrend_blocked_by_large_bar");
+        }
+
+        LifecycleDirection direction = state.getPendingEntryDirection();
+        double signalHigh = state.getPendingEntryHigh();
+        double signalLow = state.getPendingEntryLow();
+        if (!isWeakCounterTrendSecondConfirmed(state, cur, direction, context.getConfig())) {
+            state.clearPendingEntry();
+            return LifecycleDecision.none("weak_countertrend_not_confirmed");
+        }
+        String ma20DistanceRejection = ma20EntryDistanceRejection(context, direction);
+        if (!ma20DistanceRejection.isEmpty()) {
+            state.clearPendingEntry();
+            return LifecycleDecision.none(ma20DistanceRejection);
+        }
+
+        state.armEarlyFailureGuard(direction, signalHigh, signalLow, cur.getMacdBar());
+        state.clearPendingEntry();
+        if (direction == LifecycleDirection.LONG) {
+            return LifecycleDecision.entry(LifecycleDecisionType.ENTER_LONG,
+                    "dif_dea_cross_up", "weak_countertrend_confirmed_dif_dea_cross_up");
+        }
+        return LifecycleDecision.entry(LifecycleDecisionType.ENTER_SHORT,
+                "dif_dea_cross_down", "weak_countertrend_confirmed_dif_dea_cross_down");
+    }
+
+    /**
+     * 检查轻度逆势第二根K线是否保持方向、价格和张口延续。
+     */
+    private boolean isWeakCounterTrendSecondConfirmed(LifecycleState state,
+                                                      LifecycleIndicatorSample cur,
+                                                      LifecycleDirection direction,
+                                                      LifecycleConfig config) {
+        double tolerance = config.getWeakCounterTrendConfirmPullbackTolerancePct() / 100.0d;
+        if (direction == LifecycleDirection.LONG) {
+            double currentGap = cur.getDif() - cur.getDea();
+            return cur.getDif() >= cur.getDea()
+                    && cur.getMacdBar() > 0.0d
+                    && cur.getClose() >= state.getPendingEntryClose() * (1.0d - tolerance)
+                    && (cur.getClose() > state.getPendingEntryHigh()
+                    || currentGap > state.getPendingEntryDifDeaGap());
+        }
+        if (direction == LifecycleDirection.SHORT) {
+            double currentGap = cur.getDea() - cur.getDif();
+            return cur.getDif() <= cur.getDea()
+                    && cur.getMacdBar() < 0.0d
+                    && cur.getClose() <= state.getPendingEntryClose() * (1.0d + tolerance)
+                    && (cur.getClose() < state.getPendingEntryLow()
+                    || currentGap > state.getPendingEntryDifDeaGap());
+        }
+        return false;
+    }
+
+    /**
+     * 连续趋势未启动后，仅拦截下一次逆MA20的普通确认入场。
+     */
+    private boolean isEntryBlockedByRecentLaunchFailure(LifecycleContext context,
+                                                        LifecycleDirection direction) {
+        if (context == null || context.getState() == null || context.getConfig() == null
+                || !context.getState().isLaunchCautionMode()) {
+            return false;
+        }
+        double ma20TrendPct = calculateMa20TrendPct(context);
+        if (!Double.isFinite(ma20TrendPct)) {
+            return false;
+        }
+        double threshold = context.getConfig().getMa20TrendThresholdPct();
+        return direction == LifecycleDirection.LONG
+                ? ma20TrendPct <= -threshold
+                : direction == LifecycleDirection.SHORT && ma20TrendPct >= threshold;
     }
 
     /**
@@ -409,6 +644,11 @@ public class DifDeaLifecycleDecisionEngine {
                 state.clearPendingReverse();
                 return LifecycleDecision.none("reverse_pending_breakout_too_shallow");
             }
+            String ma20DistanceRejection = ma20EntryDistanceRejection(context, LifecycleDirection.LONG);
+            if (!ma20DistanceRejection.isEmpty()) {
+                state.clearPendingReverse();
+                return LifecycleDecision.none(ma20DistanceRejection);
+            }
             state.armEarlyFailureGuard(LifecycleDirection.LONG,
                     state.getPendingReverseHigh(), state.getPendingReverseLow(), cur.getMacdBar());
             state.clearPendingReverse();
@@ -430,6 +670,11 @@ public class DifDeaLifecycleDecisionEngine {
                 state.clearPendingReverse();
                 return LifecycleDecision.none("reverse_pending_breakout_too_shallow");
             }
+            String ma20DistanceRejection = ma20EntryDistanceRejection(context, LifecycleDirection.SHORT);
+            if (!ma20DistanceRejection.isEmpty()) {
+                state.clearPendingReverse();
+                return LifecycleDecision.none(ma20DistanceRejection);
+            }
             state.armEarlyFailureGuard(LifecycleDirection.SHORT,
                     state.getPendingReverseHigh(), state.getPendingReverseLow(), cur.getMacdBar());
             state.clearPendingReverse();
@@ -438,6 +683,40 @@ public class DifDeaLifecycleDecisionEngine {
         }
         state.clearPendingReverse();
         return LifecycleDecision.none("reverse_pending_not_confirmed");
+    }
+
+    /**
+     * 返回价格距离5M MA20过近或过远的开仓拒绝原因。
+     */
+    private String ma20EntryDistanceRejection(LifecycleContext context, LifecycleDirection direction) {
+        double distancePct = calculateMa20EntryDistancePct(context, direction);
+        if (!Double.isFinite(distancePct)
+                || distancePct < context.getConfig().getMa20EntryDistanceMinPct()) {
+            return "entry_blocked_by_5m_ma20_distance_too_close";
+        }
+        if (distancePct > context.getConfig().getMa20EntryDistanceMaxPct()) {
+            return "entry_blocked_by_5m_ma20_overextended";
+        }
+        return "";
+    }
+
+    /**
+     * 计算当前收盘价相对5M MA20的方向性距离百分比。
+     */
+    public double calculateMa20EntryDistancePct(LifecycleContext context, LifecycleDirection direction) {
+        if (context == null || context.current() == null || direction == null
+                || direction == LifecycleDirection.NONE) {
+            return Double.NaN;
+        }
+        LifecycleIndicatorSample current = context.current();
+        double close = current.getClose();
+        double ma20 = current.getMa20();
+        if (!Double.isFinite(close) || close <= 0.0d || !Double.isFinite(ma20) || ma20 <= 0.0d) {
+            return Double.NaN;
+        }
+        return direction == LifecycleDirection.LONG
+                ? (close - ma20) / close * 100.0d
+                : (ma20 - close) / close * 100.0d;
     }
 
     /**
@@ -806,8 +1085,33 @@ public class DifDeaLifecycleDecisionEngine {
         double currentProgressPct = calculateCurrentProgressPct(state, context.current());
         return !Double.isNaN(maxFavorableProgressPct)
                 && !Double.isNaN(currentProgressPct)
-                && maxFavorableProgressPct >= context.getConfig().getProfitGivebackActivationPct()
+                && maxFavorableProgressPct >= context.getConfig().getEarlyProfitRoundTripActivationPct()
                 && currentProgressPct <= 0.0d;
+    }
+
+    /**
+     * 判断第九根后的小趋势是否已将有限浮盈基本回吐。
+     */
+    public boolean isWeakMatureProfitGiveback(LifecycleContext context) {
+        if (!hasActivePositionContext(context)) {
+            return false;
+        }
+        LifecycleConfig config = context.getConfig();
+        LifecycleState state = context.getState();
+        int holdBars = Math.max(0, context.current().getIndex() - state.getEntryIndex());
+        if (holdBars < config.getMatureProfitGivebackMinHoldBars()) {
+            return false;
+        }
+        double maxFavorableProgressPct = calculateMaxFavorableProgressPct(context);
+        double currentProgressPct = calculateCurrentProgressPct(state, context.current());
+        double macdRetentionRatio = calculateCurrentMacdRetentionRatio(state, context.current());
+        return Double.isFinite(maxFavorableProgressPct)
+                && Double.isFinite(currentProgressPct)
+                && Double.isFinite(macdRetentionRatio)
+                && maxFavorableProgressPct >= config.getWeakMatureProfitActivationPct()
+                && maxFavorableProgressPct < config.getProfitGivebackActivationPct()
+                && currentProgressPct <= config.getWeakMatureProfitRetainedPct()
+                && macdRetentionRatio <= config.getMatureProfitMacdRetentionRatio();
     }
 
     /**

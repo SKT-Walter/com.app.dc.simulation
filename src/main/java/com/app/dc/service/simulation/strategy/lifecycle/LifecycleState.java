@@ -19,6 +19,11 @@ public class LifecycleState {
     private double protectiveStopPrice = Double.NaN;
     private String protectiveStopSource = "";
     private boolean profitExtensionActive;
+    private int consecutiveLaunchFailureCount;
+    private boolean launchCautionMode;
+    private int launchRecoveryConfirmAttemptsRemaining;
+    private boolean launchRecoverySecondConfirmationPending;
+    private boolean weakCounterTrendSecondConfirmationPending;
     private int cooldownUntilIndex = -1;
     private LifecycleDirection pendingEntryDirection = LifecycleDirection.NONE;
     private int pendingEntryIndex = -1;
@@ -100,6 +105,7 @@ public class LifecycleState {
      * 记录待确认入场信号K线。
      */
     public void startPendingEntry(LifecycleDirection direction, LifecycleIndicatorSample sample) {
+        weakCounterTrendSecondConfirmationPending = false;
         pendingEntryDirection = direction == null ? LifecycleDirection.NONE : direction;
         pendingEntryIndex = sample == null ? -1 : sample.getIndex();
         pendingEntryClose = sample == null ? Double.NaN : sample.getClose();
@@ -126,6 +132,8 @@ public class LifecycleState {
         pendingEntryLow = Double.NaN;
         pendingEntryDifDeaGap = Double.NaN;
         pendingEntryMacdBar = Double.NaN;
+        launchRecoverySecondConfirmationPending = false;
+        weakCounterTrendSecondConfirmationPending = false;
     }
 
     /**
@@ -392,5 +400,99 @@ public class LifecycleState {
      * 清理成熟盈利延续保护状态。
      */
     public void clearProfitExtension() { profitExtensionActive = false; }
+
+    /**
+     * 获取连续未成功启动的交易次数。
+     */
+    public int getConsecutiveLaunchFailureCount() { return consecutiveLaunchFailureCount; }
+
+    /**
+     * 判断是否正在等待跳过一次逆势普通入场。
+     */
+    public boolean isLaunchCautionMode() { return launchCautionMode; }
+
+    /**
+     * 记录一次未成功启动，并在达到阈值时启用谨慎模式。
+     */
+    public void recordLaunchFailure(int triggerCount) {
+        int normalizedTriggerCount = Math.max(1, triggerCount);
+        consecutiveLaunchFailureCount = Math.min(normalizedTriggerCount, consecutiveLaunchFailureCount + 1);
+        if (consecutiveLaunchFailureCount >= normalizedTriggerCount) {
+            launchCautionMode = true;
+        }
+    }
+
+    /**
+     * 记录趋势启动成功并恢复普通入场。
+     */
+    public void recordLaunchSuccess() {
+        consecutiveLaunchFailureCount = 0;
+        launchCautionMode = false;
+        clearLaunchRecovery();
+    }
+
+    /**
+     * 消耗一次逆势入场拦截并启动有限次数的恢复确认。
+     */
+    public void startLaunchRecovery(int confirmAttempts) {
+        consecutiveLaunchFailureCount = 0;
+        launchCautionMode = false;
+        launchRecoveryConfirmAttemptsRemaining = Math.max(0, confirmAttempts);
+        launchRecoverySecondConfirmationPending = false;
+    }
+
+    /**
+     * 获取剩余的恢复期二次确认尝试次数。
+     */
+    public int getLaunchRecoveryConfirmAttemptsRemaining() {
+        return launchRecoveryConfirmAttemptsRemaining;
+    }
+
+    /**
+     * 判断当前是否正在等待恢复期第二根确认。
+     */
+    public boolean isLaunchRecoverySecondConfirmationPending() {
+        return launchRecoverySecondConfirmationPending;
+    }
+
+    /**
+     * 判断当前是否正在等待轻度逆势第二根确认。
+     */
+    public boolean isWeakCounterTrendSecondConfirmationPending() {
+        return weakCounterTrendSecondConfirmationPending;
+    }
+
+    /**
+     * 保存轻度逆势第一根确认K线。
+     */
+    public void startWeakCounterTrendSecondConfirmation(LifecycleDirection direction,
+                                                        LifecycleIndicatorSample sample) {
+        startPendingEntry(direction, sample);
+        weakCounterTrendSecondConfirmationPending = true;
+    }
+
+    /**
+     * 保存恢复期第一根确认K线并消耗一次尝试机会。
+     */
+    public void startLaunchRecoverySecondConfirmation(LifecycleDirection direction,
+                                                      LifecycleIndicatorSample sample) {
+        if (launchRecoveryConfirmAttemptsRemaining <= 0) {
+            return;
+        }
+        launchRecoveryConfirmAttemptsRemaining--;
+        startPendingEntry(direction, sample);
+        launchRecoverySecondConfirmationPending = true;
+    }
+
+    /**
+     * 清理全部恢复确认状态。
+     */
+    public void clearLaunchRecovery() {
+        launchRecoveryConfirmAttemptsRemaining = 0;
+        if (launchRecoverySecondConfirmationPending) {
+            clearPendingEntry();
+        }
+        launchRecoverySecondConfirmationPending = false;
+    }
 
 }

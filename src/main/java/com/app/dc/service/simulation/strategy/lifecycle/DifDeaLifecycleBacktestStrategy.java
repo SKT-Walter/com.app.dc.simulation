@@ -26,7 +26,9 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
     private static final String TEXT_5M = "5M";
     private static final int MACD_WINDOW = 80;
     private static final String STOP_SOURCE_EXTREME_COUNTERTREND = "extreme_countertrend";
+    private static final String STOP_SOURCE_MODERATE_COUNTERTREND = "moderate_countertrend";
     private static final String STOP_SOURCE_FLAT_MA20 = "flat_ma20";
+    private static final String STOP_SOURCE_EMERGENCY = "emergency_stop";
 
     private final LifecycleIndicatorCalculator indicatorCalculator = new LifecycleIndicatorCalculator(MACD_WINDOW);
     private final DifDeaLifecycleDecisionEngine decisionEngine;
@@ -61,7 +63,6 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
             reject(normalizedSymbol, "unsupported_text");
             return signal;
         }
-        logRawKline(normalizedSymbol, normalizedText, series, currentOhlc);
         LifecycleConfig config = configProvider.getConfig(normalizedSymbol, normalizedText);
         if (series == null || series.getBarCount() < config.getWarmupBars()) {
             reject(normalizedSymbol, "not_enough_warmup_bars");
@@ -81,7 +82,11 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
         }
 
         int recentCrossCount = decisionEngine.calculateRecentCrossCount(samples, config);
-        LifecycleContext context = new LifecycleContext(normalizedSymbol, normalizedText, samples, config, state);
+        LifecycleContext context = new LifecycleContext(
+                normalizedSymbol, normalizedText, samples, config, state);
+        LifecycleDirection entryEvaluationDirection = entryEvaluationDirection(state);
+        double ma20EntryDistancePct = decisionEngine.calculateMa20EntryDistancePct(
+                context, entryEvaluationDirection);
         double breakoutConfirmRatio = decisionEngine.calculatePendingBreakoutRatio(state, latest);
         double ma20TrendPct = decisionEngine.calculateMa20TrendPct(context);
         LifecycleDirection ma20TrendDirection = decisionEngine.detectMa20TrendDirection(context);
@@ -100,6 +105,7 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
         boolean entrySignalBoundaryInvalidated = decisionEngine.wasEntrySignalBoundaryInvalidated(context);
         boolean reverseBlockedByProfitableWeakCross =
                 decisionEngine.isReverseBlockedByProfitableWeakCross(state, latest, config);
+        updateLaunchOutcome(state, decision, maxFavorableProgressPct, config);
         updateState(state, latest, decision, config);
         boolean protectiveStopArmed = armProtectiveStop(
                 state, latest, decision, ma20TrendPct, breakoutConfirmRatio, config);
@@ -107,7 +113,8 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 breakoutConfirmRatio, reverseBlockedByProfitableWeakCross, entrySignalHigh, entrySignalLow,
                 entryMacdStrength, currentMacdRetentionRatio, earlyFailureWindow,
                 maxFavorableProgressPct, currentProgressPct, entrySignalBoundaryInvalidated,
-                ma20TrendPct, ma20TrendDirection, profitExtensionActive, profitExtensionReverseGap);
+                ma20TrendPct, ma20TrendDirection, profitExtensionActive, profitExtensionReverseGap,
+                ma20EntryDistancePct);
         if (!decision.hasAction()) {
             reject(normalizedSymbol, decision.getReason());
             return signal;
@@ -121,7 +128,8 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 reverseBlockedByProfitableWeakCross, entrySignalHigh, entrySignalLow, entryMacdStrength,
                 currentMacdRetentionRatio, earlyFailureWindow,
                 maxFavorableProgressPct, currentProgressPct, entrySignalBoundaryInvalidated,
-                ma20TrendPct, ma20TrendDirection, profitExtensionActive, profitExtensionReverseGap);
+                ma20TrendPct, ma20TrendDirection, profitExtensionActive, profitExtensionReverseGap,
+                ma20EntryDistancePct);
         return signal;
     }
 
@@ -173,6 +181,8 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
         state.setLastReason(decision.getReason());
 
         if ("extreme_countertrend_stop_synced".equals(decision.getReason())
+                || "moderate_countertrend_stop_synced".equals(decision.getReason())
+                || "emergency_stop_synced".equals(decision.getReason())
                 || "flat_ma20_stop_synced".equals(decision.getReason())) {
             applyWhipsawCooldown(state, latest, holdBars, config);
             state.toNeutral();
@@ -238,6 +248,8 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 || "trend_checkpoint_giveback_short".equals(decision.getReason())
                 || "early_profit_round_trip_long".equals(decision.getReason())
                 || "early_profit_round_trip_short".equals(decision.getReason())
+                || "weak_mature_profit_giveback_long".equals(decision.getReason())
+                || "weak_mature_profit_giveback_short".equals(decision.getReason())
                 || "mature_profit_giveback_long".equals(decision.getReason())
                 || "mature_profit_giveback_short".equals(decision.getReason())
                 || "profit_extension_reversal_confirmed_long".equals(decision.getReason())
@@ -289,6 +301,36 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
     }
 
     /**
+     * 在仓位状态清理前记录本次交易是否成功启动趋势。
+     */
+    private void updateLaunchOutcome(LifecycleState state,
+                                     LifecycleDecision decision,
+                                     double maxFavorableProgressPct,
+                                     LifecycleConfig config) {
+        if (state == null || decision == null || config == null || !Double.isFinite(maxFavorableProgressPct)
+                || !isPositionExitDecision(decision)) {
+            return;
+        }
+        if (maxFavorableProgressPct >= config.getLaunchSuccessProgressPct()) {
+            state.recordLaunchSuccess();
+            return;
+        }
+        state.recordLaunchFailure(config.getLaunchFailureTriggerCount());
+    }
+
+    /**
+     * 判断当前决策是否会结束一笔持仓。
+     */
+    private boolean isPositionExitDecision(LifecycleDecision decision) {
+        return decision.getType() == LifecycleDecisionType.LEAVE_LONG
+                || decision.getType() == LifecycleDecisionType.LEAVE_SHORT
+                || "extreme_countertrend_stop_synced".equals(decision.getReason())
+                || "moderate_countertrend_stop_synced".equals(decision.getReason())
+                || "emergency_stop_synced".equals(decision.getReason())
+                || "flat_ma20_stop_synced".equals(decision.getReason());
+    }
+
+    /**
      * 判断回测引擎是否已在当前K线触发策略保护止损。
      */
     private boolean isProtectiveStopHit(LifecycleState state, LifecycleIndicatorSample latest) {
@@ -304,7 +346,7 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
     }
 
     /**
-     * 根据入场环境挂载极端逆势或MA20走平专属止损。
+     * 根据入场环境挂载专属保护止损或全局灾难止损。
      */
     private boolean armProtectiveStop(LifecycleState state,
                                       LifecycleIndicatorSample latest,
@@ -332,18 +374,44 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                     STOP_SOURCE_EXTREME_COUNTERTREND);
             return true;
         }
-        if (!isOrdinaryConfirmedEntry(decision)
-                || !Double.isFinite(ma20TrendPct)
-                || Math.abs(ma20TrendPct) > config.getMa20TrendThresholdPct()) {
-            return false;
+        if (isPlainOrdinaryConfirmedEntry(decision) && Double.isFinite(ma20TrendPct)) {
+            double moderateThreshold = config.getModerateCounterTrendThresholdPct();
+            double moderateStopLossPct = config.getModerateCounterTrendStopLossPct() / 100.0d;
+            if (decision.getType() == LifecycleDecisionType.ENTER_LONG
+                    && ma20TrendPct <= -moderateThreshold && ma20TrendPct > -threshold) {
+                state.setProtectiveStop(latest.getClose() * (1.0d - moderateStopLossPct),
+                        STOP_SOURCE_MODERATE_COUNTERTREND);
+                return true;
+            }
+            if (decision.getType() == LifecycleDecisionType.ENTER_SHORT
+                    && ma20TrendPct >= moderateThreshold && ma20TrendPct < threshold) {
+                state.setProtectiveStop(latest.getClose() * (1.0d + moderateStopLossPct),
+                        STOP_SOURCE_MODERATE_COUNTERTREND);
+                return true;
+            }
         }
-        double flatStopLossPct = config.getFlatMa20StopLossPct() / 100.0d;
+        if (isOrdinaryConfirmedEntry(decision)
+                && Double.isFinite(ma20TrendPct)
+                && Math.abs(ma20TrendPct) <= config.getMa20TrendThresholdPct()) {
+            double flatStopLossPct = config.getFlatMa20StopLossPct() / 100.0d;
+            if (decision.getType() == LifecycleDecisionType.ENTER_LONG) {
+                state.setProtectiveStop(latest.getClose() * (1.0d - flatStopLossPct), STOP_SOURCE_FLAT_MA20);
+                return true;
+            }
+            if (decision.getType() == LifecycleDecisionType.ENTER_SHORT) {
+                state.setProtectiveStop(latest.getClose() * (1.0d + flatStopLossPct), STOP_SOURCE_FLAT_MA20);
+                return true;
+            }
+        }
+        double emergencyStopLossPct = config.getEmergencyStopLossPct() / 100.0d;
         if (decision.getType() == LifecycleDecisionType.ENTER_LONG) {
-            state.setProtectiveStop(latest.getClose() * (1.0d - flatStopLossPct), STOP_SOURCE_FLAT_MA20);
+            state.setProtectiveStop(latest.getClose() * (1.0d - emergencyStopLossPct),
+                    STOP_SOURCE_EMERGENCY);
             return true;
         }
         if (decision.getType() == LifecycleDecisionType.ENTER_SHORT) {
-            state.setProtectiveStop(latest.getClose() * (1.0d + flatStopLossPct), STOP_SOURCE_FLAT_MA20);
+            state.setProtectiveStop(latest.getClose() * (1.0d + emergencyStopLossPct),
+                    STOP_SOURCE_EMERGENCY);
             return true;
         }
         return false;
@@ -358,6 +426,22 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
         }
         String entrySource = decision.getEntrySource();
         return "confirmed_dif_dea_cross_up".equals(entrySource)
+                || "confirmed_dif_dea_cross_down".equals(entrySource)
+                || "launch_recovery_confirmed_dif_dea_cross_up".equals(entrySource)
+                || "launch_recovery_confirmed_dif_dea_cross_down".equals(entrySource)
+                || "weak_countertrend_confirmed_dif_dea_cross_up".equals(entrySource)
+                || "weak_countertrend_confirmed_dif_dea_cross_down".equals(entrySource);
+    }
+
+    /**
+     * 判断是否为未经过恢复或反手流程的普通确认入场。
+     */
+    private boolean isPlainOrdinaryConfirmedEntry(LifecycleDecision decision) {
+        if (decision == null) {
+            return false;
+        }
+        String entrySource = decision.getEntrySource();
+        return "confirmed_dif_dea_cross_up".equals(entrySource)
                 || "confirmed_dif_dea_cross_down".equals(entrySource);
     }
 
@@ -365,9 +449,32 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
      * 根据保护止损来源返回状态同步原因。
      */
     private String protectiveStopSyncReason(LifecycleState state) {
-        return STOP_SOURCE_FLAT_MA20.equals(state.getProtectiveStopSource())
-                ? "flat_ma20_stop_synced"
-                : "extreme_countertrend_stop_synced";
+        if (STOP_SOURCE_FLAT_MA20.equals(state.getProtectiveStopSource())) {
+            return "flat_ma20_stop_synced";
+        }
+        if (STOP_SOURCE_MODERATE_COUNTERTREND.equals(state.getProtectiveStopSource())) {
+            return "moderate_countertrend_stop_synced";
+        }
+        if (STOP_SOURCE_EMERGENCY.equals(state.getProtectiveStopSource())) {
+            return "emergency_stop_synced";
+        }
+        return "extreme_countertrend_stop_synced";
+    }
+
+    /**
+     * 获取当前正在确认的开仓方向，用于记录5M MA20入场距离。
+     */
+    private LifecycleDirection entryEvaluationDirection(LifecycleState state) {
+        if (state == null) {
+            return LifecycleDirection.NONE;
+        }
+        if (state.hasPendingReverse()) {
+            return state.getPendingReverseDirection();
+        }
+        if (state.hasPendingEntry()) {
+            return state.getPendingEntryDirection();
+        }
+        return LifecycleDirection.NONE;
     }
 
     /**
@@ -389,7 +496,8 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                                double ma20TrendPct,
                                LifecycleDirection ma20TrendDirection,
                                boolean profitExtensionActive,
-                               double profitExtensionReverseGap) {
+                               double profitExtensionReverseGap,
+                               double ma20EntryDistancePct) {
         return getName()
                 + " decision=" + decision.getType()
                 + ", reason=" + decision.getReason()
@@ -423,19 +531,60 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 + ", earlyFailureWindow=" + earlyFailureWindow
                 + ", maxFavorableProgressPct=" + maxFavorableProgressPct
                 + ", currentProgressPct=" + currentProgressPct
+                + ", earlyProfitRoundTripActivationPct="
+                + config.getEarlyProfitRoundTripActivationPct()
                 + ", profitGivebackActivationPct=" + config.getProfitGivebackActivationPct()
                 + ", earlyProfitRoundTripMaxHoldBars=" + config.getEarlyProfitRoundTripMaxHoldBars()
                 + ", matureProfitGivebackMinHoldBars=" + config.getMatureProfitGivebackMinHoldBars()
+                + ", weakMatureProfitActivationPct=" + config.getWeakMatureProfitActivationPct()
+                + ", weakMatureProfitRetainedPct=" + config.getWeakMatureProfitRetainedPct()
                 + ", matureProfitRetainedPct=" + config.getMatureProfitRetainedPct()
                 + ", matureProfitMacdRetentionRatio=" + config.getMatureProfitMacdRetentionRatio()
                 + ", entrySignalBoundaryInvalidated=" + entrySignalBoundaryInvalidated
                 + ", ma20TrendPct=" + ma20TrendPct
                 + ", ma20TrendDirection=" + ma20TrendDirection
+                + ", ma20TrendThresholdPct=" + config.getMa20TrendThresholdPct()
+                + ", moderateCounterTrendThresholdPct="
+                + config.getModerateCounterTrendThresholdPct()
+                + ", moderateCounterTrendStopLossPct="
+                + config.getModerateCounterTrendStopLossPct()
                 + ", extremeCounterTrendStrongBreakoutRatio="
                 + config.getExtremeCounterTrendStrongBreakoutRatio()
                 + ", extremeCounterTrendTightStopLossPct=" + config.getExtremeCounterTrendStopLossPct()
                 + ", extremeCounterTrendWideStopLossPct=" + config.getExtremeCounterTrendWideStopLossPct()
                 + ", flatMa20StopLossPct=" + config.getFlatMa20StopLossPct()
+                + ", launchSuccessProgressPct=" + config.getLaunchSuccessProgressPct()
+                + ", consecutiveLaunchFailureCount=" + state.getConsecutiveLaunchFailureCount()
+                + ", launchCautionMode=" + state.isLaunchCautionMode()
+                + ", launchRecoveryConfirmAttemptsRemaining="
+                + state.getLaunchRecoveryConfirmAttemptsRemaining()
+                + ", launchRecoverySecondConfirmationPending="
+                + state.isLaunchRecoverySecondConfirmationPending()
+                + ", launchRecoverySecondConfirmDirection="
+                + (state.isLaunchRecoverySecondConfirmationPending()
+                ? state.getPendingEntryDirection() : LifecycleDirection.NONE)
+                + ", launchRecoverySecondConfirmIndex="
+                + (state.isLaunchRecoverySecondConfirmationPending() ? state.getPendingEntryIndex() : -1)
+                + ", launchRecoverySecondConfirmAge="
+                + (state.isLaunchRecoverySecondConfirmationPending()
+                ? decisionEngine.pendingEntryAge(state, latest) : 0)
+                + ", weakCounterTrendSecondConfirmationPending="
+                + state.isWeakCounterTrendSecondConfirmationPending()
+                + ", weakCounterTrendSecondConfirmDirection="
+                + (state.isWeakCounterTrendSecondConfirmationPending()
+                ? state.getPendingEntryDirection() : LifecycleDirection.NONE)
+                + ", weakCounterTrendSecondConfirmIndex="
+                + (state.isWeakCounterTrendSecondConfirmationPending() ? state.getPendingEntryIndex() : -1)
+                + ", weakCounterTrendSecondConfirmAge="
+                + (state.isWeakCounterTrendSecondConfirmationPending()
+                ? decisionEngine.pendingEntryAge(state, latest) : 0)
+                + ", weakCounterTrendBreakoutMinRatio="
+                + config.getWeakCounterTrendBreakoutMinRatio()
+                + ", weakCounterTrendBreakoutMaxRatio="
+                + config.getWeakCounterTrendBreakoutMaxRatio()
+                + ", weakCounterTrendConfirmPullbackTolerancePct="
+                + config.getWeakCounterTrendConfirmPullbackTolerancePct()
+                + ", emergencyStopLossPct=" + config.getEmergencyStopLossPct()
                 + ", protectiveStopPrice=" + state.getProtectiveStopPrice()
                 + ", protectiveStopSource=" + state.getProtectiveStopSource()
                 + ", profitExtensionActive=" + profitExtensionActive
@@ -443,34 +592,10 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 + ", profitExtensionMinHoldBars=" + config.getProfitableReverseFilterHoldBars()
                 + ", profitExtensionActivationPct=" + config.getProfitGivebackActivationPct()
                 + ", profitExtensionFloorPct=" + config.getProfitableReverseFilterMinProfitPct()
-                + ", profitExtensionReverseGapMin=" + config.getProfitableReverseDifDeaGapMin();
-    }
-
-    /**
-     * 鎵撳嵃鍘熷K绾挎暟鎹紝渚夸簬鏍稿鍥炴祴杈撳叆銆?     */
-    private void logRawKline(String symbol, String text, BarSeries series, TTbookOhlc currentOhlc) {
-        if (currentOhlc == null) {
-            log.info("difDeaLifecycle raw kline, symbol:{}, text:{}, currentOhlc:null", symbol, text);
-            return;
-        }
-        log.info("difDeaLifecycle raw kline, symbol:{}, text:{}, seriesBarCount:{}, seriesEndIndex:{}, "
-                        + "securityid:{}, ohlcText:{}, starttime:{}, endtime:{}, fmttime:{}, inf1:{}, "
-                        + "open:{}, high:{}, low:{}, close:{}, volume:{}",
-                symbol,
-                text,
-                series == null ? 0 : series.getBarCount(),
-                series == null ? -1 : series.getEndIndex(),
-                currentOhlc.securityid,
-                currentOhlc.text,
-                currentOhlc.starttime,
-                readOptionalField(currentOhlc, "endtime"),
-                readOptionalField(currentOhlc, "fmttime"),
-                readOptionalField(currentOhlc, "inf1"),
-                currentOhlc.open,
-                currentOhlc.high,
-                currentOhlc.low,
-                currentOhlc.close,
-                currentOhlc.volume);
+                + ", profitExtensionReverseGapMin=" + config.getProfitableReverseDifDeaGapMin()
+                + ", ma20EntryDistancePct=" + ma20EntryDistancePct
+                + ", ma20EntryDistanceMinPct=" + config.getMa20EntryDistanceMinPct()
+                + ", ma20EntryDistanceMaxPct=" + config.getMa20EntryDistanceMaxPct();
     }
 
     /**
@@ -495,7 +620,8 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                                   double ma20TrendPct,
                                   LifecycleDirection ma20TrendDirection,
                                   boolean profitExtensionActive,
-                                  double profitExtensionReverseGap) {
+                                  double profitExtensionReverseGap,
+                                  double ma20EntryDistancePct) {
         log.info("difDeaLifecycle decision kline, symbol:{}, text:{}, index:{}, barTime:{}, "
                         + "open:{}, high:{}, low:{}, close:{}, dif:{}, dea:{}, macd:{}, ma10:{}, ma20:{}, "
                         + "barRangePct:{}, phase:{}, direction:{}, decision:{}, reason:{}, reverseEntry:{}, "
@@ -506,18 +632,33 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                         + "breakoutConfirmRatio:{}, minBreakoutConfirmRatio:{}, "
                         + "reverseBlockedByProfitableWeakCross:{}, entrySignalHigh:{}, entrySignalLow:{}, "
                         + "entryMacdStrength:{}, currentMacdRetentionRatio:{}, earlyFailureWindow:{}, "
-                        + "maxFavorableProgressPct:{}, currentProgressPct:{}, profitGivebackActivationPct:{}, "
+                        + "maxFavorableProgressPct:{}, currentProgressPct:{}, "
+                        + "earlyProfitRoundTripActivationPct:{}, profitGivebackActivationPct:{}, "
                         + "earlyProfitRoundTripMaxHoldBars:{}, matureProfitGivebackMinHoldBars:{}, "
+                        + "weakMatureProfitActivationPct:{}, weakMatureProfitRetainedPct:{}, "
                         + "matureProfitRetainedPct:{}, matureProfitMacdRetentionRatio:{}, "
                         + "entrySignalBoundaryInvalidated:{}, "
                         + "ma20TrendPct:{}, ma20TrendDirection:{}, ma20TrendLookbackBars:{}, "
-                        + "ma20TrendThresholdPct:{}, extremeCounterTrendThresholdPct:{}, "
+                        + "ma20TrendThresholdPct:{}, moderateCounterTrendThresholdPct:{}, "
+                        + "moderateCounterTrendStopLossPct:{}, extremeCounterTrendThresholdPct:{}, "
                         + "extremeCounterTrendStrongBreakoutRatio:{}, extremeCounterTrendTightStopLossPct:{}, "
                         + "extremeCounterTrendWideStopLossPct:{}, flatMa20StopLossPct:{}, "
+                        + "launchSuccessProgressPct:{}, consecutiveLaunchFailureCount:{}, "
+                        + "launchCautionMode:{}, launchRecoveryConfirmAttemptsRemaining:{}, "
+                        + "launchRecoverySecondConfirmationPending:{}, "
+                        + "launchRecoverySecondConfirmDirection:{}, launchRecoverySecondConfirmIndex:{}, "
+                        + "launchRecoverySecondConfirmAge:{}, "
+                        + "weakCounterTrendSecondConfirmationPending:{}, "
+                        + "weakCounterTrendSecondConfirmDirection:{}, "
+                        + "weakCounterTrendSecondConfirmIndex:{}, weakCounterTrendSecondConfirmAge:{}, "
+                        + "weakCounterTrendBreakoutMinRatio:{}, weakCounterTrendBreakoutMaxRatio:{}, "
+                        + "weakCounterTrendConfirmPullbackTolerancePct:{}, emergencyStopLossPct:{}, "
                         + "protectiveStopPrice:{}, protectiveStopSource:{}, "
                         + "profitExtensionActive:{}, profitExtensionReverseGap:{}, "
                         + "profitExtensionMinHoldBars:{}, profitExtensionActivationPct:{}, "
-                        + "profitExtensionFloorPct:{}, profitExtensionReverseGapMin:{}",
+                        + "profitExtensionFloorPct:{}, profitExtensionReverseGapMin:{}, "
+                        + "ma20EntryDistancePct:{}, ma20EntryDistanceMinPct:{}, "
+                        + "ma20EntryDistanceMaxPct:{}",
                 symbol,
                 text,
                 latest.getIndex(),
@@ -561,9 +702,12 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 earlyFailureWindow,
                 maxFavorableProgressPct,
                 currentProgressPct,
+                config.getEarlyProfitRoundTripActivationPct(),
                 config.getProfitGivebackActivationPct(),
                 config.getEarlyProfitRoundTripMaxHoldBars(),
                 config.getMatureProfitGivebackMinHoldBars(),
+                config.getWeakMatureProfitActivationPct(),
+                config.getWeakMatureProfitRetainedPct(),
                 config.getMatureProfitRetainedPct(),
                 config.getMatureProfitMacdRetentionRatio(),
                 entrySignalBoundaryInvalidated,
@@ -571,11 +715,33 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 ma20TrendDirection,
                 config.getMa20TrendLookbackBars(),
                 config.getMa20TrendThresholdPct(),
+                config.getModerateCounterTrendThresholdPct(),
+                config.getModerateCounterTrendStopLossPct(),
                 config.getExtremeCounterTrendThresholdPct(),
                 config.getExtremeCounterTrendStrongBreakoutRatio(),
                 config.getExtremeCounterTrendStopLossPct(),
                 config.getExtremeCounterTrendWideStopLossPct(),
                 config.getFlatMa20StopLossPct(),
+                config.getLaunchSuccessProgressPct(),
+                state.getConsecutiveLaunchFailureCount(),
+                state.isLaunchCautionMode(),
+                state.getLaunchRecoveryConfirmAttemptsRemaining(),
+                state.isLaunchRecoverySecondConfirmationPending(),
+                state.isLaunchRecoverySecondConfirmationPending()
+                        ? state.getPendingEntryDirection() : LifecycleDirection.NONE,
+                state.isLaunchRecoverySecondConfirmationPending() ? state.getPendingEntryIndex() : -1,
+                state.isLaunchRecoverySecondConfirmationPending()
+                        ? decisionEngine.pendingEntryAge(state, latest) : 0,
+                state.isWeakCounterTrendSecondConfirmationPending(),
+                state.isWeakCounterTrendSecondConfirmationPending()
+                        ? state.getPendingEntryDirection() : LifecycleDirection.NONE,
+                state.isWeakCounterTrendSecondConfirmationPending() ? state.getPendingEntryIndex() : -1,
+                state.isWeakCounterTrendSecondConfirmationPending()
+                        ? decisionEngine.pendingEntryAge(state, latest) : 0,
+                config.getWeakCounterTrendBreakoutMinRatio(),
+                config.getWeakCounterTrendBreakoutMaxRatio(),
+                config.getWeakCounterTrendConfirmPullbackTolerancePct(),
+                config.getEmergencyStopLossPct(),
                 state.getProtectiveStopPrice(),
                 state.getProtectiveStopSource(),
                 profitExtensionActive,
@@ -583,7 +749,10 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
                 config.getProfitableReverseFilterHoldBars(),
                 config.getProfitGivebackActivationPct(),
                 config.getProfitableReverseFilterMinProfitPct(),
-                config.getProfitableReverseDifDeaGapMin());
+                config.getProfitableReverseDifDeaGapMin(),
+                ma20EntryDistancePct,
+                config.getMa20EntryDistanceMinPct(),
+                config.getMa20EntryDistanceMaxPct());
     }
 
     /**
@@ -599,24 +768,6 @@ public class DifDeaLifecycleBacktestStrategy implements BinanceBacktestStrategy 
      * 鍒ゆ柇褰撳墠鏍锋湰鏄惁浠嶅湪鐭寔浠撳弽澶嶄氦鍙夊喎鍗存湡鍐呫€?     */
     private boolean isInCooldown(LifecycleState state, LifecycleIndicatorSample latest) {
         return state != null && latest != null && state.getCooldownUntilIndex() >= latest.getIndex();
-    }
-
-    /**
-     * 鍒ゆ柇褰撳墠鏍锋湰鏄惁浠嶅湪浜ゅ弶瀵嗗害鍐峰嵈鏈熷唴銆?     */
-    /**
-     * 璇诲彇TTbookOhlc鍙€夊瓧娈碉紝鍏煎涓嶅悓渚濊禆鐗堟湰銆?     */
-    private String readOptionalField(TTbookOhlc currentOhlc, String fieldName) {
-        if (currentOhlc == null || StringUtils.isBlank(fieldName)) {
-            return "";
-        }
-        try {
-            java.lang.reflect.Field field = currentOhlc.getClass().getDeclaredField(fieldName);
-            field.setAccessible(true);
-            Object value = field.get(currentOhlc);
-            return value == null ? "" : String.valueOf(value);
-        } catch (Exception ignore) {
-            return "";
-        }
     }
 
     /**

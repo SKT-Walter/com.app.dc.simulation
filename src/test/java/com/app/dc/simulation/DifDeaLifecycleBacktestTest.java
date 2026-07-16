@@ -26,7 +26,7 @@ import java.util.List;
  */
 public class DifDeaLifecycleBacktestTest {
 
-    private static final LocalDate TWENTY_DAY_BACKTEST_BEGIN_DATE = LocalDate.of(2026, 4, 1);
+    private static final LocalDate TWENTY_DAY_BACKTEST_BEGIN_DATE = LocalDate.of(2025, 4, 1);
     private static final int TWENTY_DAY_BACKTEST_PERIOD_DAYS = 20;
 
     /**
@@ -111,7 +111,7 @@ public class DifDeaLifecycleBacktestTest {
             BacktestService backtestService = context.getBean(BacktestService.class);
             BacktestReportService reportService = context.getBean(BacktestReportService.class);
             BacktestParam template = defaultParam();
-            LocalDate today = LocalDate.now();
+            LocalDate today = LocalDate.of(2026, 4, 1);//LocalDate.now();
 
             Assert.assertFalse("today must not be before batch begin date",
                     today.isBefore(TWENTY_DAY_BACKTEST_BEGIN_DATE));
@@ -146,8 +146,17 @@ public class DifDeaLifecycleBacktestTest {
         param.symbols = "ETHUSDT";
         param.text = "5m";
 
-        param.beginDate = "2026-04-01";
-        param.endDate = "2026-04-20";
+        param.beginDate = "2025-04-01";
+        param.endDate = "2025-04-20";
+
+//        param.beginDate = "2025-04-20";
+//        param.endDate = "2025-05-10";
+
+//        param.beginDate = "2026-04-01";
+//        param.endDate = "2026-04-20";
+
+//        param.beginDate = "2026-05-11";
+//        param.endDate = "2026-05-31";
 
 
         //difDeaLifecycle_ETHUSDT_5M_20260702_160539.md

@@ -568,20 +568,20 @@ public class StrategyBacktestPullJob {
         BacktestParam param = null;
         if (task != null && task.payload != null && !task.payload.trim().isEmpty()) {
             try {
-                param = JsonUtils.Deserialize(task.payload, BacktestParam.class);
+                StrategyBacktestTaskPayloadEnvelope envelope =
+                        JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
+                if (envelope != null && envelope.backtestParam != null) {
+                    param = envelope.backtestParam;
+                }
             } catch (Exception e) {
-                log.warn("StrategyBacktestPullJob payload parse fallback, task:{}", task.id, e);
+                log.warn("StrategyBacktestPullJob envelope parse fallback, task:{}", task.id, e);
             }
             if (param == null || (isBlank(param.strategyName) && isBlank(param.strategyVersion)
                     && isBlank(param.symbol) && isBlank(param.symbols) && isBlank(param.text))) {
                 try {
-                    StrategyBacktestTaskPayloadEnvelope envelope =
-                            JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
-                    if (envelope != null && envelope.backtestParam != null) {
-                        param = envelope.backtestParam;
-                    }
+                    param = JsonUtils.Deserialize(task.payload, BacktestParam.class);
                 } catch (Exception e) {
-                    log.warn("StrategyBacktestPullJob envelope parse fallback, task:{}", task.id, e);
+                    log.warn("StrategyBacktestPullJob payload parse fallback, task:{}", task.id, e);
                 }
             }
         }

@@ -111,6 +111,49 @@ public class StrategyBacktestPullJobTest {
         Assert.assertTrue(payload.length() < task.payload.length());
     }
 
+    @Test
+    public void buildParamShouldPreferNestedEnvelopeRangeOverWorkflowMetadata() throws Exception {
+        StrategyBacktestPullJob job = new StrategyBacktestPullJob();
+        StrategyBacktestTaskRow task = new StrategyBacktestTaskRow();
+        task.id = "bt_live_recheck";
+        task.fitWindowDays = 120;
+        task.validateWindowDays = 30;
+        task.forwardWindowDays = 14;
+
+        BacktestParam nested = new BacktestParam();
+        nested.strategyName = "wb15_trend_t001";
+        nested.strategyVersion = "v2";
+        nested.symbol = "BTCUSDT";
+        nested.symbols = "BTCUSDT";
+        nested.text = "15m";
+        nested.beginDate = "2025-07-17";
+        nested.endDate = "2026-07-17";
+
+        Map<String, Object> workflowPayload = new LinkedHashMap<String, Object>();
+        workflowPayload.put("backtestParam", nested);
+        workflowPayload.put("workflowBatchId", "workflow_live_recheck_test");
+        workflowPayload.put("symbol", "BTCUSDT");
+        workflowPayload.put("text", "15m");
+        workflowPayload.put("scene", "trend");
+        task.payload = JsonUtils.Serializer(workflowPayload);
+
+        StrategyCandidateRow candidate = new StrategyCandidateRow();
+        candidate.strategyName = nested.strategyName;
+        candidate.strategyVersion = nested.strategyVersion;
+        candidate.runtimeType = "JAR";
+        candidate.scene = "trend";
+        candidate.payload = "{}";
+
+        Method method = StrategyBacktestPullJob.class.getDeclaredMethod(
+                "buildParam", StrategyBacktestTaskRow.class, StrategyCandidateRow.class);
+        method.setAccessible(true);
+        BacktestParam resolved = (BacktestParam) method.invoke(job, task, candidate);
+
+        Assert.assertEquals("2025-07-17", resolved.beginDate);
+        Assert.assertEquals("2026-07-17", resolved.endDate);
+        Assert.assertEquals("BTCUSDT", resolved.symbol);
+    }
+
     private static String repeat(String value, int count) {
         StringBuilder builder = new StringBuilder(Math.max(0, count));
         while (builder.length() < count) {

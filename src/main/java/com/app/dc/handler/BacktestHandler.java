@@ -6,6 +6,9 @@ import com.app.dc.service.dao.BacktestResultClickHouseDao;
 import com.app.dc.service.simulation.BacktestModels;
 import com.app.dc.service.simulation.BacktestReportService;
 import com.app.dc.service.simulation.BacktestService;
+import com.app.dc.service.simulation.scene.SceneGatedShadowBacktestService;
+import com.app.dc.service.simulation.runtime.StrategyBacktestTaskDao;
+import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
 import com.gateway.connector.utils.JsonUtils;
 import com.gw.common.utils.ContentHandler;
 import com.gw.common.utils.Message;
@@ -27,6 +30,12 @@ public class BacktestHandler extends ContentHandler {
     @Autowired
     private BacktestResultClickHouseDao backtestResultClickHouseDao;
 
+    @Autowired
+    private SceneGatedShadowBacktestService sceneGatedShadowBacktestService;
+
+    @Autowired
+    private StrategyBacktestTaskDao strategyBacktestTaskDao;
+
     public Map<String, Object> handle(String topic, Message message, String content, Map<String, Object> map,
                                       boolean fromList) {
         String sid = message.getSignalID();
@@ -36,6 +45,9 @@ public class BacktestHandler extends ContentHandler {
         try {
             BacktestParam param = JsonUtils.Deserialize(content, BacktestParam.class);
             BacktestModels.BacktestResponse result = binanceBacktestService.run(param);
+            StrategyCandidateRow candidate = strategyBacktestTaskDao.loadCandidate(
+                    param.strategyName, param.strategyVersion);
+            sceneGatedShadowBacktestService.enrich(result, candidate, param);
             String reportPath = backtestReportService.writeReport(sid, result, null);
             String compareReportPath = backtestReportService.writeCompareReport(result);
             backtestResultClickHouseDao.insertResults(sid, reportPath, result);

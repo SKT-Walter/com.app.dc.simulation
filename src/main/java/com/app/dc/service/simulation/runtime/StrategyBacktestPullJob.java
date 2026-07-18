@@ -6,6 +6,7 @@ import com.app.dc.pipeline.StrategyPipelineService;
 import com.app.dc.service.dao.BacktestResultClickHouseDao;
 import com.app.dc.service.simulation.BacktestModels;
 import com.app.dc.service.simulation.BacktestReportService;
+import com.app.dc.service.simulation.scene.SceneGatedShadowBacktestService;
 import com.app.dc.service.simulation.BacktestService;
 import com.app.dc.service.simulation.KlineSupportedTextProvider;
 import com.gateway.connector.utils.JsonUtils;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -74,6 +76,9 @@ public class StrategyBacktestPullJob {
 
     @Autowired
     private BacktestResultClickHouseDao backtestResultClickHouseDao;
+
+    @Autowired
+    private SceneGatedShadowBacktestService sceneGatedShadowBacktestService;
 
     @Autowired
     private StrategyAutoPublishService strategyAutoPublishService;
@@ -222,6 +227,7 @@ public class StrategyBacktestPullJob {
                         }
                     });
             normalizeResponseFromTask(task, response);
+            sceneGatedShadowBacktestService.enrich(response, candidate, resolvedParamHolder[0]);
             log.info("StrategyBacktestPullJob backtest run finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}, resultCount:{}, trialCount:{}, optimizationMode:{}, bestRank:{}",
                     task.id,
                     task.generationTaskId,
@@ -309,6 +315,7 @@ public class StrategyBacktestPullJob {
             taskResult.put("stableParamRangeJson", response.stableParamRangeJson);
             taskResult.put("neighborAvgPnl", response.neighborAvgPnl);
             taskResult.put("neighborWorstPnl", response.neighborWorstPnl);
+            taskResult.put("sceneShadow", collectSceneShadow(response));
             taskResult.put("autoPublishAction", publishDecision.action);
             taskResult.put("autoPublished", publishDecision.published);
             taskResult.put("autoPublishReason", publishDecision.reason);
@@ -630,6 +637,23 @@ public class StrategyBacktestPullJob {
         envelope.suspendDetail = error.getDetail();
         envelope.recoveryPlan = buildRecoveryPlan(error, nextRetryTime, autofillResult, autofillError);
         return JsonUtils.Serializer(envelope);
+    }
+
+    private List<Map<String, Object>> collectSceneShadow(BacktestModels.BacktestResponse response) {
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        if (response == null || response.results == null) {
+            return rows;
+        }
+        for (BacktestModels.BacktestResult result : response.results) {
+            if (result == null || result.sceneShadow == null) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            row.put("symbol", result.symbol);
+            row.put("metrics", result.sceneShadow);
+            rows.add(row);
+        }
+        return rows;
     }
 
     @SuppressWarnings("unchecked")

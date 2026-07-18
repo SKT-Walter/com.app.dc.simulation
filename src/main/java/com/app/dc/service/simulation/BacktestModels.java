@@ -145,6 +145,31 @@ public final class BacktestModels {
         public Map<String, Integer> rejectReasonCounts;
         public List<BacktestSliceResult> sliceResults;
         public List<OptimizationTrial> optimizationTrials;
+        public SceneShadowMetrics sceneShadow;
+    }
+
+    /**
+     * Scene-conditioned replay is observation evidence only. It must not change the
+     * full-period OOS gate until the historical scene sample is mature.
+     */
+    public static class SceneShadowMetrics {
+        public String mode = "SCENE_GATED_SHADOW";
+        public String status = "INSUFFICIENT_DATA";
+        public String message = "";
+        public String strategyScene = "";
+        public String dataBegin = "";
+        public String dataEnd = "";
+        public Integer sceneRecordCount = 0;
+        public Integer coveredBarCount = 0;
+        public Integer matchedBarCount = 0;
+        public Integer blockedSignalCount = 0;
+        public Integer forcedExitCount = 0;
+        public Integer tradeCount = 0;
+        public BigDecimal totalPnl = BigDecimal.ZERO;
+        public BigDecimal totalFee = BigDecimal.ZERO;
+        public BigDecimal maxDrawdownPct = BigDecimal.ZERO;
+        public BigDecimal profitFactor = BigDecimal.ZERO;
+        public BigDecimal winRate = BigDecimal.ZERO;
     }
 
     public static class OptimizationTrial {

@@ -110,7 +110,8 @@ public class BacktestReportService {
         report.put("summary", buildSummary(response));
         report.put("gates", buildGates(response, candidate, activeRows, release, decision));
         report.put("audit", buildAudit(response, candidate));
-        report.put("userSummary", buildUserSummary(response, candidate, decision, report));
+        report.put("sceneShadow", buildSceneShadow(response));
+        report.put("userSummary", buildSimpleUserSummary(response, decision, report));
         report.put("publish", buildPublish(decision));
         report.put("optimization", buildOptimization(response, candidate));
         report.put("results", buildResults(response));
@@ -454,6 +455,77 @@ public class BacktestReportService {
         summary.put("keyDrawdown", core == null ? "" : s(core.get("maxDrawdownPct")));
         summary.put("keyTradeCount", core == null ? "" : s(core.get("tradeCount")));
         return summary;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> buildSimpleUserSummary(BacktestResponse response,
+                                                       StrategyAutoPublishDecision decision,
+                                                       Map<String, Object> report) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        Map<String, Object> gates = report == null ? null : (Map<String, Object>) report.get("gates");
+        Map<String, Object> audit = report == null ? null : (Map<String, Object>) report.get("audit");
+        Map<String, Object> core = report == null ? null : (Map<String, Object>) report.get("summary");
+        Map<String, Object> sceneShadow = report == null ? null : (Map<String, Object>) report.get("sceneShadow");
+        boolean liveEntered = isTrue(gates == null ? null : gates.get("liveRegistryEntered"));
+        boolean publishEligible = isTrue(gates == null ? null : gates.get("publishEligible"));
+        String finalDecision = s(audit == null ? null : audit.get("finalDecision"));
+        if (liveEntered) {
+            result.put("headline", "\u5df2\u901a\u8fc7\u9a8c\u8bc1\u5e76\u8fdb\u5165\u5b9e\u76d8");
+            result.put("actionLabel", "\u7ee7\u7eed\u89c2\u5bdf\u5b9e\u76d8\u8868\u73b0");
+            result.put("statusClass", "pass");
+        } else if ("PASS".equalsIgnoreCase(finalDecision) && publishEligible) {
+            result.put("headline", "\u5df2\u901a\u8fc7\u56de\u6d4b\u9a8c\u8bc1");
+            result.put("actionLabel", "\u7b49\u5f85\u7cfb\u7edf\u81ea\u52a8\u53d1\u5e03");
+            result.put("statusClass", "pass");
+        } else if ("WATCH".equalsIgnoreCase(finalDecision)) {
+            result.put("headline", "\u6837\u672c\u8fb9\u7f18\uff0c\u6682\u4e0d\u4e0a\u5b9e\u76d8");
+            result.put("actionLabel", "\u7ee7\u7eed\u6539\u8fdb\u540e\u91cd\u65b0\u56de\u6d4b");
+            result.put("statusClass", "warn");
+        } else {
+            result.put("headline", "\u672a\u901a\u8fc7\uff0c\u4e0d\u5efa\u8bae\u4e0a\u5b9e\u76d8");
+            result.put("actionLabel", "\u4fee\u590d\u5931\u8d25\u539f\u56e0\u540e\u518d\u9a8c\u8bc1");
+            result.put("statusClass", "fail");
+        }
+        result.put("auditSummary", audit == null ? "" : s(audit.get("summary")));
+        result.put("keyFeeAdjustedValidatePnl", core == null ? "0" : s(core.get("feeAdjustedValidatePnl")));
+        result.put("keyFeeAdjustedForwardPnl", core == null ? "0" : s(core.get("feeAdjustedForwardPnl")));
+        result.put("keyDrawdown", core == null ? "0" : s(core.get("maxDrawdownPct")));
+        result.put("keyTradeCount", core == null ? "0" : s(core.get("tradeCount")));
+
+        List<String> reasons = new ArrayList<String>();
+        List<String> failedRules = gates == null ? null : (List<String>) gates.get("failedRules");
+        if (failedRules != null) {
+            for (String failedRule : failedRules) {
+                addUnique(reasons, translateReason(failedRule));
+                if (reasons.size() >= 3) {
+                    break;
+                }
+            }
+        }
+        if (reasons.isEmpty()) {
+            reasons.add("\u6263\u9664\u624b\u7eed\u8d39\u540e\u9a8c\u8bc1\u6536\u76ca\u4e3a "
+                    + s(result.get("keyFeeAdjustedValidatePnl")) + " USDT\u3002");
+            reasons.add("\u672a\u53c2\u4e0e\u9009\u53c2\u7684\u540e\u7eed\u65f6\u6bb5\u6536\u76ca\u4e3a "
+                    + s(result.get("keyFeeAdjustedForwardPnl")) + " USDT\u3002");
+        }
+        result.put("reasons", reasons);
+
+        List<String> nextSteps = new ArrayList<String>();
+        if (liveEntered) {
+            nextSteps.add("\u5173\u6ce8\u63a5\u4e0b\u6765 1-3 \u5929\u7684\u771f\u5b9e\u6210\u4ea4\u3001\u624b\u7eed\u8d39\u548c\u56de\u64a4\u3002");
+        } else if ("PASS".equalsIgnoreCase(finalDecision) && publishEligible) {
+            nextSteps.add("\u65e0\u9700\u624b\u5de5\u64cd\u4f5c\uff0c\u7531\u7cfb\u7edf\u5b8c\u6210\u53d1\u5e03\u3002");
+        } else {
+            nextSteps.add("\u4e0d\u4e0a\u5b9e\u76d8\uff0c\u5c06\u672a\u901a\u8fc7\u539f\u56e0\u56de\u704c\u5230\u4e0b\u4e00\u8f6e\u7b56\u7565\u6539\u8fdb\u3002");
+        }
+        if (sceneShadow != null && nzInt(sceneShadow.get("sceneRecordCount")) > 0) {
+            nextSteps.add("\u573a\u666f\u5185\u56de\u6d4b\u5df2\u5f00\u59cb\u79ef\u7d2f\u8bc1\u636e\uff0c\u5f53\u524d\u4ec5\u4f9b\u89c2\u5bdf\uff0c\u4e0d\u6539\u53d8\u53d1\u5e03\u7ed3\u8bba\u3002");
+        }
+        if (decision != null && decision.skippedSymbols != null && !decision.skippedSymbols.isEmpty()) {
+            nextSteps.add("\u672c\u6b21\u672a\u53d1\u5e03\u54c1\u79cd\uff1a" + joinStrings(decision.skippedSymbols) + "\u3002");
+        }
+        result.put("nextSteps", nextSteps);
+        return result;
     }
 
     private String buildAuditSummary(BacktestResponse response,
@@ -1117,7 +1189,98 @@ public class BacktestReportService {
         summary.put("totalFee", scale(result.totalFee));
         summary.put("entryMakerFeeRatePct", scale(result.entryMakerFeeRatePct));
         summary.put("exitTakerFeeRatePct", scale(result.exitTakerFeeRatePct));
+        summary.put("sceneShadow", sceneShadowMap(result.sceneShadow));
         return summary;
+    }
+
+    private Map<String, Object> buildSceneShadow(BacktestResponse response) {
+        Map<String, Object> summary = new LinkedHashMap<String, Object>();
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        int sceneRecords = 0;
+        int coveredBars = 0;
+        int matchedBars = 0;
+        int blockedSignals = 0;
+        int forcedExits = 0;
+        int trades = 0;
+        BigDecimal pnl = BigDecimal.ZERO;
+        BigDecimal fees = BigDecimal.ZERO;
+        String status = "INSUFFICIENT_DATA";
+        List<BacktestResult> results = response == null || response.results == null
+                ? Collections.<BacktestResult>emptyList() : response.results;
+        for (BacktestResult result : results) {
+            BacktestModels.SceneShadowMetrics metrics = result == null ? null : result.sceneShadow;
+            if (metrics == null) {
+                continue;
+            }
+            Map<String, Object> row = sceneShadowMap(metrics);
+            row.put("symbol", s(result.symbol));
+            rows.add(row);
+            sceneRecords += nzInt(metrics.sceneRecordCount);
+            coveredBars += nzInt(metrics.coveredBarCount);
+            matchedBars += nzInt(metrics.matchedBarCount);
+            blockedSignals += nzInt(metrics.blockedSignalCount);
+            forcedExits += nzInt(metrics.forcedExitCount);
+            trades += nzInt(metrics.tradeCount);
+            pnl = pnl.add(nz(metrics.totalPnl));
+            fees = fees.add(nz(metrics.totalFee));
+            if ("ERROR".equals(metrics.status)) {
+                status = "ERROR";
+            } else if (!"ERROR".equals(status) && "OBSERVATION_ONLY".equals(metrics.status)) {
+                status = "OBSERVATION_ONLY";
+            }
+        }
+        summary.put("status", status);
+        summary.put("rows", rows);
+        summary.put("sceneRecordCount", sceneRecords);
+        summary.put("coveredBarCount", coveredBars);
+        summary.put("matchedBarCount", matchedBars);
+        summary.put("blockedSignalCount", blockedSignals);
+        summary.put("forcedExitCount", forcedExits);
+        summary.put("tradeCount", trades);
+        summary.put("totalPnl", scale(pnl));
+        summary.put("totalFee", scale(fees));
+        return summary;
+    }
+
+    private Map<String, Object> sceneShadowMap(BacktestModels.SceneShadowMetrics metrics) {
+        Map<String, Object> row = new LinkedHashMap<String, Object>();
+        if (metrics == null) {
+            return row;
+        }
+        row.put("mode", s(metrics.mode));
+        row.put("status", s(metrics.status));
+        row.put("message", translateSceneShadowMessage(metrics));
+        row.put("strategyScene", s(metrics.strategyScene));
+        row.put("dataBegin", s(metrics.dataBegin));
+        row.put("dataEnd", s(metrics.dataEnd));
+        row.put("sceneRecordCount", nzInt(metrics.sceneRecordCount));
+        row.put("coveredBarCount", nzInt(metrics.coveredBarCount));
+        row.put("matchedBarCount", nzInt(metrics.matchedBarCount));
+        row.put("blockedSignalCount", nzInt(metrics.blockedSignalCount));
+        row.put("forcedExitCount", nzInt(metrics.forcedExitCount));
+        row.put("tradeCount", nzInt(metrics.tradeCount));
+        row.put("totalPnl", scale(metrics.totalPnl));
+        row.put("totalFee", scale(metrics.totalFee));
+        row.put("maxDrawdownPct", scale(metrics.maxDrawdownPct));
+        row.put("profitFactor", scale(metrics.profitFactor));
+        row.put("winRate", scale(metrics.winRate));
+        return row;
+    }
+
+    private String translateSceneShadowMessage(BacktestModels.SceneShadowMetrics metrics) {
+        if (metrics == null) {
+            return "";
+        }
+        if ("OBSERVATION_ONLY".equals(metrics.status)) {
+            return "\u573a\u666f\u5185\u6837\u672c\u53ef\u4f9b\u89c2\u5bdf\uff0c\u6682\u4e0d\u5f71\u54cd\u81ea\u52a8\u53d1\u5e03\u3002";
+        }
+        if ("NOT_APPLICABLE".equals(metrics.status)) {
+            return "\u8be5\u573a\u666f\u7684\u5386\u53f2\u6837\u672c\u5c1a\u672a\u8fbe\u5230\u53ef\u9a8c\u8bc1\u6761\u4ef6\u3002";
+        }
+        if ("ERROR".equals(metrics.status)) {
+            return "\u573a\u666f\u5185\u89c2\u5bdf\u56de\u6d4b\u672a\u5b8c\u6210\uff0c\u4e0d\u5f71\u54cd\u4e3b\u56de\u6d4b\u7ed3\u8bba\u3002";
+        }
+        return "\u573a\u666f\u5386\u53f2\u6216\u573a\u666f\u5185\u4ea4\u6613\u6570\u4e0d\u8db3\uff0c\u5f53\u524d\u53ea\u8bb0\u5f55\u3001\u4e0d\u4f5c\u51c6\u5165\u5224\u65ad\u3002";
     }
 
     private List<Map<String, Object>> buildEquityCurve(BacktestResult result) {
@@ -1391,6 +1554,8 @@ public class BacktestReportService {
         @SuppressWarnings("unchecked")
         Map<String, Object> optimization = (Map<String, Object>) report.get("optimization");
         @SuppressWarnings("unchecked")
+        Map<String, Object> sceneShadow = (Map<String, Object>) report.get("sceneShadow");
+        @SuppressWarnings("unchecked")
         List<Map<String, Object>> results = (List<Map<String, Object>>) report.get("results");
 
         StringBuilder html = new StringBuilder();
@@ -1402,6 +1567,10 @@ public class BacktestReportService {
                 .append(".hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border-radius:20px;padding:28px 32px;margin-bottom:20px;}")
                 .append(".hero h1{margin:0 0 8px;font-size:30px;}")
                 .append(".hero p{margin:6px 0 0;color:#dbeafe;}")
+                .append(".verdict{display:grid;grid-template-columns:minmax(280px,1.35fr) repeat(4,minmax(130px,.65fr));gap:12px;margin:18px 0;}")
+                .append(".verdict-main{background:#fff;border:1px solid #dbeafe;border-radius:18px;padding:22px;box-shadow:0 12px 32px rgba(15,23,42,.08);}")
+                .append(".verdict-main .metric-value{font-size:30px;line-height:1.25;}")
+                .append(".plain-list{margin:14px 0 0;padding-left:20px;color:#475569;line-height:1.8;}")
                 .append(".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:18px 0;}")
                 .append(".card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:18px;box-shadow:0 8px 24px rgba(15,23,42,.06);}")
                 .append(".card h3{margin:0 0 10px;font-size:16px;color:#111827;}")
@@ -1432,6 +1601,8 @@ public class BacktestReportService {
                 .append(".section{margin-top:16px;}")
                 .append(".section h2{font-size:18px;margin-bottom:10px;}")
                 .append(".grid{grid-template-columns:1fr;gap:10px;margin:12px 0;}")
+                .append(".verdict{grid-template-columns:1fr 1fr;}")
+                .append(".verdict-main{grid-column:1/-1;padding:18px;}")
                 .append(".card{padding:14px;border-radius:14px;}")
                 .append(".metric-value{font-size:22px;}")
                 .append(".table-wrap{border-radius:12px;}")
@@ -1458,7 +1629,8 @@ public class BacktestReportService {
                 .append(escape(s(meta.get("generatedAt"))))
                 .append("</p></div>");
 
-        html.append(renderUserSummarySection(userSummary));
+        html.append(renderSimpleUserSummarySection(userSummary));
+        html.append(renderSceneShadowSection(sceneShadow));
 
         html.append(detailsBlock("工程追踪（默认收起）",
                 new StringBuilder("<div class=\"table-wrap\"><table><thead><tr>")
@@ -1568,17 +1740,10 @@ public class BacktestReportService {
             Map<String, Object> phaseWindow = replay == null ? null : (Map<String, Object>) replay.get("phaseWindow");
 
             html.append("<div class=\"section\"><h2>").append(escape(s(item.get("symbol")))).append(" / ").append(escape(s(item.get("text")))).append("</h2><div class=\"grid\">")
-                    .append(metric("\u6700\u7ec8\u8d44\u91d1", itemSummary.get("finalCapital")))
-                    .append(metric("\u80dc\u7387%", itemSummary.get("winRate")))
-                    .append(metric("Validate \u4e3b\u5206", itemSummary.get("validatePrimaryScore")))
-                    .append(metric("Forward \u8f85\u5206", itemSummary.get("forwardAuxScore")))
-                    .append(metric("\u6263\u8d39 Validate", itemSummary.get("feeAdjustedValidatePnl")))
-                    .append(metric("\u6263\u8d39 Forward", itemSummary.get("feeAdjustedForwardPnl")))
-                    .append(metric("OOS \u901a\u8fc7", isTrue(itemSummary.get("oosPass")) ? "\u662f" : "\u5426"))
-                    .append(metric("Maker \u624b\u7eed\u8d39", itemSummary.get("entryFeeTotal")))
-                    .append(metric("Taker \u624b\u7eed\u8d39", itemSummary.get("exitFeeTotal")))
-                    .append(metric("\u7a97\u53e3\u914d\u7f6e", s(itemSummary.get("fitWindowDays")) + "/" + s(itemSummary.get("validateWindowDays")) + "/" + s(itemSummary.get("forwardWindowDays"))))
-                    .append(metric("\u6700\u4f73\u70b9\u8106\u5f31", isTrue(itemSummary.get("fragileBest")) ? "\u662f" : "\u5426"))
+                    .append(metric("\u6263\u8d39\u540e\u9a8c\u8bc1\u6536\u76ca USDT", itemSummary.get("feeAdjustedValidatePnl")))
+                    .append(metric("\u672a\u6765\u65f6\u6bb5\u6536\u76ca USDT", itemSummary.get("feeAdjustedForwardPnl")))
+                    .append(metric("\u80dc\u7387", percentText(itemSummary.get("winRate"))))
+                    .append(metric("\u6700\u5927\u56de\u64a4", percentText(itemSummary.get("maxDrawdownPct"))))
                     .append("</div></div>");
 
             html.append(detailsBlock(s(item.get("symbol")) + " 图形和切片细节（默认收起）",
@@ -2374,6 +2539,80 @@ public class BacktestReportService {
             }
         }
         return md.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private String renderSimpleUserSummarySection(Map<String, Object> userSummary) {
+        if (userSummary == null || userSummary.isEmpty()) {
+            return "";
+        }
+        String statusClass = s(userSummary.get("statusClass"));
+        StringBuilder html = new StringBuilder();
+        html.append("<div class=\"section\"><h2>\u4e00\u5206\u949f\u770b\u61c2\u56de\u6d4b</h2><div class=\"verdict\">")
+                .append("<div class=\"verdict-main\"><div class=\"metric-label\">\u7cfb\u7edf\u7ed3\u8bba</div>")
+                .append("<div class=\"metric-value ").append(escape(statusClass)).append("\">")
+                .append(escape(s(userSummary.get("headline")))).append("</div>")
+                .append("<div class=\"muted\" style=\"margin-top:12px;line-height:1.7\">\u4e0b\u4e00\u6b65\uff1a")
+                .append(escape(s(userSummary.get("actionLabel")))).append("</div></div>")
+                .append(compactMetric("\u6263\u8d39\u540e\u9a8c\u8bc1\u6536\u76ca", userSummary.get("keyFeeAdjustedValidatePnl"), " USDT"))
+                .append(compactMetric("\u672a\u6765\u65f6\u6bb5\u6536\u76ca", userSummary.get("keyFeeAdjustedForwardPnl"), " USDT"))
+                .append(compactMetric("\u6700\u5927\u56de\u64a4", percentText(userSummary.get("keyDrawdown")), ""))
+                .append(compactMetric("\u9a8c\u8bc1\u4ea4\u6613", userSummary.get("keyTradeCount"), " \u7b14"))
+                .append("</div>");
+        html.append(renderPlainList("\u4e3a\u4ec0\u4e48\u662f\u8fd9\u4e2a\u7ed3\u8bba", (List<String>) userSummary.get("reasons")));
+        html.append(renderPlainList("\u7cfb\u7edf\u63a5\u4e0b\u6765\u4f1a\u505a\u4ec0\u4e48", (List<String>) userSummary.get("nextSteps")));
+        html.append("</div>");
+        return html.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private String renderSceneShadowSection(Map<String, Object> sceneShadow) {
+        List<Map<String, Object>> rows = sceneShadow == null
+                ? null : (List<Map<String, Object>>) sceneShadow.get("rows");
+        if (rows == null || rows.isEmpty()) {
+            return "";
+        }
+        String status = s(sceneShadow.get("status"));
+        String statusText = "OBSERVATION_ONLY".equals(status)
+                ? "\u5df2\u6709\u521d\u6b65\u6837\u672c" : "\u6837\u672c\u79ef\u7d2f\u4e2d";
+        String body = new StringBuilder("<div class=\"grid\">")
+                .append(statusCard("\u573a\u666f\u5185\u8868\u73b0", statusText,
+                        "\u53ea\u7edf\u8ba1\u5e02\u573a\u573a\u666f\u4e0e\u7b56\u7565\u5339\u914d\u7684\u65f6\u6bb5\uff0c\u5f53\u524d\u4e0d\u5f71\u54cd\u53d1\u5e03\u3002",
+                        "OBSERVATION_ONLY".equals(status) ? "pass" : "warn"))
+                .append(metric("\u573a\u666f\u8bb0\u5f55", sceneShadow.get("sceneRecordCount")))
+                .append(metric("\u5339\u914d\u65f6\u6bb5\u4ea4\u6613", sceneShadow.get("tradeCount")))
+                .append(metric("\u573a\u666f\u5185\u6536\u76ca USDT", sceneShadow.get("totalPnl")))
+                .append(metric("\u62e6\u622a\u4e0d\u5339\u914d\u4fe1\u53f7", sceneShadow.get("blockedSignalCount")))
+                .append(metric("\u573a\u666f\u5207\u6362\u9000\u51fa", sceneShadow.get("forcedExitCount")))
+                .append("</div>")
+                .append(renderTable(
+                        new String[]{"\u54c1\u79cd", "\u76ee\u6807\u573a\u666f", "\u6570\u636e\u72b6\u6001", "\u4ea4\u6613\u7b14\u6570", "\u6536\u76ca", "\u6700\u5927\u56de\u64a4", "\u62e6\u622a\u4fe1\u53f7"},
+                        rows,
+                        new String[]{"symbol", "strategyScene", "message", "tradeCount", "totalPnl", "maxDrawdownPct", "blockedSignalCount"}))
+                .toString();
+        return detailsBlock("\u573a\u666f\u5185\u8868\u73b0\uff08\u89c2\u5bdf\uff09", body, false);
+    }
+
+    private String compactMetric(String label, Object value, String suffix) {
+        return "<div class=\"card\"><div class=\"metric-label\">" + escape(label)
+                + "</div><div class=\"metric-value\">" + escape(s(value)) + escape(suffix) + "</div></div>";
+    }
+
+    private String percentText(Object value) {
+        BigDecimal raw = n(value);
+        return raw.multiply(BigDecimal.valueOf(100D)).setScale(2, RoundingMode.HALF_UP).toPlainString() + "%";
+    }
+
+    private String renderPlainList(String title, List<String> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return "";
+        }
+        StringBuilder html = new StringBuilder("<div class=\"card\" style=\"margin-top:12px\"><h3>")
+                .append(escape(title)).append("</h3><ul class=\"plain-list\">");
+        for (String row : rows) {
+            html.append("<li>").append(escape(row)).append("</li>");
+        }
+        return html.append("</ul></div>").toString();
     }
 
     @SuppressWarnings("unchecked")

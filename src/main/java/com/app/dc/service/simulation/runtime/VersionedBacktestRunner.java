@@ -11,7 +11,7 @@ import com.app.dc.service.simulation.BacktestModels;
 import com.app.dc.service.simulation.BacktestService;
 import com.app.dc.service.simulation.BacktestSupportService;
 import com.app.dc.service.simulation.BacktestTradeService;
-import com.app.dc.service.simulation.strategy.BinanceBacktestMarketGuard;
+import com.app.dc.service.simulation.scene.DeepSeekSceneTimelineService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -39,13 +39,29 @@ public class VersionedBacktestRunner {
     private BacktestMetricService metricService;
 
     @Autowired
-    private BinanceBacktestMarketGuard marketGuard;
-
-    @Autowired
     private com.app.dc.signal.BuySellSignalFacade runtimeFacade;
 
     public BacktestModels.BacktestResult run(StrategyCandidateRow candidate, BacktestParam rawParam,
                                              List<TTbookOhlc> ohlcList) throws Exception {
+        return run(candidate, rawParam, ohlcList, null, null);
+    }
+
+    public BacktestModels.BacktestResult runSceneGated(StrategyCandidateRow candidate,
+                                                       BacktestParam rawParam,
+                                                       List<TTbookOhlc> ohlcList,
+                                                       DeepSeekSceneTimelineService.Cursor sceneCursor,
+                                                       BacktestModels.SceneShadowMetrics metrics) throws Exception {
+        if (sceneCursor == null || metrics == null) {
+            throw new IllegalArgumentException("scene shadow context is required");
+        }
+        return run(candidate, rawParam, ohlcList, sceneCursor, metrics);
+    }
+
+    private BacktestModels.BacktestResult run(StrategyCandidateRow candidate,
+                                              BacktestParam rawParam,
+                                              List<TTbookOhlc> ohlcList,
+                                              DeepSeekSceneTimelineService.Cursor sceneCursor,
+                                              BacktestModels.SceneShadowMetrics sceneMetrics) throws Exception {
         BacktestParam param = legacyBacktestService.normalizeParam(rawParam);
         if (candidate == null) {
             throw new IllegalArgumentException("candidate is null");
@@ -85,6 +101,16 @@ public class VersionedBacktestRunner {
             }
             result.totalBars = replaySeries.getBarCount();
 
+            DeepSeekSceneTimelineService.ScenePoint scenePoint = sceneCursor == null
+                    ? null : sceneCursor.at(bar.getEndTime().toInstant());
+            boolean sceneMatched = scenePoint != null && scenePoint.matches(candidate.scene);
+            if (sceneMetrics != null && scenePoint != null) {
+                sceneMetrics.coveredBarCount++;
+                if (sceneMatched) {
+                    sceneMetrics.matchedBarCount++;
+                }
+            }
+
             if (position != null && position.entryIndex < replaySeries.getEndIndex()) {
                 BacktestModels.TradeRecord riskClosed = tradeService.tryCloseByRisk(position, bar,
                         replaySeries.getEndIndex(),
@@ -96,9 +122,22 @@ public class VersionedBacktestRunner {
                 }
             }
 
+            if (sceneCursor != null && position != null && !sceneMatched) {
+                BacktestModels.TradeRecord sceneClosed = tradeService.closePosition(position,
+                        bar.getClosePrice().doubleValue(), bar.getEndTime().toString(),
+                        "scene_mismatch", replaySeries.getEndIndex(),
+                        param.entryMakerFeeRatePct.doubleValue(),
+                        param.exitTakerFeeRatePct.doubleValue());
+                metricService.applyTrade(result, sceneClosed, equityContext);
+                position = null;
+                sceneMetrics.forcedExitCount++;
+            }
+
             if (position == null && pendingLimitSignal != null) {
-                position = tradeService.tryOpenLimitPosition(pendingLimitSignal,
-                        replaySeries.getEndIndex(), bar, param, equityContext.equity);
+                if (sceneCursor == null || sceneMatched) {
+                    position = tradeService.tryOpenLimitPosition(pendingLimitSignal,
+                            replaySeries.getEndIndex(), bar, param, equityContext.equity);
+                }
                 // Generated strategies are evaluated on every closed bar. A limit signal is valid for
                 // the next bar only; a still-valid setup will emit a fresh order at this bar close.
                 pendingLimitSignal = null;
@@ -124,6 +163,12 @@ public class VersionedBacktestRunner {
             signal.algoName = candidate.strategyName;
             if (!hasDynamicRiskTargets(signal)) {
                 incrementRejectReason(result, "missing_dynamic_stop_take");
+                continue;
+            }
+
+            if (sceneCursor != null && !sceneMatched) {
+                sceneMetrics.blockedSignalCount++;
+                incrementRejectReason(result, "scene_mismatch");
                 continue;
             }
 

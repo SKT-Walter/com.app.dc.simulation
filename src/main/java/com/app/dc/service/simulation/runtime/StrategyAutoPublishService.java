@@ -65,6 +65,10 @@ public class StrategyAutoPublishService {
             decision.reason = "auto publish disabled";
             return decision;
         }
+        if (isNonPublishingValidationTask(task)) {
+            decision.reason = "live recheck is validation only";
+            return decision;
+        }
         if (candidate == null) {
             decision.reason = "candidate missing";
             return decision;
@@ -912,6 +916,31 @@ public class StrategyAutoPublishService {
         } catch (Exception e) {
             log.warn("parseTaskPayload error, task:{}", task.id, e);
             return null;
+        }
+    }
+
+    private boolean isNonPublishingValidationTask(StrategyBacktestTaskRow task) {
+        if (task == null) {
+            return false;
+        }
+        return isLiveRecheckPayload(task.initialPayload) || isLiveRecheckPayload(task.payload);
+    }
+
+    private boolean isLiveRecheckPayload(String payload) {
+        if (StringUtils.isBlank(payload)) {
+            return false;
+        }
+        try {
+            StrategyBacktestTaskPayloadEnvelope envelope =
+                    JsonUtils.Deserialize(payload, StrategyBacktestTaskPayloadEnvelope.class);
+            if (envelope == null) {
+                return false;
+            }
+            return "live_recheck".equalsIgnoreCase(StringUtils.trimToEmpty(envelope.workflowMode))
+                    || "LIVE_RECHECK".equalsIgnoreCase(
+                    StringUtils.trimToEmpty(envelope.workflowImprovementFlowType));
+        } catch (Exception e) {
+            return false;
         }
     }
 

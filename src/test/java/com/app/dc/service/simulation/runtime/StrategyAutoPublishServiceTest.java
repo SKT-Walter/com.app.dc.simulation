@@ -15,6 +15,39 @@ import java.util.List;
 public class StrategyAutoPublishServiceTest {
 
     @Test
+    public void maybePublishShouldNeverPublishLiveRecheckTask() throws Exception {
+        StrategyAutoPublishService service = new StrategyAutoPublishService();
+        StubAutoPublishDao dao = new StubAutoPublishDao();
+        wirePublishConfig(service, dao);
+        StrategyBacktestTaskRow task = task("bt_recheck");
+        task.payload = "{\"workflowMode\":\"live_recheck\",\"workflowImprovementFlowType\":\"LIVE_RECHECK\","
+                + "\"backtestParam\":{\"strategyName\":\"live_acc3\",\"strategyVersion\":\"v13\","
+                + "\"symbols\":\"BTCUSDT\",\"text\":\"15m\"}}";
+
+        StrategyAutoPublishDecision decision = service.maybePublish(task, candidate("v13"), response("BTCUSDT"));
+
+        Assert.assertFalse(decision.published);
+        Assert.assertEquals("live recheck is validation only", decision.reason);
+        Assert.assertEquals(0, dao.insertedRegistryRows.size());
+        Assert.assertEquals(0, dao.insertedReleaseEvents.size());
+    }
+
+    @Test
+    public void maybePublishShouldUseInitialPayloadToIdentifyLiveRecheck() throws Exception {
+        StrategyAutoPublishService service = new StrategyAutoPublishService();
+        StubAutoPublishDao dao = new StubAutoPublishDao();
+        wirePublishConfig(service, dao);
+        StrategyBacktestTaskRow task = task("bt_recheck_initial");
+        task.initialPayload = "{\"workflowMode\":\"live_recheck\",\"backtestParam\":{}}";
+
+        StrategyAutoPublishDecision decision = service.maybePublish(task, candidate("v13"), response("BTCUSDT"));
+
+        Assert.assertFalse(decision.published);
+        Assert.assertEquals("live recheck is validation only", decision.reason);
+        Assert.assertEquals(0, dao.insertedRegistryRows.size());
+    }
+
+    @Test
     public void parseTaskPayloadShouldReadEnvelopeBacktestParam() throws Exception {
         StrategyAutoPublishService service = new StrategyAutoPublishService();
         StrategyBacktestTaskRow task = new StrategyBacktestTaskRow();

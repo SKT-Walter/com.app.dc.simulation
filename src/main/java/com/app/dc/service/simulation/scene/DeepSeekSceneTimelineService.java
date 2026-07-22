@@ -32,6 +32,9 @@ public class DeepSeekSceneTimelineService {
     @Value("${strategy.backtest.sceneShadow.promptVersion:deepseek_market_scene_v3}")
     private String promptVersion;
 
+    @Value("${strategy.backtest.sceneShadow.historyPromptVersion:market_scene_v3_historical_kline_v1}")
+    private String historyPromptVersion;
+
     @Value("${strategy.backtest.sceneShadow.maxSceneAgeHours:13}")
     private int maxSceneAgeHours;
 
@@ -40,16 +43,19 @@ public class DeepSeekSceneTimelineService {
             return Timeline.empty(Math.max(1, maxSceneAgeHours));
         }
         String sql = "SELECT formatDateTime(run_time, '%Y-%m-%d %H:%i:%S') AS runTime,"
-                + " scene, status, prompt_version AS promptVersion"
+                + " scene, status, analysis_type AS analysisType, prompt_version AS promptVersion"
                 + " FROM " + safeTableName(tableName)
                 + " WHERE symbol=? AND run_time>=toDateTime(?) AND run_time<=toDateTime(?)"
-                + " AND prompt_version=? ORDER BY run_time ASC LIMIT 10000";
+                + " AND ((analysis_type='deepseek_market_scene' AND prompt_version=?)"
+                + " OR (analysis_type='historical_kline_scene' AND prompt_version=?))"
+                + " ORDER BY run_time ASC LIMIT 10000";
         String begin = LocalDateTime.parse(beginDate + " 00:00:00", DB_TIME)
                 .minusDays(1).format(DB_TIME);
         String end = LocalDateTime.parse(endDate + " 23:59:59", DB_TIME).format(DB_TIME);
         try {
             List<SceneRow> rows = ClickHouseDBUtils.queryList(sql,
-                    new Object[]{symbol.trim().toUpperCase(Locale.ROOT), begin, end, promptVersion},
+                    new Object[]{symbol.trim().toUpperCase(Locale.ROOT), begin, end,
+                            promptVersion, historyPromptVersion},
                     SceneRow.class);
             return buildTimeline(rows, Math.max(1, maxSceneAgeHours));
         } catch (Exception e) {
@@ -72,7 +78,8 @@ public class DeepSeekSceneTimelineService {
             long bucket = Math.floorDiv(time.getEpochSecond(), BUCKET_SECONDS);
             ScenePoint point = new ScenePoint(time,
                     normalizeScene(row.scene),
-                    StringUtils.defaultString(row.status).trim().toUpperCase(Locale.ROOT));
+                    StringUtils.defaultString(row.status).trim().toUpperCase(Locale.ROOT),
+                    sourcePriority(row));
             putLatest(latestAny, bucket, point);
             if ("SUCCESS".equals(point.status)) {
                 putLatest(latestSuccess, bucket, point);
@@ -83,7 +90,7 @@ public class DeepSeekSceneTimelineService {
             ScenePoint selected = latestSuccess.get(entry.getKey());
             if (selected == null) {
                 ScenePoint failed = entry.getValue();
-                selected = new ScenePoint(failed.time, "no_trade", failed.status);
+                selected = new ScenePoint(failed.time, "no_trade", failed.status, failed.sourcePriority);
             }
             points.add(selected);
         }
@@ -93,9 +100,21 @@ public class DeepSeekSceneTimelineService {
 
     private static void putLatest(Map<Long, ScenePoint> target, long bucket, ScenePoint point) {
         ScenePoint current = target.get(bucket);
-        if (current == null || current.time.isBefore(point.time)) {
+        if (current == null || current.sourcePriority < point.sourcePriority
+                || (current.sourcePriority == point.sourcePriority && current.time.isBefore(point.time))) {
             target.put(bucket, point);
         }
+    }
+
+    private static int sourcePriority(SceneRow row) {
+        if (row != null && "deepseek_market_scene".equalsIgnoreCase(row.analysisType)
+                && "deepseek_market_scene_v3".equalsIgnoreCase(row.promptVersion)) {
+            return 2;
+        }
+        if (row != null && "historical_kline_scene".equalsIgnoreCase(row.analysisType)) {
+            return 1;
+        }
+        return 0;
     }
 
     private static String normalizeScene(String value) {
@@ -199,11 +218,13 @@ public class DeepSeekSceneTimelineService {
         public final Instant time;
         public final String scene;
         public final String status;
+        final int sourcePriority;
 
-        ScenePoint(Instant time, String scene, String status) {
+        ScenePoint(Instant time, String scene, String status, int sourcePriority) {
             this.time = time;
             this.scene = scene;
             this.status = status;
+            this.sourcePriority = sourcePriority;
         }
 
         public boolean matches(String expectedScene) {
@@ -217,6 +238,7 @@ public class DeepSeekSceneTimelineService {
         public String runTime;
         public String scene;
         public String status;
+        public String analysisType;
         public String promptVersion;
     }
 }

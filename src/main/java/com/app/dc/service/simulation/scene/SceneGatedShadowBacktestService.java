@@ -32,7 +32,7 @@ import java.util.Set;
 public class SceneGatedShadowBacktestService {
 
     private static final Set<String> SUPPORTED_SCENES = Collections.unmodifiableSet(
-            new HashSet<String>(Arrays.asList("trend", "range", "channel")));
+            new HashSet<String>(Arrays.asList("trend", "range", "channel", "breakout", "reversal")));
 
     @Autowired
     private DeepSeekSceneTimelineService sceneTimelineService;
@@ -83,7 +83,7 @@ public class SceneGatedShadowBacktestService {
                                                       BacktestModels.BacktestResult fullResult) throws Exception {
         BacktestModels.SceneShadowMetrics metrics = baseMetrics(candidate.scene);
         String expectedScene = normalizeScene(candidate.scene);
-        if (!SUPPORTED_SCENES.contains(expectedScene)) {
+        if (!supportsScene(expectedScene)) {
             metrics.status = "NOT_APPLICABLE";
             metrics.message = "Historical scene sample is not mature for " + expectedScene;
             return metrics;
@@ -152,6 +152,10 @@ public class SceneGatedShadowBacktestService {
         return metrics;
     }
 
+    static boolean supportsScene(String scene) {
+        return SUPPORTED_SCENES.contains(normalizeScene(scene));
+    }
+
     private List<TTbookOhlc> trimWarmup(List<TTbookOhlc> rows, Instant firstSceneTime, int days) {
         if (rows == null || rows.isEmpty() || firstSceneTime == null) {
             return rows == null ? Collections.<TTbookOhlc>emptyList() : rows;
@@ -202,7 +206,7 @@ public class SceneGatedShadowBacktestService {
         return metrics;
     }
 
-    private String normalizeScene(String value) {
+    private static String normalizeScene(String value) {
         return StringUtils.defaultString(value).trim().toLowerCase(Locale.ROOT);
     }
 

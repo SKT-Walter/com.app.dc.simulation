@@ -39,11 +39,32 @@ public class DeepSeekSceneTimelineServiceTest {
         Assert.assertNull(cursor.at(timeline.firstTime().plus(Duration.ofHours(14))));
     }
 
+    @Test
+    public void realSceneMustOverrideHistoricalBackfillInSameBucket() {
+        DeepSeekSceneTimelineService.SceneRow historical = row("2026-07-01 00:00:00", "range", "SUCCESS");
+        historical.analysisType = "historical_kline_scene";
+        historical.promptVersion = "market_scene_v3_historical_kline_v1";
+        DeepSeekSceneTimelineService.SceneRow real = row("2026-07-01 00:03:00", "trend", "SUCCESS");
+
+        DeepSeekSceneTimelineService.Timeline timeline = DeepSeekSceneTimelineService.buildTimeline(
+                Arrays.asList(historical, real), 13);
+        DeepSeekSceneTimelineService.ScenePoint point = timeline.cursor().at(realTime(timeline));
+
+        Assert.assertNotNull(point);
+        Assert.assertEquals("trend", point.scene);
+        Assert.assertTrue(point.matches("trend"));
+    }
+
+    private java.time.Instant realTime(DeepSeekSceneTimelineService.Timeline timeline) {
+        return timeline.lastTime().plusSeconds(60);
+    }
+
     private DeepSeekSceneTimelineService.SceneRow row(String time, String scene, String status) {
         DeepSeekSceneTimelineService.SceneRow row = new DeepSeekSceneTimelineService.SceneRow();
         row.runTime = time;
         row.scene = scene;
         row.status = status;
+        row.analysisType = "deepseek_market_scene";
         row.promptVersion = "deepseek_market_scene_v3";
         return row;
     }

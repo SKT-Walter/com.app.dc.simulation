@@ -203,6 +203,201 @@
     .pipe-step small { color: var(--muted); font-size: 10px; }
     .pipe-arrow { align-self: center; color: var(--cyan); font-weight: 900; }
 
+    .architecture-diagram {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(20px, 4vw, 38px);
+      border: 1px solid rgba(109, 166, 255, .22);
+      border-radius: 24px;
+      background:
+        radial-gradient(circle at 50% 0%, rgba(66, 215, 232, .08), transparent 34rem),
+        linear-gradient(180deg, rgba(16, 31, 52, .94), rgba(7, 16, 28, .88));
+      box-shadow: var(--shadow);
+    }
+
+    .diagram-legend {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px 18px;
+      margin-bottom: 28px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .legend-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--blue);
+      box-shadow: 0 0 14px currentColor;
+    }
+
+    .legend-dot.hard { color: var(--red); background: var(--red); }
+    .legend-dot.score { color: var(--purple); background: var(--purple); }
+    .legend-dot.trade { color: var(--green); background: var(--green); }
+
+    .diagram-body {
+      position: relative;
+      max-width: 1050px;
+      margin: 0 auto;
+    }
+
+    .diagram-body::before {
+      content: "";
+      position: absolute;
+      top: 36px;
+      bottom: 42px;
+      left: 50%;
+      width: 2px;
+      transform: translateX(-50%);
+      background: linear-gradient(var(--cyan), var(--blue), var(--purple), var(--green));
+      opacity: .34;
+    }
+
+    .diagram-row {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(150px, 1fr) minmax(300px, 1.45fr) minmax(150px, 1fr);
+      gap: 18px;
+      align-items: center;
+    }
+
+    .diagram-node,
+    .diagram-side {
+      border: 1px solid var(--line);
+      background: rgba(7, 16, 28, .94);
+    }
+
+    .diagram-node {
+      grid-column: 2;
+      padding: 17px 20px;
+      border-radius: 15px;
+      text-align: center;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, .18);
+    }
+
+    .diagram-node strong {
+      display: block;
+      font-size: 15px;
+    }
+
+    .diagram-node small {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .diagram-node.source { border-color: rgba(66, 215, 232, .55); }
+    .diagram-node.context { border-color: rgba(109, 166, 255, .55); }
+    .diagram-node.rule { border-color: rgba(255, 125, 139, .55); }
+    .diagram-node.score { border-color: rgba(189, 146, 255, .58); }
+    .diagram-node.route { border-color: rgba(255, 202, 103, .58); }
+    .diagram-node.trade { border-color: rgba(88, 214, 141, .58); }
+
+    .diagram-side {
+      position: relative;
+      padding: 13px 15px;
+      border-radius: 13px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .diagram-side strong {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .diagram-side.left { grid-column: 1; grid-row: 1; text-align: right; }
+    .diagram-side.right { grid-column: 3; grid-row: 1; }
+    .diagram-side.left::after,
+    .diagram-side.right::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      width: 19px;
+      border-top: 1px dashed var(--line);
+    }
+    .diagram-side.left::after { right: -19px; }
+    .diagram-side.right::before { left: -19px; }
+    .diagram-side.reject { border-color: rgba(255, 125, 139, .26); background: rgba(255, 125, 139, .06); }
+    .diagram-side.info { border-color: rgba(109, 166, 255, .26); background: rgba(109, 166, 255, .06); }
+    .diagram-side.success { border-color: rgba(88, 214, 141, .26); background: rgba(88, 214, 141, .06); }
+
+    .diagram-arrow {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      grid-template-columns: minmax(150px, 1fr) minmax(300px, 1.45fr) minmax(150px, 1fr);
+      gap: 18px;
+      min-height: 38px;
+    }
+
+    .diagram-arrow span {
+      grid-column: 2;
+      place-self: center;
+      display: grid;
+      width: 25px;
+      height: 25px;
+      place-items: center;
+      border: 1px solid rgba(66, 215, 232, .38);
+      border-radius: 50%;
+      color: var(--cyan);
+      background: #0b1727;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .family-strip,
+    .signal-strip {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 9px;
+    }
+
+    .family-strip span,
+    .signal-strip span {
+      padding: 3px 8px;
+      border: 1px solid rgba(189, 146, 255, .3);
+      border-radius: 999px;
+      color: #d9c4ff;
+      background: rgba(189, 146, 255, .07);
+      font-size: 10px;
+    }
+
+    .signal-strip span {
+      border-color: rgba(88, 214, 141, .3);
+      color: #a9ebc4;
+      background: rgba(88, 214, 141, .07);
+    }
+
+    .diagram-loop {
+      max-width: 620px;
+      margin: 26px auto 0;
+      padding: 12px 16px;
+      border: 1px dashed rgba(66, 215, 232, .35);
+      border-radius: 999px;
+      color: var(--cyan);
+      background: rgba(66, 215, 232, .05);
+      text-align: center;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
     .facts {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -502,6 +697,17 @@
       .hero { padding: 25px 20px; }
       .grid-2, .grid-3 { grid-template-columns: 1fr; }
       .facts { grid-template-columns: 1fr 1fr; }
+      .architecture-diagram { padding: 20px 14px; }
+      .diagram-body::before { left: 20px; }
+      .diagram-row { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding-left: 38px; }
+      .diagram-node { order: 1; }
+      .diagram-side { text-align: left !important; }
+      .diagram-side.left { order: 2; }
+      .diagram-side.right { order: 3; }
+      .diagram-side.left::after,
+      .diagram-side.right::before { display: none; }
+      .diagram-arrow { display: block; min-height: 34px; padding-left: 8px; }
+      .diagram-arrow span { margin: 4px 0; }
       .state-machine { align-items: stretch; flex-direction: column; }
       .state-arrow { transform: rotate(90deg); text-align: center; }
       .weight-row { grid-template-columns: 100px 1fr 30px; }
@@ -514,7 +720,7 @@
       .layout { display: block; }
       .sidebar, .toolbar { display: none; }
       main { padding: 0; }
-      .hero, .card, .flow-item, details, .state-machine { color: #142033; background: white; box-shadow: none; }
+      .hero, .card, .flow-item, details, .state-machine, .architecture-diagram, .diagram-node, .diagram-side { color: #142033; background: white; box-shadow: none; }
       .hero-copy, .card p, td, .flow-item p, .check-list li, details > div { color: #46566c; }
       section { break-inside: avoid; }
     }
@@ -530,6 +736,7 @@
     <nav aria-label="页面目录">
       <div class="nav-label">业务流程</div>
       <a class="nav-link active" href="#overview"><span class="nav-index">00</span>总体架构</a>
+      <a class="nav-link" href="#flowchart"><span class="nav-index">图</span>全链路流程图</a>
       <a class="nav-link" href="#startup"><span class="nav-index">01</span>启动与行情</a>
       <a class="nav-link" href="#bar-loop"><span class="nav-index">02</span>K线循环</a>
       <a class="nav-link" href="#regime"><span class="nav-index">03</span>Market Regime</a>
@@ -582,6 +789,164 @@
         <button class="button" type="button" onclick="window.print()">打印 / 导出 PDF</button>
       </div>
     </header>
+
+    <section id="flowchart">
+      <div class="section-heading">
+        <div class="section-number">MAP</div>
+        <div><h2>全链路业务流程图</h2><p>主干是每根已收线 K 线的确定性处理；两侧展示硬拒绝、状态分支和循环出口。</p></div>
+      </div>
+
+      <div class="architecture-diagram" role="img" aria-label="从行情加载到回测报告的确定性策略路由全链路流程图">
+        <div class="diagram-legend">
+          <span class="legend-item"><i class="legend-dot"></i>行情与状态</span>
+          <span class="legend-item"><i class="legend-dot hard"></i>不可绕过的硬规则</span>
+          <span class="legend-item"><i class="legend-dot score"></i>评分与路由</span>
+          <span class="legend-item"><i class="legend-dot trade"></i>信号与成交</span>
+        </div>
+
+        <div class="diagram-body">
+          <div class="diagram-row">
+            <div class="diagram-node source">
+              <strong>行情加载与连续回放</strong>
+              <small>本地 JSON → ClickHouse · 按时间排序、去重、只接收已收线 K 线</small>
+            </div>
+            <div class="diagram-side right info">
+              <strong>会话状态持续保留</strong>
+              BarSeries、指标预热、路由状态、持仓和资金不随查询分块重置
+            </div>
+          </div>
+
+          <div class="diagram-arrow"><span>↓</span></div>
+
+          <div class="diagram-row">
+            <div class="diagram-side left success">
+              <strong>已有持仓先处理</strong>
+              当前 K 线触及止损、止盈或最大持仓周期时，先平仓并更新资金
+            </div>
+            <div class="diagram-node source">
+              <strong>接收一根 Closed Bar</strong>
+              <small>每根 K 线只进入流水线一次；所有指标只读取当前及历史数据</small>
+            </div>
+          </div>
+
+          <div class="diagram-arrow"><span>↓</span></div>
+
+          <div class="diagram-row">
+            <div class="diagram-node context">
+              <strong>MarketContextFactory</strong>
+              <small>构造公共指标快照：EMA、ADX、ATR、波动分位、量比、VWAP、RSI、Z-Score、价格结构</small>
+            </div>
+          </div>
+
+          <div class="diagram-arrow"><span>↓</span></div>
+
+          <div class="diagram-row">
+            <div class="diagram-node context">
+              <strong>Market Regime</strong>
+              <small>趋势 UP / DOWN / NONE ＋ 波动 LOW / NORMAL / HIGH ＋ confidence / breakoutExpansion</small>
+            </div>
+            <div class="diagram-side right reject">
+              <strong>状态不可交易</strong>
+              数据不足、流动性异常或置信度过低 → NO_TRADE → 等待下一根 K 线
+            </div>
+          </div>
+
+          <div class="diagram-arrow"><span>↓</span></div>
+
+          <div class="diagram-row">
+            <div class="diagram-side left reject">
+              <strong>任一规则失败即淘汰</strong>
+              评分不能补救硬规则；盘口特征缺失的策略明确排除
+            </div>
+            <div class="diagram-node rule">
+              <strong>CandidateRuleChain</strong>
+              <small>预热与完整性 → 流动性 → Regime → enabled → requiredFeatures → 方向兼容 → 策略硬失效</small>
+            </div>
+            <div class="diagram-side right info">
+              <strong>输出合法候选集</strong>
+              每个策略保留准入结果与拒绝原因，支持报告追溯
+            </div>
+          </div>
+
+          <div class="diagram-arrow"><span>↓</span></div>
+
+          <div class="diagram-row">
+            <div class="diagram-node score">
+              <strong>DeterministicScoringService</strong>
+              <small>家族公共环境分 ＋ 策略独立形态准备度，纯函数输出 0–100 分</small>
+              <div class="family-strip">
+                <span>趋势策略</span><span>均值回归</span><span>突破策略</span>
+              </div>
+            </div>
+            <div class="diagram-side right info">
+              <strong>固定排序</strong>
+              总分 ↓ → 形态准备度 ↓ → Regime 分 ↓ → 策略名 ↑
+            </div>
+          </div>
+
+          <div class="diagram-arrow"><span>↓</span></div>
+
+          <div class="diagram-row">
+            <div class="diagram-side left info">
+              <strong>稳定性约束</strong>
+              激活连续 3 根；最短保持 4 根；挑战领先 5 分并连续 3 根
+            </div>
+            <div class="diagram-node route">
+              <strong>DeterministicStrategyRouter</strong>
+              <small>无主策略：等待激活 · 有主策略：保持 / 挑战 / 切换 · 硬失效：立即退出</small>
+            </div>
+            <div class="diagram-side right reject">
+              <strong>门槛未达到</strong>
+              无候选过 minimumScore，或低分连续 3 根 → NO_TRADE
+            </div>
+          </div>
+
+          <div class="diagram-arrow"><span>↓</span></div>
+
+          <div class="diagram-row">
+            <div class="diagram-node trade">
+              <strong>单一运行策略</strong>
+              <small>ActiveStrategySignalService 只调用当前主策略；其他策略无权发布交易信号</small>
+              <div class="signal-strip">
+                <span>BUY</span><span>SELL</span><span>HOLD</span>
+              </div>
+            </div>
+            <div class="diagram-side right info">
+              <strong>HOLD</strong>
+              不产生订单、不强制交易，直接等待下一根 K 线
+            </div>
+          </div>
+
+          <div class="diagram-arrow"><span>↓</span></div>
+
+          <div class="diagram-row">
+            <div class="diagram-side left reject">
+              <strong>风控拒绝</strong>
+              价格非法、止损止盈方向错误或行情守卫失败 → 不开仓；非法反手保留旧仓
+            </div>
+            <div class="diagram-node trade">
+              <strong>BacktestTradeService · Risk Gate</strong>
+              <small>校验 entry / stop / take；缺失价格可使用配置兜底；合法反向信号才允许先平旧仓再开新仓</small>
+            </div>
+          </div>
+
+          <div class="diagram-arrow"><span>↓</span></div>
+
+          <div class="diagram-row">
+            <div class="diagram-node trade">
+              <strong>模拟成交与资金更新</strong>
+              <small>开仓 / 平仓 / 反手 → 手续费 → 交易记录 → 胜负、收益、回撤与策略归因</small>
+            </div>
+            <div class="diagram-side right success">
+              <strong>区间结束</strong>
+              完成最后持仓处理，输出中文 Markdown 报告与完整路由明细
+            </div>
+          </div>
+        </div>
+
+        <div class="diagram-loop">↺ 未到回测结束：携带当前路由、持仓与资金状态，进入下一根已收线 K 线</div>
+      </div>
+    </section>
 
     <section id="startup">
       <div class="section-heading">

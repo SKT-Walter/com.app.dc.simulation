@@ -1,0 +1,4 @@
+package com.app.dc.service.simulation.dynamic;
+import java.util.ArrayList;
+import java.util.List;
+public class DynamicStrategyMeta {public String strategyName;public String family;public boolean enabled=true;public double minimumScore=60;public List<String> supportedRegimes=new ArrayList<String>();public List<String> requiredFeatures=new ArrayList<String>();public boolean supports(BacktestRegime r){if(!enabled||r==null||!r.tradeable)return false;boolean match=false;for(String x:supportedRegimes)if("*".equals(x)||r.code().equalsIgnoreCase(x)){match=true;break;}if(!match)return false;for(String f:requiredFeatures)if(!r.features.containsKey(f))return false;if("BREAKOUT".equals(family))return r.breakoutExpansion;if("TREND".equals(family))return !"NONE".equals(r.trend);if("MEAN_REVERSION".equals(family))return "NONE".equals(r.trend);return false;}}

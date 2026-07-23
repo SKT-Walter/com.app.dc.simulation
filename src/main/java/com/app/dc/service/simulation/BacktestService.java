@@ -10,6 +10,10 @@ import com.app.dc.service.simulation.BacktestModels.EquityContext;
 import com.app.dc.service.simulation.BacktestModels.Position;
 import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import com.app.dc.service.simulation.strategy.BinanceBacktestMarketGuard;
+import com.app.dc.service.simulation.deterministic.DeterministicBacktestPipeline;
+import com.app.dc.service.simulation.deterministic.DeterministicPipelineResult;
+import com.app.dc.service.simulation.deterministic.StrategyRoutingDecision;
+import com.app.dc.service.simulation.deterministic.StrategyRoutingState;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
@@ -28,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class BacktestService {
@@ -49,9 +54,14 @@ public class BacktestService {
 
     @Autowired
     private BinanceBacktestMarketGuard marketGuard;
+    @Autowired
+    private DeterministicBacktestPipeline deterministicPipeline;
 
     public BacktestResponse run(BacktestParam param) throws Exception {
         BacktestParam req = normalizeParam(param);
+        if ("dynamic".equalsIgnoreCase(req.strategyName)
+                || "deterministic".equalsIgnoreCase(req.strategyName))
+            return runDeterministicChunked(req, 2);
         List<String> symbols = supportService.resolveSymbols(req.symbols, req.symbol);
 
         BacktestResponse response = new BacktestResponse();
@@ -122,67 +132,343 @@ public class BacktestService {
 
     public BacktestResult runSingleStrategy(String strategyName, BacktestParam param,
                                             List<TTbookOhlc> ohlcList) throws Exception {
+        SingleStrategySession session = initializeSession(strategyName, param);
+        processChunk(session, ohlcList);
+        return finishSession(session);
+    }
+
+    /**
+     * Runs one strategy over date chunks without resetting indicators, position or equity.
+     */
+    public BacktestResponse runContinuousChunked(BacktestParam param, int chunkDays) throws Exception {
+        final BacktestParam req = normalizeParam(param);
+        if ("all".equalsIgnoreCase(req.strategyName)) {
+            throw new IllegalArgumentException("continuous chunked backtest requires one strategy; use run() for strategy=all");
+        }
+        List<String> symbols = supportService.resolveSymbols(req.symbols, req.symbol);
+        BacktestResponse response = response(req, symbols);
+        List<BacktestResult> results = new ArrayList<BacktestResult>();
+        for (String symbol : symbols) {
+            final BacktestParam symbolParam = copyParamForSymbol(req, symbol);
+            final SingleStrategySession session = initializeSession(req.strategyName, symbolParam);
+            queryService.forEachOhlcChunk(symbol, req.text, req.beginDate, req.endDate, chunkDays,
+                    new BacktestQueryService.OhlcChunkConsumer() {
+                        @Override
+                        public void accept(String begin, String end, List<TTbookOhlc> rows) throws Exception {
+                            processChunk(session, rows);
+                        }
+                    });
+            if (session.result.totalBars > 0) results.add(finishSession(session));
+        }
+        response.results = results;
+        return response;
+    }
+
+    /** Replays Regime -> hard candidate rules -> deterministic scores -> one active strategy. */
+    public BacktestResponse runDynamicChunked(BacktestParam param, int chunkDays) throws Exception {
+        return runDeterministicChunked(param, chunkDays);
+    }
+
+    public BacktestResponse runDeterministicChunked(BacktestParam param, int chunkDays) throws Exception {
+        final BacktestParam req = normalizeParam(param);
+        req.strategyName = "deterministic";
+        List<String> symbols = supportService.resolveSymbols(req.symbols, req.symbol);
+        BacktestResponse response = response(req, symbols);
+        response.routingDecisions = new ArrayList<StrategyRoutingDecision>();
+        response.routingStats = new BacktestModels.RoutingStats();
+        List<BacktestResult> results = new ArrayList<BacktestResult>();
+        for (String symbol : symbols) {
+            final BacktestParam symbolParam = copyParamForSymbol(req, symbol);
+            final DeterministicSession session = initializeDeterministic(symbolParam);
+            queryService.forEachOhlcChunk(symbol, req.text, req.beginDate, req.endDate, chunkDays,
+                    new BacktestQueryService.OhlcChunkConsumer() {
+                        @Override
+                        public void accept(String begin, String end, List<TTbookOhlc> rows) throws Exception {
+                            processDeterministicChunk(session, rows);
+                        }
+                    });
+            if (session.result.totalBars > 0) {
+                results.add(finishDeterministic(session));
+                response.routingDecisions.addAll(session.decisions);
+            }
+            mergeRoutingStats(response.routingStats, session.stats);
+        }
+        response.results = results;
+        return response;
+    }
+
+    private void mergeRoutingStats(BacktestModels.RoutingStats target, BacktestModels.RoutingStats source) {
+        target.routingDecisionCount += source.routingDecisionCount;
+        mergeCounts(target.routingReasonCounts, source.routingReasonCounts);
+        mergeCounts(target.selectedStrategyCounts, source.selectedStrategyCounts);
+        mergeCounts(target.regimeCounts, source.regimeCounts);
+        mergeCounts(target.candidateAcceptedCounts, source.candidateAcceptedCounts);
+        mergeCounts(target.candidateRejectReasonCounts, source.candidateRejectReasonCounts);
+        mergeCounts(target.signalCounts, source.signalCounts);
+        mergeCounts(target.strategySignalCounts, source.strategySignalCounts);
+        mergeCounts(target.strategyTradeCounts, source.strategyTradeCounts);
+    }
+
+    private void mergeCounts(Map<String, Integer> target, Map<String, Integer> source) {
+        for (Map.Entry<String, Integer> entry : source.entrySet()) {
+            Integer current = target.get(entry.getKey());
+            target.put(entry.getKey(), (current == null ? 0 : current) + entry.getValue());
+        }
+    }
+
+    private void increment(Map<String, Integer> counts, String key) {
+        Integer current = counts.get(key);
+        counts.put(key, current == null ? 1 : current + 1);
+    }
+
+    private DeterministicSession initializeDeterministic(BacktestParam param) {
+        Duration duration = supportService.resolveDuration(param.text);
+        BarSeries series = new BaseBarSeries(param.symbol + "-" + param.text + "-deterministic");
+        BacktestResult result = initResult("deterministic", param);
+        EquityContext equity = metricService.initEquityContext(param.initialCapital.doubleValue());
+        BinanceBacktestMarketGuard.GuardContext guard = marketGuard.prepareContext(param.symbol, param.beginDate, param.endDate);
+        strategyService.resetAll(param.symbol);
+        return new DeterministicSession(param, duration, series, result, equity, guard,
+                deterministicPipeline.newState());
+    }
+
+    private void processDeterministicChunk(DeterministicSession session, List<TTbookOhlc> rows) throws Exception {
+        if (rows == null) return;
+        for (TTbookOhlc ohlc : rows) {
+            Bar bar = toBar(ohlc, session.duration);
+            boolean firstVersionOfBar = addBar(session.series, bar);
+            // Duplicate ClickHouse view rows may update the BarSeries, but must not
+            // execute regime, routing, risk checks or strategy signals twice.
+            if (!firstVersionOfBar) continue;
+            int index = session.series.getEndIndex();
+            session.result.totalBars = session.series.getBarCount();
+            updateActualCoverage(session.result, session.series);
+            if (session.position != null && session.position.entryIndex < index) {
+                TradeRecord closed = tradeService.tryCloseByRisk(session.position, bar, index, session.param.feeRatePct.doubleValue());
+                if (closed != null) {
+                    metricService.applyTrade(session.result, closed, session.equity);
+                    session.position = null;
+                }
+            }
+            DeterministicPipelineResult pipelineResult = deterministicPipeline.onClosedBar(
+                    session.routerState, session.param.symbol, session.param.text, session.series, ohlc);
+            StrategyRoutingDecision decision = pipelineResult.routingDecision;
+            session.decisions.add(decision);
+            recordRouting(session.stats, pipelineResult);
+            Signal signal = pipelineResult.signal;
+            if (decision.strategyName == null || signal == null || signal.side == null || signal.side == Side.NONE) continue;
+            if (marketGuard.shouldBlock(decision.strategyName, session.guard, bar.getEndTime().toInstant(), Boolean.TRUE.equals(session.param.ignoreSentimentGuard)))
+                continue;
+            if (session.position == null) {
+                String rejection = tradeService.validateOpenSignal(signal, session.param);
+                if (rejection != null) {
+                    incrementReject(session.result, rejection);
+                    continue;
+                }
+                session.position = tradeService.openPosition(signal, index, bar, session.param);
+                session.position.strategyName = decision.strategyName;
+                session.position.regime = decision.regime;
+                increment(session.stats.strategyTradeCounts, decision.strategyName);
+            } else if (tradeService.isOpposite(session.position.side, signal.side)) {
+                String rejection = tradeService.validateOpenSignal(signal, session.param);
+                if (rejection != null) {
+                    incrementReject(session.result, rejection);
+                    continue;
+                }
+                TradeRecord reversed = tradeService.closePosition(session.position, bar.getClosePrice().doubleValue(), bar.getEndTime().toString(), "reverse_signal", index, session.param.feeRatePct.doubleValue());
+                metricService.applyTrade(session.result, reversed, session.equity);
+                session.position = tradeService.openPosition(signal, index, bar, session.param);
+                session.position.strategyName = decision.strategyName;
+                session.position.regime = decision.regime;
+                increment(session.stats.strategyTradeCounts, decision.strategyName);
+            }
+        }
+    }
+
+    private void recordRouting(BacktestModels.RoutingStats stats, DeterministicPipelineResult result) {
+        StrategyRoutingDecision decision = result.routingDecision;
+        stats.routingDecisionCount++;
+        increment(stats.routingReasonCounts, decision.reason == null ? "UNKNOWN" : decision.reason);
+        increment(stats.selectedStrategyCounts, decision.strategyName == null ? "NO_TRADE" : decision.strategyName);
+        increment(stats.regimeCounts, decision.regime == null ? "UNKNOWN" : decision.regime);
+        for (com.app.dc.service.simulation.dynamic.DynamicStrategyMeta candidate : result.candidates.candidates)
+            increment(stats.candidateAcceptedCounts, candidate.strategyName);
+        for (String reason : decision.candidateRejections.values()) increment(stats.candidateRejectReasonCounts, reason);
+        String side = result.signal == null || result.signal.side == null || result.signal.side == Side.NONE
+                ? "HOLD" : result.signal.side.name();
+        increment(stats.signalCounts, side);
+        if (decision.strategyName != null) increment(stats.strategySignalCounts, decision.strategyName + ":" + side);
+    }
+
+    private BacktestResult finishDeterministic(DeterministicSession session) {
+        if (session.position != null && session.series.getBarCount() > 0) {
+            Bar last = session.series.getLastBar();
+            TradeRecord closed = tradeService.closePosition(session.position, last.getClosePrice().doubleValue(), last.getEndTime().toString(), "end_of_test", session.series.getEndIndex(), session.param.feeRatePct.doubleValue());
+            metricService.applyTrade(session.result, closed, session.equity);
+            session.position = null;
+        }
+        metricService.finishResult(session.result, session.equity);
+        return session.result;
+    }
+
+    private static class DeterministicSession {
+        final BacktestParam param;
+        final Duration duration;
+        final BarSeries series;
+        final BacktestResult result;
+        final EquityContext equity;
+        final BinanceBacktestMarketGuard.GuardContext guard;
+        final StrategyRoutingState routerState;
+        final List<StrategyRoutingDecision> decisions = new ArrayList<StrategyRoutingDecision>();
+        final BacktestModels.RoutingStats stats = new BacktestModels.RoutingStats();
+        Position position;
+
+        DeterministicSession(BacktestParam p, Duration d, BarSeries s, BacktestResult r, EquityContext e,
+                             BinanceBacktestMarketGuard.GuardContext g, StrategyRoutingState state) {
+            param = p;
+            duration = d;
+            series = s;
+            result = r;
+            equity = e;
+            guard = g;
+            routerState = state;
+        }
+    }
+
+    private BacktestResponse response(BacktestParam req, List<String> symbols) {
+        BacktestResponse r = new BacktestResponse();
+        r.symbol = symbols.size() == 1 ? symbols.get(0) : "MULTI";
+        r.symbols = symbols;
+        r.text = req.text;
+        r.beginDate = req.beginDate;
+        r.endDate = req.endDate;
+        r.strategyName = req.strategyName;
+        return r;
+    }
+
+    private SingleStrategySession initializeSession(String strategyName, BacktestParam param) throws Exception {
         String normalizedStrategy = supportService.normalizeStrategyName(strategyName);
         Duration duration = supportService.resolveDuration(param.text);
         BarSeries replaySeries = new BaseBarSeries(param.symbol + "-" + param.text + "-" + normalizedStrategy);
-        strategyService.getStrategy(normalizedStrategy).resetRejectStats(param.symbol);
+        strategyService.getStrategy(normalizedStrategy).resetRuntime(param.symbol);
 
         BacktestResult result = initResult(normalizedStrategy, param);
         EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue());
         BinanceBacktestMarketGuard.GuardContext guardContext =
                 marketGuard.prepareContext(param.symbol, param.beginDate, param.endDate);
-        Position position = null;
+        return new SingleStrategySession(normalizedStrategy, param, duration, replaySeries, result, equityContext, guardContext);
+    }
 
+    private void processChunk(SingleStrategySession session, List<TTbookOhlc> ohlcList) throws Exception {
+        if (ohlcList == null) return;
         for (TTbookOhlc ohlc : ohlcList) {
-            Bar bar = toBar(ohlc, duration);
-            addBar(replaySeries, bar);
-            result.totalBars = replaySeries.getBarCount();
+            Bar bar = toBar(ohlc, session.duration);
+            addBar(session.replaySeries, bar);
+            session.result.totalBars = session.replaySeries.getBarCount();
+            updateActualCoverage(session.result, session.replaySeries);
 
-            if (position != null && position.entryIndex < replaySeries.getEndIndex()) {
-                TradeRecord riskClosed = tradeService.tryCloseByRisk(position, bar, replaySeries.getEndIndex(),
-                        param.feeRatePct.doubleValue());
+            if (session.position != null && session.position.entryIndex < session.replaySeries.getEndIndex()) {
+                TradeRecord riskClosed = tradeService.tryCloseByRisk(session.position, bar, session.replaySeries.getEndIndex(),
+                        session.param.feeRatePct.doubleValue());
                 if (riskClosed != null) {
-                    metricService.applyTrade(result, riskClosed, equityContext);
-                    position = null;
+                    metricService.applyTrade(session.result, riskClosed, session.equityContext);
+                    session.position = null;
                 }
             }
 
-            Signal signal = strategyService.evaluateSignal(normalizedStrategy, param.symbol, param.text, replaySeries, ohlc);
+            Signal signal = strategyService.evaluateSignal(session.normalizedStrategy, session.param.symbol, session.param.text, session.replaySeries, ohlc);
             // NONE 表示无信号，不开仓也不反手。
             if (signal.side == null || signal.side == Side.NONE) {
                 continue;
             }
-            boolean ignoreSentimentGuard = Boolean.TRUE.equals(param.ignoreSentimentGuard);
-            if (marketGuard.shouldBlock(normalizedStrategy, guardContext, bar.getEndTime().toInstant(), ignoreSentimentGuard)) {
+            boolean ignoreSentimentGuard = Boolean.TRUE.equals(session.param.ignoreSentimentGuard);
+            if (marketGuard.shouldBlock(session.normalizedStrategy, session.guardContext, bar.getEndTime().toInstant(), ignoreSentimentGuard)) {
                 continue;
             }
 
-            if (position == null) {
-                position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param);
+            if (session.position == null) {
+                String rejection = tradeService.validateOpenSignal(signal, session.param);
+                if (rejection != null) {
+                    incrementReject(session.result, rejection);
+                    continue;
+                }
+                session.position = tradeService.openPosition(signal, session.replaySeries.getEndIndex(), bar, session.param);
                 continue;
             }
 
-            if (tradeService.isOpposite(position.side, signal.side)) {
-                TradeRecord reversed = tradeService.closePosition(position, bar.getClosePrice().doubleValue(),
-                        bar.getEndTime().toString(), "reverse_signal", replaySeries.getEndIndex(),
-                        param.feeRatePct.doubleValue());
-                metricService.applyTrade(result, reversed, equityContext);
-                position = tradeService.openPosition(signal, replaySeries.getEndIndex(), bar, param);
+            if (tradeService.isOpposite(session.position.side, signal.side)) {
+                String rejection = tradeService.validateOpenSignal(signal, session.param);
+                if (rejection != null) {
+                    incrementReject(session.result, rejection);
+                    continue;
+                }
+                TradeRecord reversed = tradeService.closePosition(session.position, bar.getClosePrice().doubleValue(),
+                        bar.getEndTime().toString(), "reverse_signal", session.replaySeries.getEndIndex(),
+                        session.param.feeRatePct.doubleValue());
+                metricService.applyTrade(session.result, reversed, session.equityContext);
+                session.position = tradeService.openPosition(signal, session.replaySeries.getEndIndex(), bar, session.param);
             }
         }
+    }
 
-        if (position != null) {
-            Bar lastBar = replaySeries.getLastBar();
-            TradeRecord ended = tradeService.closePosition(position, lastBar.getClosePrice().doubleValue(),
-                    lastBar.getEndTime().toString(), "end_of_test", replaySeries.getEndIndex(),
-                    param.feeRatePct.doubleValue());
-            metricService.applyTrade(result, ended, equityContext);
+    private BacktestResult finishSession(SingleStrategySession session) {
+        if (session.position != null && session.replaySeries.getBarCount() > 0) {
+            Bar lastBar = session.replaySeries.getLastBar();
+            TradeRecord ended = tradeService.closePosition(session.position, lastBar.getClosePrice().doubleValue(),
+                    lastBar.getEndTime().toString(), "end_of_test", session.replaySeries.getEndIndex(),
+                    session.param.feeRatePct.doubleValue());
+            metricService.applyTrade(session.result, ended, session.equityContext);
+            session.position = null;
         }
 
-        metricService.finishResult(result, equityContext);
-        result.rejectReasonCounts = new LinkedHashMap<>(
-                strategyService.getStrategy(normalizedStrategy).snapshotRejectStats(param.symbol));
-        return result;
+        metricService.finishResult(session.result, session.equityContext);
+        Map<String, Integer> strategyRejects = strategyService.getStrategy(session.normalizedStrategy)
+                .snapshotRejectStats(session.param.symbol);
+        if (strategyRejects != null) {
+            for (Map.Entry<String, Integer> entry : strategyRejects.entrySet()) {
+                Integer previous = session.result.rejectReasonCounts.get(entry.getKey());
+                session.result.rejectReasonCounts.put(entry.getKey(), (previous == null ? 0 : previous)
+                        + (entry.getValue() == null ? 0 : entry.getValue()));
+            }
+        }
+        return session.result;
+    }
+
+    private void updateActualCoverage(BacktestResult result, BarSeries series) {
+        if (result == null || series == null || series.getBarCount() == 0) {
+            return;
+        }
+        result.actualBeginTime = series.getFirstBar().getEndTime().toString();
+        result.actualEndTime = series.getLastBar().getEndTime().toString();
+    }
+
+    private void incrementReject(BacktestResult result, String reason) {
+        if (result.rejectReasonCounts == null) {
+            result.rejectReasonCounts = new LinkedHashMap<String, Integer>();
+        }
+        Integer count = result.rejectReasonCounts.get(reason);
+        result.rejectReasonCounts.put(reason, count == null ? 1 : count + 1);
+    }
+
+    private static class SingleStrategySession {
+        final String normalizedStrategy;
+        final BacktestParam param;
+        final Duration duration;
+        final BarSeries replaySeries;
+        final BacktestResult result;
+        final EquityContext equityContext;
+        final BinanceBacktestMarketGuard.GuardContext guardContext;
+        Position position;
+
+        SingleStrategySession(String n, BacktestParam p, Duration d, BarSeries s, BacktestResult r, EquityContext e, BinanceBacktestMarketGuard.GuardContext g) {
+            normalizedStrategy = n;
+            param = p;
+            duration = d;
+            replaySeries = s;
+            result = r;
+            equityContext = e;
+            guardContext = g;
+        }
     }
 
     public BacktestParam normalizeParam(BacktestParam param) {
@@ -235,6 +521,7 @@ public class BacktestService {
         result.fallbackTakeProfitPct = scale(param.fallbackTakeProfitPct.doubleValue());
         result.maxHoldBars = param.maxHoldBars;
         result.tradeList = new ArrayList<>();
+        result.rejectReasonCounts = new LinkedHashMap<String, Integer>();
         return result;
     }
 
@@ -245,17 +532,18 @@ public class BacktestService {
         return new BaseBar(duration, time, ohlc.open, ohlc.high, ohlc.low, ohlc.close, ohlc.volume);
     }
 
-    public void addBar(BarSeries series, Bar newBar) {
+    public boolean addBar(BarSeries series, Bar newBar) {
         boolean replace = false;
         if (series.getBarCount() > 0) {
             ZonedDateTime lastBarTime = series.getLastBar().getEndTime();
             if (newBar.getEndTime().equals(lastBarTime)) {
                 replace = true;
             } else if (newBar.getEndTime().isBefore(lastBarTime)) {
-                return;
+                return false;
             }
         }
         series.addBar(newBar, replace);
+        return !replace;
     }
 
     public BigDecimal scale(double value) {

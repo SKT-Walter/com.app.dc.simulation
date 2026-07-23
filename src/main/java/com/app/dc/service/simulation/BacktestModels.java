@@ -5,6 +5,7 @@ import com.app.dc.po.Side;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import com.app.dc.service.simulation.deterministic.StrategyRoutingDecision;
 
 public final class BacktestModels {
 
@@ -19,6 +20,20 @@ public final class BacktestModels {
         public String beginDate;
         public String endDate;
         public List<BacktestResult> results;
+        public List<StrategyRoutingDecision> routingDecisions;
+        public RoutingStats routingStats;
+    }
+
+    public static class RoutingStats {
+        public int routingDecisionCount;
+        public Map<String, Integer> routingReasonCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> selectedStrategyCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> regimeCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> candidateAcceptedCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> candidateRejectReasonCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> signalCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> strategySignalCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> strategyTradeCounts = new java.util.LinkedHashMap<String, Integer>();
     }
 
     public static class BacktestResult {
@@ -27,6 +42,8 @@ public final class BacktestModels {
         public String text;
         public String beginDate;
         public String endDate;
+        public String actualBeginTime;
+        public String actualEndTime;
         public BigDecimal initialCapital;
         public BigDecimal finalCapital;
         public BigDecimal feeRatePct;
@@ -64,6 +81,8 @@ public final class BacktestModels {
         public BigDecimal takePrice;
         public Integer holdBars;
         public String exitReason;
+        public String strategyName;
+        public String regime;
         public BigDecimal returnPct;
         public BigDecimal pnl;
     }
@@ -77,6 +96,8 @@ public final class BacktestModels {
         public Double takePrice;
         public int maxHoldBars;
         public int currentHoldBars;
+        public String strategyName;
+        public String regime;
     }
 
     public static class EquityContext {

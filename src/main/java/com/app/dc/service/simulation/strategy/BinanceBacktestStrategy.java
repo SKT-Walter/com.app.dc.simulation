@@ -16,6 +16,10 @@ public interface BinanceBacktestStrategy {
     default void resetRejectStats(String symbol) {
     }
 
+    default void resetRuntime(String symbol) {
+        resetRejectStats(symbol);
+    }
+
     default Map<String, Integer> snapshotRejectStats(String symbol) {
         return Collections.emptyMap();
     }

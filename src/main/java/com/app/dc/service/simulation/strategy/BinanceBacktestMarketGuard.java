@@ -54,6 +54,12 @@ public class BinanceBacktestMarketGuard {
     }
 
     public GuardContext prepareContext(String symbol, String beginDate, String endDate) {
+        if (!stageGuardEnabled && !sentimentGuardEnabled) {
+            GuardContext disabled = new GuardContext();
+            disabled.analyses = new ArrayList<>();
+            disabled.sentiments = new ArrayList<>();
+            return disabled;
+        }
         String beginTime = normalizeBegin(beginDate);
         String endTime = normalizeEnd(endDate);
 

@@ -35,11 +35,13 @@ public class AtrChannelReversionBacktestStrategy implements BinanceBacktestStrat
 
         if (close <= lower) {
             signal.side = Side.BUY;
-            signal.stopPrice = BinanceStrategyMath.scale(Math.max(0.0, lower - atr * 0.5));
+            signal.stopPrice = BinanceStrategyMath.scale(Math.max(0.0,
+                    Math.min(lower - atr * 0.5, close - atr * 0.5)));
             signal.takerPrice = BinanceStrategyMath.scale(mid);
         } else if (close >= upper) {
             signal.side = Side.SELL;
-            signal.stopPrice = BinanceStrategyMath.scale(upper + atr * 0.5);
+            signal.stopPrice = BinanceStrategyMath.scale(Math.max(upper + atr * 0.5,
+                    close + atr * 0.5));
             signal.takerPrice = BinanceStrategyMath.scale(mid);
         }
         return signal;

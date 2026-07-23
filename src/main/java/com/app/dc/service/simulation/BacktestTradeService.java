@@ -14,7 +14,48 @@ import java.math.RoundingMode;
 @Service
 public class BacktestTradeService {
 
+    public static final String INVALID_ENTRY_PRICE = "INVALID_ENTRY_PRICE";
+    public static final String INVALID_STOP_PRICE = "INVALID_STOP_PRICE";
+    public static final String INVALID_TAKE_PRICE = "INVALID_TAKE_PRICE";
+
+    /** Returns null when the signal can safely open a position, otherwise a stable rejection code. */
+    public String validateOpenSignal(Signal signal, BacktestParam param) {
+        if (signal == null || (signal.side != Side.BUY && signal.side != Side.SELL) || signal.price == null
+                || signal.price.compareTo(BigDecimal.ZERO) <= 0) {
+            return INVALID_ENTRY_PRICE;
+        }
+        if (signal.stopPrice != null && signal.stopPrice.compareTo(BigDecimal.ZERO) <= 0) {
+            return INVALID_STOP_PRICE;
+        }
+        if (signal.takerPrice != null && signal.takerPrice.compareTo(BigDecimal.ZERO) <= 0) {
+            return INVALID_TAKE_PRICE;
+        }
+
+        double entryPrice = signal.price.doubleValue();
+        Double resolvedStop = resolveRiskPrice(signal.stopPrice, signal.side, entryPrice,
+                param.fallbackStopLossPct.doubleValue(), true);
+        Double resolvedTake = resolveRiskPrice(signal.takerPrice, signal.side, entryPrice,
+                param.fallbackTakeProfitPct.doubleValue(), false);
+
+        if (!Double.isFinite(entryPrice) || entryPrice <= 0.0) {
+            return INVALID_ENTRY_PRICE;
+        }
+        if (resolvedStop != null && (!Double.isFinite(resolvedStop)
+                || (signal.side == Side.BUY ? resolvedStop >= entryPrice : resolvedStop <= entryPrice))) {
+            return INVALID_STOP_PRICE;
+        }
+        if (resolvedTake != null && (!Double.isFinite(resolvedTake)
+                || (signal.side == Side.BUY ? resolvedTake <= entryPrice : resolvedTake >= entryPrice))) {
+            return INVALID_TAKE_PRICE;
+        }
+        return null;
+    }
+
     public Position openPosition(Signal signal, int barIndex, Bar bar, BacktestParam param) {
+        String rejection = validateOpenSignal(signal, param);
+        if (rejection != null) {
+            throw new IllegalArgumentException("invalid open signal: " + rejection);
+        }
         Position position = new Position();
         position.side = signal.side;
         position.entryPrice = signal.price.doubleValue();
@@ -84,6 +125,8 @@ public class BacktestTradeService {
         record.takePrice = position.takePrice == null ? null : scale(position.takePrice);
         record.holdBars = Math.max(1, exitIndex - position.entryIndex);
         record.exitReason = exitReason;
+        record.strategyName = position.strategyName;
+        record.regime = position.regime;
         record.returnPct = scale(calcReturnPct(position.side, position.entryPrice, exitPrice, feeRatePct));
         return record;
     }

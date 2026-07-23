@@ -38,11 +38,13 @@ public class BollingerMeanReversionBacktestStrategy implements BinanceBacktestSt
 
         if (close <= lower) {
             signal.side = Side.BUY;
-            signal.stopPrice = BinanceStrategyMath.scale(Math.max(0.0, lower - std * 0.5));
+            signal.stopPrice = BinanceStrategyMath.scale(Math.max(0.0,
+                    Math.min(lower - std * 0.5, close - std * 0.5)));
             signal.takerPrice = BinanceStrategyMath.scale(mean);
         } else if (close >= upper) {
             signal.side = Side.SELL;
-            signal.stopPrice = BinanceStrategyMath.scale(upper + std * 0.5);
+            signal.stopPrice = BinanceStrategyMath.scale(Math.max(upper + std * 0.5,
+                    close + std * 0.5));
             signal.takerPrice = BinanceStrategyMath.scale(mean);
         }
         return signal;

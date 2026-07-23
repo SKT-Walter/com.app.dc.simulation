@@ -213,6 +213,12 @@ public class BinanceRangeGuardedBacktestStrategy implements BinanceBacktestStrat
     }
 
     @Override
+    public void resetRuntime(String symbol) {
+        rejectStats.remove(symbol);
+        stateMap.remove(symbol);
+    }
+
+    @Override
     public Map<String, Integer> snapshotRejectStats(String symbol) {
         Map<String, Integer> stats = rejectStats.get(symbol);
         return stats == null ? new LinkedHashMap<>() : new LinkedHashMap<>(stats);

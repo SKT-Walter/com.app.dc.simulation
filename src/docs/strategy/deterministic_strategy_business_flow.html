@@ -1,0 +1,931 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Simulator 确定性策略路由业务流程与代码运行说明">
+  <title>Simulator 确定性策略路由 · 业务流程</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07101c;
+      --panel: rgba(14, 27, 45, .86);
+      --panel-2: #101f34;
+      --line: #253b58;
+      --text: #e9f1fb;
+      --muted: #93a8c0;
+      --cyan: #42d7e8;
+      --blue: #6da6ff;
+      --green: #58d68d;
+      --amber: #ffca67;
+      --red: #ff7d8b;
+      --purple: #bd92ff;
+      --shadow: 0 20px 60px rgba(0, 0, 0, .28);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 15% 0%, rgba(66, 215, 232, .12), transparent 30rem),
+        radial-gradient(circle at 90% 12%, rgba(109, 166, 255, .11), transparent 32rem),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      line-height: 1.7;
+    }
+
+    a { color: inherit; }
+    button { font: inherit; }
+    code, pre { font-family: "JetBrains Mono", Consolas, monospace; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      max-width: 1580px;
+      margin: 0 auto;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 20px;
+      border-right: 1px solid rgba(147, 168, 192, .16);
+      background: rgba(7, 16, 28, .76);
+      backdrop-filter: blur(18px);
+      overflow-y: auto;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 30px;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 13px;
+      color: #041016;
+      font-weight: 900;
+      background: linear-gradient(135deg, var(--cyan), var(--blue));
+      box-shadow: 0 10px 30px rgba(66, 215, 232, .22);
+    }
+
+    .brand strong { display: block; font-size: 14px; }
+    .brand span { color: var(--muted); font-size: 12px; }
+
+    .nav-label {
+      margin: 22px 10px 8px;
+      color: #6f87a3;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 11px;
+      margin: 2px 0;
+      border-radius: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      text-decoration: none;
+      transition: .2s ease;
+    }
+
+    .nav-link:hover,
+    .nav-link.active {
+      color: var(--text);
+      background: rgba(109, 166, 255, .12);
+    }
+
+    .nav-index {
+      width: 24px;
+      color: var(--blue);
+      font-family: Consolas, monospace;
+      font-size: 11px;
+    }
+
+    .sidebar-note {
+      margin-top: 28px;
+      padding: 14px;
+      border: 1px solid rgba(88, 214, 141, .2);
+      border-radius: 13px;
+      color: var(--muted);
+      background: rgba(88, 214, 141, .06);
+      font-size: 12px;
+    }
+
+    main {
+      min-width: 0;
+      padding: 42px clamp(28px, 5vw, 78px) 100px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(28px, 5vw, 58px);
+      border: 1px solid rgba(109, 166, 255, .2);
+      border-radius: 26px;
+      background:
+        linear-gradient(135deg, rgba(66, 215, 232, .09), transparent 42%),
+        linear-gradient(315deg, rgba(189, 146, 255, .09), transparent 45%),
+        var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 10px;
+      border: 1px solid rgba(66, 215, 232, .28);
+      border-radius: 999px;
+      color: var(--cyan);
+      background: rgba(66, 215, 232, .07);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .08em;
+    }
+
+    h1 {
+      max-width: 900px;
+      margin: 22px 0 14px;
+      font-size: clamp(34px, 5vw, 64px);
+      line-height: 1.12;
+      letter-spacing: -.04em;
+    }
+
+    .gradient-text {
+      color: transparent;
+      background: linear-gradient(90deg, var(--cyan), var(--blue), var(--purple));
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+
+    .hero-copy {
+      max-width: 840px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .pipeline {
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
+      margin-top: 34px;
+      overflow-x: auto;
+      padding: 4px 2px 12px;
+    }
+
+    .pipe-step {
+      min-width: 122px;
+      padding: 13px 12px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: rgba(7, 16, 28, .58);
+      text-align: center;
+    }
+
+    .pipe-step b { display: block; font-size: 13px; }
+    .pipe-step small { color: var(--muted); font-size: 10px; }
+    .pipe-arrow { align-self: center; color: var(--cyan); font-weight: 900; }
+
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .fact {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(7, 16, 28, .52);
+    }
+
+    .fact strong { display: block; color: var(--cyan); font-size: 23px; }
+    .fact span { color: var(--muted); font-size: 12px; }
+
+    section {
+      scroll-margin-top: 24px;
+      margin-top: 72px;
+    }
+
+    .section-heading {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 16px;
+      align-items: start;
+      margin-bottom: 24px;
+    }
+
+    .section-number {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(109, 166, 255, .35);
+      border-radius: 12px;
+      color: var(--blue);
+      background: rgba(109, 166, 255, .08);
+      font: 800 13px Consolas, monospace;
+    }
+
+    h2 { margin: 0; font-size: clamp(25px, 3vw, 36px); line-height: 1.25; }
+    .section-heading p { margin: 5px 0 0; color: var(--muted); }
+    h3 { margin: 0 0 10px; font-size: 17px; }
+
+    .grid-2, .grid-3 {
+      display: grid;
+      gap: 16px;
+    }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+    .card {
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, .12);
+    }
+
+    .card p { margin: 0; color: var(--muted); }
+    .card.accent-cyan { border-top: 3px solid var(--cyan); }
+    .card.accent-green { border-top: 3px solid var(--green); }
+    .card.accent-amber { border-top: 3px solid var(--amber); }
+    .card.accent-purple { border-top: 3px solid var(--purple); }
+
+    .tag {
+      display: inline-block;
+      padding: 3px 8px;
+      margin: 3px 3px 3px 0;
+      border-radius: 7px;
+      color: var(--muted);
+      background: rgba(147, 168, 192, .1);
+      font-size: 11px;
+    }
+
+    .callout {
+      margin: 20px 0;
+      padding: 17px 19px;
+      border-left: 3px solid var(--cyan);
+      border-radius: 0 12px 12px 0;
+      color: #bdd0e5;
+      background: rgba(66, 215, 232, .07);
+    }
+
+    .callout.warn {
+      border-left-color: var(--amber);
+      background: rgba(255, 202, 103, .07);
+    }
+
+    .flow-list {
+      position: relative;
+      display: grid;
+      gap: 14px;
+      margin: 20px 0;
+    }
+
+    .flow-list::before {
+      content: "";
+      position: absolute;
+      left: 24px;
+      top: 25px;
+      bottom: 25px;
+      width: 1px;
+      background: linear-gradient(var(--cyan), var(--purple));
+    }
+
+    .flow-item {
+      position: relative;
+      display: grid;
+      grid-template-columns: 50px 1fr;
+      gap: 15px;
+      align-items: start;
+      padding: 17px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: var(--panel);
+    }
+
+    .flow-dot {
+      z-index: 1;
+      width: 16px;
+      height: 16px;
+      margin: 7px auto;
+      border: 4px solid var(--bg);
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 0 2px var(--cyan);
+    }
+
+    .flow-item p { margin: 4px 0 0; color: var(--muted); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 14px;
+      font-size: 13px;
+    }
+
+    th, td {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th { color: #bdd0e5; background: rgba(109, 166, 255, .08); }
+    td { color: var(--muted); background: rgba(14, 27, 45, .62); }
+    tr:last-child td { border-bottom: 0; }
+
+    .check-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .check-list li {
+      position: relative;
+      padding-left: 24px;
+      color: var(--muted);
+    }
+
+    .check-list li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: var(--green);
+      font-weight: 900;
+    }
+
+    .weight-list { display: grid; gap: 10px; margin-top: 18px; }
+    .weight-row {
+      display: grid;
+      grid-template-columns: 120px 1fr 34px;
+      gap: 10px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .bar {
+      height: 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(147, 168, 192, .12);
+    }
+
+    .bar > i {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--cyan), var(--blue));
+    }
+
+    .state-machine {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(14, 27, 45, .7);
+    }
+
+    .state {
+      min-width: 150px;
+      padding: 17px;
+      border: 1px solid rgba(109, 166, 255, .3);
+      border-radius: 13px;
+      text-align: center;
+      background: rgba(109, 166, 255, .08);
+    }
+
+    .state strong { display: block; color: var(--blue); }
+    .state small { color: var(--muted); }
+    .state-arrow { color: var(--cyan); font-weight: 900; }
+
+    pre {
+      margin: 16px 0 0;
+      padding: 20px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      color: #c9e5ff;
+      background: #07111f;
+      font-size: 12px;
+      line-height: 1.65;
+      white-space: pre;
+    }
+
+    details {
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: rgba(14, 27, 45, .58);
+    }
+
+    summary {
+      padding: 14px 16px;
+      cursor: pointer;
+      color: #c9d8e9;
+      font-weight: 700;
+    }
+
+    details > div { padding: 0 16px 16px; color: var(--muted); }
+
+    .code-map a {
+      display: block;
+      padding: 12px 14px;
+      margin-top: 8px;
+      overflow-wrap: anywhere;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      color: var(--blue);
+      background: rgba(7, 16, 28, .55);
+      text-decoration: none;
+    }
+
+    .code-map a:hover { border-color: var(--blue); }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      margin-top: 22px;
+    }
+
+    .button {
+      padding: 9px 13px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+      background: rgba(109, 166, 255, .08);
+      cursor: pointer;
+    }
+
+    .button:hover { border-color: var(--blue); }
+    .footer { margin-top: 78px; color: var(--muted); font-size: 12px; text-align: center; }
+
+    @media (max-width: 1050px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .sidebar nav { display: flex; flex-wrap: wrap; }
+      .nav-label, .sidebar-note { display: none; }
+      .nav-link { padding: 7px 9px; }
+      .facts { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 720px) {
+      main { padding: 24px 16px 70px; }
+      .hero { padding: 25px 20px; }
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      .facts { grid-template-columns: 1fr 1fr; }
+      .state-machine { align-items: stretch; flex-direction: column; }
+      .state-arrow { transform: rotate(90deg); text-align: center; }
+      .weight-row { grid-template-columns: 100px 1fr 30px; }
+      table { display: block; overflow-x: auto; }
+    }
+
+    @media print {
+      :root { color-scheme: light; }
+      body { background: white; color: #142033; }
+      .layout { display: block; }
+      .sidebar, .toolbar { display: none; }
+      main { padding: 0; }
+      .hero, .card, .flow-item, details, .state-machine { color: #142033; background: white; box-shadow: none; }
+      .hero-copy, .card p, td, .flow-item p, .check-list li, details > div { color: #46566c; }
+      section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">DC</div>
+      <div><strong>Simulator</strong><span>Deterministic Routing</span></div>
+    </div>
+    <nav aria-label="页面目录">
+      <div class="nav-label">业务流程</div>
+      <a class="nav-link active" href="#overview"><span class="nav-index">00</span>总体架构</a>
+      <a class="nav-link" href="#startup"><span class="nav-index">01</span>启动与行情</a>
+      <a class="nav-link" href="#bar-loop"><span class="nav-index">02</span>K线循环</a>
+      <a class="nav-link" href="#regime"><span class="nav-index">03</span>Market Regime</a>
+      <a class="nav-link" href="#candidate"><span class="nav-index">04</span>规则候选</a>
+      <a class="nav-link" href="#scoring"><span class="nav-index">05</span>确定性评分</a>
+      <a class="nav-link" href="#routing"><span class="nav-index">06</span>激活与切换</a>
+      <a class="nav-link" href="#signal"><span class="nav-index">07</span>信号授权</a>
+      <a class="nav-link" href="#execution"><span class="nav-index">08</span>风控与成交</a>
+      <a class="nav-link" href="#report"><span class="nav-index">09</span>结束与报告</a>
+      <div class="nav-label">开发索引</div>
+      <a class="nav-link" href="#objects"><span class="nav-index">10</span>核心对象</a>
+      <a class="nav-link" href="#code"><span class="nav-index">11</span>代码位置</a>
+    </nav>
+    <div class="sidebar-note">
+      <strong style="color:var(--green)">完全确定性</strong><br>
+      正式链路不调用 AI，不读取评分文件；同一行情与配置产生相同结果。
+    </div>
+  </aside>
+
+  <main>
+    <header class="hero" id="overview">
+      <span class="eyebrow">SIMULATOR · BUSINESS FLOW</span>
+      <h1>确定性策略路由<br><span class="gradient-text">从 K 线到模拟成交</span></h1>
+      <p class="hero-copy">
+        每根已收线 K 线完整执行一次状态识别、候选准入、确定性评分、稳定路由、信号授权与风险成交。
+        每个逻辑点独立封装，主流程只负责编排。
+      </p>
+
+      <div class="pipeline" aria-label="主业务链路">
+        <div class="pipe-step"><b>K线</b><small>Closed Bar</small></div><span class="pipe-arrow">→</span>
+        <div class="pipe-step"><b>Regime</b><small>状态识别</small></div><span class="pipe-arrow">→</span>
+        <div class="pipe-step"><b>候选</b><small>硬规则</small></div><span class="pipe-arrow">→</span>
+        <div class="pipe-step"><b>评分</b><small>0–100</small></div><span class="pipe-arrow">→</span>
+        <div class="pipe-step"><b>主策略</b><small>单一激活</small></div><span class="pipe-arrow">→</span>
+        <div class="pipe-step"><b>信号</b><small>BUY/SELL/HOLD</small></div><span class="pipe-arrow">→</span>
+        <div class="pipe-step"><b>风控</b><small>Risk Gate</small></div><span class="pipe-arrow">→</span>
+        <div class="pipe-step"><b>成交</b><small>Simulation</small></div>
+      </div>
+
+      <div class="facts">
+        <div class="fact"><strong>0</strong><span>正式链路 AI 调用</span></div>
+        <div class="fact"><strong>1</strong><span>每个 symbol 主策略</span></div>
+        <div class="fact"><strong>3 根</strong><span>激活与切换确认</span></div>
+        <div class="fact"><strong>4 根</strong><span>最短策略保持期</span></div>
+      </div>
+
+      <div class="toolbar">
+        <button class="button" type="button" id="expandAll">展开全部说明</button>
+        <button class="button" type="button" id="collapseAll">收起全部说明</button>
+        <button class="button" type="button" onclick="window.print()">打印 / 导出 PDF</button>
+      </div>
+    </header>
+
+    <section id="startup">
+      <div class="section-heading">
+        <div class="section-number">01</div>
+        <div><h2>启动与行情加载</h2><p>从命令行参数进入连续分块回放会话。</p></div>
+      </div>
+      <div class="grid-2">
+        <article class="card accent-cyan">
+          <h3>回测入口</h3>
+          <p><code>LocalBacktestRunner</code> 解析策略、品种、周期、日期、资金、手续费、风控和分块参数。</p>
+          <pre>--strategy=deterministic
+--symbols=ETHUSDT
+--text=15m
+--begin=2026-06-01
+--end=2026-06-30
+--chunkDays=2</pre>
+        </article>
+        <article class="card accent-green">
+          <h3>数据优先级</h3>
+          <p>优先读取本地 JSON；文件不存在时查询 ClickHouse。分块之间保持指标、路由、仓位和资金状态。</p>
+          <pre>config/data/{SYMBOL}.json
+             ↓ 不存在
+ClickHouse dc.kline_view</pre>
+        </article>
+      </div>
+      <div class="callout">
+        <strong>兼容入口：</strong><code>--strategy=dynamic</code> 仍可运行，但内部和报告都使用确定性路由语义。
+      </div>
+    </section>
+
+    <section id="bar-loop">
+      <div class="section-heading">
+        <div class="section-number">02</div>
+        <div><h2>每根已收线 K 线的处理顺序</h2><p>风险退出优先于新一轮策略选择和开仓。</p></div>
+      </div>
+      <div class="flow-list">
+        <div class="flow-item"><div class="flow-dot"></div><div><strong>加入 BarSeries</strong><p>按时间排序并去重；同一时间多版本 K 线只保留规范版本，避免重复决策。</p></div></div>
+        <div class="flow-item"><div class="flow-dot"></div><div><strong>先检查已有持仓</strong><p>止损、止盈和最大持仓周期优先执行，触发后更新资金与指标并清空仓位。</p></div></div>
+        <div class="flow-item"><div class="flow-dot"></div><div><strong>执行确定性流水线</strong><p>Regime → 行情上下文 → 硬规则候选 → 评分 → 路由 → 主策略信号。</p></div></div>
+        <div class="flow-item"><div class="flow-dot"></div><div><strong>执行新信号</strong><p>BUY/SELL 经过行情守卫和风控校验后，才允许开仓或反手；HOLD 直接等待下一根。</p></div></div>
+      </div>
+      <div class="callout warn">
+        同一根 K 线可能先触发旧仓止损/止盈，然后再由当前主策略生成新信号；两个动作都有独立记录。
+      </div>
+    </section>
+
+    <section id="regime">
+      <div class="section-heading">
+        <div class="section-number">03</div>
+        <div><h2>Market Regime</h2><p>确定性识别趋势方向、波动状态、置信度和突破扩张。</p></div>
+      </div>
+      <div class="grid-3">
+        <article class="card"><h3>趋势维度</h3><p><span class="tag">UP</span><span class="tag">DOWN</span><span class="tag">NONE</span></p><p>由 EMA 快慢关系、EMA 慢线斜率和 ADX 判断。</p></article>
+        <article class="card"><h3>波动维度</h3><p><span class="tag">LOW</span><span class="tag">NORMAL</span><span class="tag">HIGH</span></p><p>由 ATR 历史分位和布林带宽判断。</p></article>
+        <article class="card"><h3>交易状态</h3><p><span class="tag">confidence</span><span class="tag">tradeable</span><span class="tag">breakoutExpansion</span></p><p>数据不足、低置信度或流动性异常时禁止交易。</p></article>
+      </div>
+      <div style="margin-top:18px;overflow-x:auto">
+        <table>
+          <thead><tr><th>Regime</th><th>主要候选策略族</th><th>业务含义</th></tr></thead>
+          <tbody>
+          <tr><td><code>UP_NORMAL / UP_HIGH</code></td><td>趋势；高波动扩张时可加入突破</td><td>上涨结构明确，优先做多方向</td></tr>
+          <tr><td><code>DOWN_NORMAL / DOWN_HIGH</code></td><td>趋势；高波动扩张时可加入突破</td><td>下跌结构明确，优先做空方向</td></tr>
+          <tr><td><code>NONE_LOW / NONE_NORMAL</code></td><td>均值回归</td><td>方向不明确，价格围绕均值波动</td></tr>
+          <tr><td><code>NONE_HIGH</code></td><td>突破、假突破与冲击回收</td><td>无趋势但波动显著，需要扩张确认</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <details>
+        <summary>Regime 生成的公共特征</summary>
+        <div>EMA12、EMA26、慢均线斜率、ADX、ATR、ATR 分位、布林带宽、成交量比；随后由行情上下文补充 EMA10/20/60、Z-Score、RSI、VWAP、价格结构和 K 线形态。</div>
+      </details>
+    </section>
+
+    <section id="candidate">
+      <div class="section-heading">
+        <div class="section-number">04</div>
+        <div><h2>规则候选：先回答“能不能做”</h2><p>硬规则只有通过或拒绝，评分不能绕过准入。</p></div>
+      </div>
+      <div class="grid-2">
+        <article class="card accent-green">
+          <h3>固定执行顺序</h3>
+          <ol class="check-list">
+            <li>K线完成指标预热</li>
+            <li>OHLC 合法、有限且为正数</li>
+            <li>Regime 允许交易</li>
+            <li>策略目录处于启用状态</li>
+            <li>支持当前 Regime</li>
+            <li>必需特征全部存在</li>
+            <li>策略族与趋势方向兼容</li>
+            <li>突破策略存在波动扩张</li>
+            <li>成交量与流动性正常</li>
+          </ol>
+        </article>
+        <article class="card accent-amber">
+          <h3>典型拒绝原因</h3>
+          <p>
+            <span class="tag">DATA_WARMUP</span>
+            <span class="tag">NO_TRADE_REGIME</span>
+            <span class="tag">UNSUPPORTED_REGIME</span>
+            <span class="tag">MISSING_REQUIRED_FEATURE</span>
+            <span class="tag">DIRECTION_INCOMPATIBLE</span>
+            <span class="tag">BREAKOUT_EXPANSION_REQUIRED</span>
+            <span class="tag">ABNORMAL_LIQUIDITY</span>
+          </p>
+          <p style="margin-top:12px"><code>orderBookImbalanceReversion</code> 在只有 OHLCV 时以 <code>MISSING_ORDER_BOOK_FEATURE</code> 排除，不使用 K 线实体伪装盘口。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="scoring">
+      <div class="section-heading">
+        <div class="section-number">05</div>
+        <div><h2>确定性评分：再回答“谁更适合”</h2><p>家族公共环境分 + 具体策略独立形态分 − 风险惩罚。</p></div>
+      </div>
+      <div class="grid-3">
+        <article class="card accent-cyan">
+          <h3>趋势策略 · 100分</h3>
+          <div class="weight-list">
+            <div class="weight-row"><span>Regime</span><div class="bar"><i style="width:100%"></i></div><b>20</b></div>
+            <div class="weight-row"><span>ADX</span><div class="bar"><i style="width:100%"></i></div><b>20</b></div>
+            <div class="weight-row"><span>均线斜率</span><div class="bar"><i style="width:75%"></i></div><b>15</b></div>
+            <div class="weight-row"><span>价格结构</span><div class="bar"><i style="width:75%"></i></div><b>15</b></div>
+            <div class="weight-row"><span>独立形态</span><div class="bar"><i style="width:100%"></i></div><b>20</b></div>
+            <div class="weight-row"><span>成交量</span><div class="bar"><i style="width:50%"></i></div><b>10</b></div>
+          </div>
+        </article>
+        <article class="card accent-green">
+          <h3>均值回归 · 100分</h3>
+          <div class="weight-list">
+            <div class="weight-row"><span>Regime</span><div class="bar"><i style="width:75%"></i></div><b>15</b></div>
+            <div class="weight-row"><span>弱趋势</span><div class="bar"><i style="width:75%"></i></div><b>15</b></div>
+            <div class="weight-row"><span>价格偏离</span><div class="bar"><i style="width:100%"></i></div><b>20</b></div>
+            <div class="weight-row"><span>独立形态</span><div class="bar"><i style="width:100%"></i></div><b>20</b></div>
+            <div class="weight-row"><span>波动适配</span><div class="bar"><i style="width:75%"></i></div><b>15</b></div>
+            <div class="weight-row"><span>均值恢复</span><div class="bar"><i style="width:50%"></i></div><b>10</b></div>
+            <div class="weight-row"><span>成交量</span><div class="bar"><i style="width:25%"></i></div><b>5</b></div>
+          </div>
+        </article>
+        <article class="card accent-purple">
+          <h3>突破策略 · 100分</h3>
+          <div class="weight-list">
+            <div class="weight-row"><span>Regime</span><div class="bar"><i style="width:75%"></i></div><b>15</b></div>
+            <div class="weight-row"><span>前期压缩</span><div class="bar"><i style="width:100%"></i></div><b>20</b></div>
+            <div class="weight-row"><span>当前扩张</span><div class="bar"><i style="width:100%"></i></div><b>20</b></div>
+            <div class="weight-row"><span>独立形态</span><div class="bar"><i style="width:100%"></i></div><b>20</b></div>
+            <div class="weight-row"><span>成交量</span><div class="bar"><i style="width:50%"></i></div><b>10</b></div>
+            <div class="weight-row"><span>收盘质量</span><div class="bar"><i style="width:50%"></i></div><b>10</b></div>
+            <div class="weight-row"><span>价格结构</span><div class="bar"><i style="width:25%"></i></div><b>5</b></div>
+          </div>
+        </article>
+      </div>
+      <div class="callout">
+        所有指标先归一化为 <code>0–1</code>，总分限制为 <code>0–100</code>。每个策略使用自己的 <code>minimumScore</code>，没有任何随机数或外部评分。
+      </div>
+      <details>
+        <summary>独立形态分举例</summary>
+        <div>
+          <code>binanceRange</code> 看区间边缘；<code>bollingerMeanReversion</code> 看 Z-Score；
+          <code>vwapReversion</code> 看 VWAP 偏离的 ATR 倍数；<code>strongMomentumContinuation</code>
+          看均线排列、实体和突破强度；<code>compressionBreak</code> 看压缩与突破。
+        </div>
+      </details>
+      <details>
+        <summary>为什么评分通过后不一定立刻成交？</summary>
+        <div>评分选择的是“当前阶段最适合运行的策略”。策略激活后仍需等待自己的具体入场算法产生 BUY/SELL；没有入场形态时持续返回 HOLD。</div>
+      </details>
+    </section>
+
+    <section id="routing">
+      <div class="section-heading">
+        <div class="section-number">06</div>
+        <div><h2>策略激活与稳定切换</h2><p>门槛、迟滞、保持期、分差和连续确认共同防抖。</p></div>
+      </div>
+      <div class="state-machine" aria-label="策略路由状态机">
+        <div class="state"><strong>NO_TRADE</strong><small>没有运行策略</small></div>
+        <div class="state-arrow">→</div>
+        <div class="state"><strong>PENDING</strong><small>连续确认 1/3、2/3</small></div>
+        <div class="state-arrow">→</div>
+        <div class="state"><strong>ACTIVE</strong><small>唯一主策略</small></div>
+        <div class="state-arrow">⇄</div>
+        <div class="state"><strong>CHALLENGER</strong><small>高分挑战者确认</small></div>
+      </div>
+
+      <div class="grid-2" style="margin-top:16px">
+        <article class="card">
+          <h3>首次激活</h3>
+          <p>最高分达到该策略门槛，并连续 3 根保持最高，才从 NO_TRADE 进入 ACTIVE。</p>
+        </article>
+        <article class="card">
+          <h3>当前策略保持</h3>
+          <p>当前策略仍合法，且分数不低于 <code>minimumScore − 10</code>，继续运行。候选集合变化不会自动清空主策略。</p>
+        </article>
+        <article class="card">
+          <h3>挑战切换</h3>
+          <p>挑战者达到自身门槛、至少高 5 分、当前策略已运行 4 根，并连续胜出 3 根后切换。</p>
+        </article>
+        <article class="card">
+          <h3>退出与硬失效</h3>
+          <p>普通低分连续 3 根后退出或切换；Regime/方向不兼容、数据异常等硬失效立即停止。</p>
+        </article>
+      </div>
+
+      <pre>if 当前策略硬失效:
+    立即失活，并重新确认新策略
+else if 当前策略连续低于保持门槛:
+    切换到已确认挑战者，否则 NO_TRADE
+else if 挑战者达到门槛
+        and 挑战者分数 >= 当前分数 + 5
+        and 当前策略已保持 4 根
+        and 挑战者连续胜出 3 根:
+    SWITCHED
+else:
+    ACTIVE_RETAIN</pre>
+    </section>
+
+    <section id="signal">
+      <div class="section-heading">
+        <div class="section-number">07</div>
+        <div><h2>单一主策略的信号授权</h2><p>激活代表获得运行权，不代表强制下单。</p></div>
+      </div>
+      <div class="grid-3">
+        <article class="card accent-green"><h3>BUY</h3><p>策略独立算法确认做多入场，附带入场价、止损价和止盈价。</p></article>
+        <article class="card accent-amber"><h3>SELL</h3><p>策略独立算法确认做空入场，附带入场价、止损价和止盈价。</p></article>
+        <article class="card"><h3>HOLD</h3><p>市场适合运行该策略，但当前没有完整入场形态，等待下一根 K 线。</p></article>
+      </div>
+      <div class="callout warn">
+        只有 <code>routingDecision.strategyName</code> 指定的主策略会执行信号算法；非主策略不会发布信号。
+      </div>
+    </section>
+
+    <section id="execution">
+      <div class="section-heading">
+        <div class="section-number">08</div>
+        <div><h2>风控与模拟成交</h2><p>信号合法性在关闭旧仓之前完成校验。</p></div>
+      </div>
+      <div class="grid-2">
+        <article class="card accent-cyan">
+          <h3>价格方向硬约束</h3>
+          <pre>多单:
+stopPrice < entryPrice < takePrice
+
+空单:
+takePrice < entryPrice < stopPrice</pre>
+        </article>
+        <article class="card accent-purple">
+          <h3>持仓处理</h3>
+          <ul class="check-list">
+            <li>空仓 + 合法信号：创建新持仓</li>
+            <li>已有同方向仓位：不重复开仓</li>
+            <li>已有反方向仓位：先校验新信号</li>
+            <li>反手信号合法：平旧仓，再按新策略开仓</li>
+            <li>反手信号非法：保留旧仓，不做任何破坏性动作</li>
+          </ul>
+        </article>
+      </div>
+      <div class="callout">
+        每个持仓记录开仓策略和开仓 Regime；反手平仓记录 <code>reverse_signal</code>，便于策略归因。
+      </div>
+    </section>
+
+    <section id="report">
+      <div class="section-heading">
+        <div class="section-number">09</div>
+        <div><h2>回测结束与中文报告</h2><p>最后一根 K 线完成后强制关闭残余持仓并汇总全链路。</p></div>
+      </div>
+      <div class="grid-2">
+        <article class="card">
+          <h3>交易与绩效</h3>
+          <p><span class="tag">交易数</span><span class="tag">胜率</span><span class="tag">收益率</span><span class="tag">最大回撤</span><span class="tag">最终资金</span><span class="tag">交易明细</span></p>
+        </article>
+        <article class="card">
+          <h3>路由可观测性</h3>
+          <p><span class="tag">Regime分布</span><span class="tag">候选拒绝</span><span class="tag">Top3评分</span><span class="tag">激活/切换</span><span class="tag">BUY/SELL/HOLD</span><span class="tag">策略成交</span></p>
+        </article>
+      </div>
+      <div class="callout">报告不生成 compare 文件，也不包含 DeepSeek 请求、缓存或 AI 评分字段。</div>
+    </section>
+
+    <section id="objects">
+      <div class="section-heading">
+        <div class="section-number">10</div>
+        <div><h2>核心业务对象</h2><p>对象只承载一个阶段的输入、输出或状态。</p></div>
+      </div>
+      <div class="grid-3">
+        <article class="card"><h3>StrategyEvaluationContext</h3><p>当前 symbol、周期、barIndex、BarSeries、K线、Regime 与公共技术快照。</p></article>
+        <article class="card"><h3>CandidateSelectionResult</h3><p>合法候选列表，以及每个被拒策略的明确原因。</p></article>
+        <article class="card"><h3>DeterministicScoreCard</h3><p>策略总分、门槛、分项、形态准备度、惩罚和解释因素。</p></article>
+        <article class="card"><h3>StrategyRoutingState</h3><p>当前策略、当前分数、保持截止、挑战策略和连续确认计数。</p></article>
+        <article class="card"><h3>StrategyRoutingDecision</h3><p>本根 K 线的前后策略、挑战者、分差、原因和全部评分卡。</p></article>
+        <article class="card"><h3>Position / TradeRecord</h3><p>持仓方向、风险价格、开仓策略、Regime、退出原因和最终盈亏。</p></article>
+      </div>
+    </section>
+
+    <section id="code">
+      <div class="section-heading">
+        <div class="section-number">11</div>
+        <div><h2>代码位置索引</h2><p>从主入口向下追踪完整业务流程。</p></div>
+      </div>
+      <div class="code-map">
+        <a href="../../main/java/com/app/dc/simulation/LocalBacktestRunner.java">启动入口 · LocalBacktestRunner.java</a>
+        <a href="../../main/java/com/app/dc/service/simulation/BacktestService.java">分块回放与成交会话 · BacktestService.java</a>
+        <a href="../../main/java/com/app/dc/service/simulation/deterministic/DeterministicBacktestPipeline.java">流式编排 · DeterministicBacktestPipeline.java</a>
+        <a href="../../main/java/com/app/dc/service/simulation/dynamic/BacktestRegimeService.java">Market Regime · BacktestRegimeService.java</a>
+        <a href="../../main/java/com/app/dc/service/simulation/deterministic/MarketContextFactory.java">行情上下文 · MarketContextFactory.java</a>
+        <a href="../../main/java/com/app/dc/service/simulation/deterministic/CandidateRuleChain.java">硬规则候选 · CandidateRuleChain.java</a>
+        <a href="../../main/java/com/app/dc/service/simulation/deterministic/DeterministicScoringService.java">确定性评分 · DeterministicScoringService.java</a>
+        <a href="../../main/java/com/app/dc/service/simulation/deterministic/DeterministicStrategyRouter.java">策略切换 · DeterministicStrategyRouter.java</a>
+        <a href="../../main/java/com/app/dc/service/simulation/deterministic/ActiveStrategySignalService.java">信号授权 · ActiveStrategySignalService.java</a>
+        <a href="../../main/java/com/app/dc/service/simulation/BacktestTradeService.java">风控成交 · BacktestTradeService.java</a>
+        <a href="../../main/java/com/app/dc/service/simulation/BacktestReportService.java">中文报告 · BacktestReportService.java</a>
+      </div>
+    </section>
+
+    <footer class="footer">
+      com.app.dc.simulation · Deterministic Strategy Routing · 本文档为离线单文件，可直接在浏览器中打开
+    </footer>
+  </main>
+</div>
+
+<script>
+  const links = [...document.querySelectorAll(".nav-link")];
+  const sections = links
+    .map(link => document.querySelector(link.getAttribute("href")))
+    .filter(Boolean);
+
+  const observer = new IntersectionObserver(entries => {
+    const visible = entries
+      .filter(entry => entry.isIntersecting)
+      .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+    if (!visible) return;
+    links.forEach(link => {
+      link.classList.toggle("active", link.getAttribute("href") === "#" + visible.target.id);
+    });
+  }, { rootMargin: "-15% 0px -70% 0px", threshold: [0, .15, .5] });
+
+  sections.forEach(section => observer.observe(section));
+
+  document.getElementById("expandAll").addEventListener("click", () => {
+    document.querySelectorAll("details").forEach(item => item.open = true);
+  });
+
+  document.getElementById("collapseAll").addEventListener("click", () => {
+    document.querySelectorAll("details").forEach(item => item.open = false);
+  });
+</script>
+</body>
+</html>

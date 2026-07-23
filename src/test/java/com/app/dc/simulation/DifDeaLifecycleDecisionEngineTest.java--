@@ -1,0 +1,569 @@
+package com.app.dc.simulation;
+
+import com.app.dc.service.simulation.strategy.lifecycle.DifDeaLifecycleDecisionEngine;
+import com.app.dc.service.simulation.strategy.lifecycle.LifecycleConfig;
+import com.app.dc.service.simulation.strategy.lifecycle.LifecycleContext;
+import com.app.dc.service.simulation.strategy.lifecycle.LifecycleDecision;
+import com.app.dc.service.simulation.strategy.lifecycle.LifecycleDecisionType;
+import com.app.dc.service.simulation.strategy.lifecycle.LifecycleDirection;
+import com.app.dc.service.simulation.strategy.lifecycle.LifecycleIndicatorSample;
+import com.app.dc.service.simulation.strategy.lifecycle.LifecyclePhase;
+import com.app.dc.service.simulation.strategy.lifecycle.LifecycleState;
+import com.app.dc.service.simulation.strategy.lifecycle.engine.LifecycleDecisionResult;
+import com.app.dc.service.simulation.strategy.lifecycle.engine.LifecycleRuleSupport;
+import com.app.dc.service.simulation.strategy.lifecycle.engine.LifecycleStateTransitionEngine;
+import com.app.dc.service.simulation.strategy.lifecycle.trace.LifecycleTrace;
+import com.app.dc.service.simulation.strategy.lifecycle.trace.LifecycleTraceFormatter;
+import org.junit.Assert;
+import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 验证生命周期策略轻量版的核心行为。
+ */
+public class DifDeaLifecycleDecisionEngineTest {
+
+    private final LifecycleRuleSupport support = new LifecycleRuleSupport();
+    private final DifDeaLifecycleDecisionEngine engine =
+            new DifDeaLifecycleDecisionEngine(support, new LifecycleTraceFormatter());
+    private final LifecycleStateTransitionEngine stateTransitionEngine = new LifecycleStateTransitionEngine();
+
+    /**
+     * 验证金叉且不在粘合段时直接开多。
+     */
+    @Test
+    public void shouldEnterLongOnGoldenCross() {
+        LifecycleDecision decision = decide(neutralState(), samples(
+                sample(0, -0.60, -0.20, -0.30, 100.0),
+                sample(1, -0.40, -0.10, -0.10, 101.0),
+                sample(2, 0.10, 0.00, 0.15, 102.0)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.ENTER_LONG, decision.getType());
+        Assert.assertEquals("dif_dea_cross_up", decision.getReason());
+    }
+
+    /**
+     * 验证死叉且不在粘合段时直接开空。
+     */
+    @Test
+    public void shouldEnterShortOnDeadCross() {
+        LifecycleDecision decision = decide(neutralState(), samples(
+                sample(0, 0.60, 0.20, 0.30, 102.0),
+                sample(1, 0.40, 0.10, 0.10, 101.0),
+                sample(2, -0.10, 0.00, -0.15, 100.0)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.ENTER_SHORT, decision.getType());
+        Assert.assertEquals("dif_dea_cross_down", decision.getReason());
+    }
+
+    /**
+     * 验证粘合段会拦截空仓交叉开仓。
+     */
+    @Test
+    public void shouldBlockEntryWhenBondingSegment() {
+        LifecycleDecision decision = decide(neutralState(), new LifecycleConfig("difDeaLifecycle", "ETHUSDT", "5M",
+                0.30, 0.0, 5, 4, 3, 2), samples(
+                sample(0, -0.05, -0.02, -0.01, 100.0),
+                sample(1, -0.04, -0.03, -0.01, 100.2),
+                sample(2, -0.02, -0.02, 0.00, 100.1),
+                sample(3, -0.01, -0.02, 0.01, 100.3),
+                sample(4, 0.01, 0.00, 0.01, 100.4)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.NONE, decision.getType());
+        Assert.assertEquals("entry_blocked_by_dif_dea_bonding", decision.getReason());
+    }
+
+    /**
+     * 验证多头持仓遇到反向死叉时离场。
+     */
+    @Test
+    public void shouldLeaveLongOnDeadCross() {
+        LifecycleState state = activeState(LifecyclePhase.LONG_ACTIVE);
+        LifecycleDecision decision = decide(state, samples(
+                sample(0, 0.60, 0.20, 0.20, 103.0),
+                sample(1, 0.30, 0.15, 0.10, 102.0),
+                sample(2, -0.10, 0.00, -0.05, 101.0)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.LEAVE_LONG, decision.getType());
+        Assert.assertEquals("dif_dea_cross_down", decision.getReason());
+    }
+
+    /**
+     * 验证空头持仓遇到反向金叉时离场。
+     */
+    @Test
+    public void shouldLeaveShortOnGoldenCross() {
+        LifecycleState state = activeState(LifecyclePhase.SHORT_ACTIVE);
+        LifecycleDecision decision = decide(state, samples(
+                sample(0, -0.60, -0.20, -0.20, 100.0),
+                sample(1, -0.30, -0.15, -0.10, 101.0),
+                sample(2, 0.10, 0.00, 0.05, 102.0)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.LEAVE_SHORT, decision.getType());
+        Assert.assertEquals("dif_dea_cross_up", decision.getReason());
+    }
+
+    /**
+     * 验证多头持仓在 MACD 与 close 同步走弱时触发策略离场。
+     */
+    @Test
+    public void shouldLeaveLongWhenMacdAndCloseWeakening() {
+        LifecycleState state = activeState(LifecyclePhase.LONG_ACTIVE);
+        LifecycleDecision decision = decide(state, samples(
+                sample(0, 1.00, 0.50, 0.80, 105.0),
+                sample(1, 1.00, 0.50, 0.70, 104.0),
+                sample(2, 1.00, 0.50, 0.60, 103.0),
+                sample(3, 1.00, 0.50, 0.50, 102.0)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.LEAVE_LONG, decision.getType());
+        Assert.assertEquals("macd_shrinking_and_close_weakening", decision.getReason());
+    }
+
+    /**
+     * 验证空头持仓在 MACD 与 close 同步走强时触发策略离场。
+     */
+    @Test
+    public void shouldLeaveShortWhenMacdAndCloseStrengthening() {
+        LifecycleState state = activeState(LifecyclePhase.SHORT_ACTIVE);
+        LifecycleDecision decision = decide(state, samples(
+                sample(0, -1.00, -0.50, -0.80, 100.0),
+                sample(1, -1.00, -0.50, -0.70, 101.0),
+                sample(2, -1.00, -0.50, -0.60, 102.0),
+                sample(3, -1.00, -0.50, -0.50, 103.0)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.LEAVE_SHORT, decision.getType());
+        Assert.assertEquals("macd_recovering_and_close_strengthening", decision.getReason());
+    }
+
+    /**
+     * 验证反向交叉过近时会被粘合保护拦住。
+     */
+    @Test
+    public void shouldBlockReverseCrossWhenGapIsTooSmall() {
+        LifecycleState state = activeState(LifecyclePhase.LONG_ACTIVE);
+        LifecycleDecision decision = decide(state, new LifecycleConfig("difDeaLifecycle", "ETHUSDT", "5M",
+                0.30, 0.05, 5, 4, 3, 2), samples(
+                sample(0, 0.08, 0.04, 0.02, 103.0),
+                sample(1, 0.04, 0.03, 0.01, 102.0),
+                sample(2, 0.02, 0.03, -0.01, 101.0)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.NONE, decision.getType());
+        Assert.assertEquals("reverse_cross_blocked_by_dif_dea_bonding", decision.getReason());
+    }
+
+    /**
+     * 验证多头离场后状态回到空闲。
+     */
+    @Test
+    public void shouldEnterPendingLongAfterLeaveLong() {
+        LifecycleState state = activeState(LifecyclePhase.LONG_ACTIVE);
+        state.setDirection(LifecycleDirection.LONG);
+        LifecycleDecision decision = LifecycleDecision.of(LifecycleDecisionType.LEAVE_LONG,
+                "macd_shrinking_and_close_weakening");
+
+        updateBacktestState(state, sample(9, 1.00, 0.50, 0.50, 102.0), decision);
+
+        Assert.assertEquals(LifecyclePhase.PENDING_LONG_LAUNCH, state.getPhase());
+        Assert.assertEquals(LifecycleDirection.LONG, state.getDirection());
+    }
+
+    /**
+     * 验证空头离场后状态回到空闲。
+     */
+    @Test
+    public void shouldEnterPendingShortAfterLeaveShort() {
+        LifecycleState state = activeState(LifecyclePhase.SHORT_ACTIVE);
+        state.setDirection(LifecycleDirection.SHORT);
+        LifecycleDecision decision = LifecycleDecision.of(LifecycleDecisionType.LEAVE_SHORT,
+                "macd_recovering_and_close_strengthening");
+
+        updateBacktestState(state, sample(8, -1.00, -0.50, -0.50, 103.0), decision);
+
+        Assert.assertEquals(LifecyclePhase.PENDING_SHORT_LAUNCH, state.getPhase());
+        Assert.assertEquals(LifecycleDirection.SHORT, state.getDirection());
+    }
+
+    /**
+     * 验证多头观察期出现反向交叉且被粘合拦截后，会结束旧观察并回到空仓。
+     */
+    @Test
+    public void shouldResetPendingLongToNeutralWhenReverseCrossBlockedByBonding() {
+        LifecycleState state = new LifecycleState("difDeaLifecycle", "ETHUSDT", "5M");
+        state.setPhase(LifecyclePhase.PENDING_LONG_LAUNCH);
+        state.setDirection(LifecycleDirection.LONG);
+        LifecycleDecision decision = LifecycleDecision.none("entry_blocked_by_dif_dea_bonding");
+        LifecycleTrace trace = new LifecycleTrace().put("pendingTerminatedByReverseCross", true);
+
+        stateTransitionEngine.apply(state, sample(10, -0.01, 0.00, -0.01, 100.0),
+                new LifecycleDecisionResult(decision, trace));
+
+        Assert.assertEquals(LifecyclePhase.NEUTRAL, state.getPhase());
+        Assert.assertEquals(LifecycleDirection.NONE, state.getDirection());
+    }
+
+    /**
+     * 验证多头观察态只要满足 MACD、close 和间隔条件即可二次启动，不再依赖结构确认。
+     */
+    @Test
+    public void shouldEnterLongRelaunchWithoutStructureConfirmation() {
+        LifecycleState state = new LifecycleState("difDeaLifecycle", "ETHUSDT", "5M");
+        state.setPhase(LifecyclePhase.PENDING_LONG_LAUNCH);
+        state.setDirection(LifecycleDirection.LONG);
+        state.setPendingStartIndex(0);
+        state.setPendingStartBarTime("2026-07-01T00:00");
+
+        LifecycleDecision decision = decide(state, samples(
+                sampleWithOhlc(0, 0.20, 0.10, 0.05, 100.2, 100.4, 99.9, 100.0),
+                sampleWithOhlc(1, 0.18, 0.12, 0.04, 100.1, 100.3, 99.95, 100.05),
+                sampleWithOhlc(2, 0.19, 0.13, 0.06, 100.2, 100.5, 100.0, 100.2),
+                sampleWithOhlc(3, 0.21, 0.14, 0.09, 100.3, 100.8, 100.1, 100.5),
+                sampleWithOhlc(4, 0.24, 0.15, 0.14, 100.6, 101.1, 100.2, 100.9)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.ENTER_LONG, decision.getType());
+        Assert.assertEquals("relaunch_long_after_strategy_exit", decision.getReason());
+    }
+
+    /**
+     * 验证多头观察态方向破坏后会结束本轮观察。
+     */
+    @Test
+    public void shouldKeepPendingLongWhenDirectionBrokenButNoReverseCross() {
+        LifecycleState state = new LifecycleState("difDeaLifecycle", "ETHUSDT", "5M");
+        state.setPhase(LifecyclePhase.PENDING_LONG_LAUNCH);
+        state.setDirection(LifecycleDirection.LONG);
+        state.setPendingStartIndex(0);
+        state.setPendingStartBarTime("2026-07-01T00:00");
+
+        LifecycleDecision decision = decide(state, samples(
+                sample(0, 0.20, 0.10, 0.05, 100.0),
+                sample(1, 0.18, 0.12, 0.04, 99.8),
+                sample(2, 0.16, 0.15, 0.01, 99.9),
+                sample(3, 0.10, 0.14, -0.02, 99.7)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.PENDING_LONG_LAUNCH, decision.getType());
+        Assert.assertEquals("pending_launch_tracking", decision.getReason());
+    }
+
+    /**
+     * 验证空头观察态只要满足 MACD、close 和间隔条件即可二次启动，不再依赖结构确认。
+     */
+    @Test
+    public void shouldEnterShortRelaunchWithoutStructureConfirmation() {
+        LifecycleState state = new LifecycleState("difDeaLifecycle", "ETHUSDT", "5M");
+        state.setPhase(LifecyclePhase.PENDING_SHORT_LAUNCH);
+        state.setDirection(LifecycleDirection.SHORT);
+        state.setPendingStartIndex(0);
+        state.setPendingStartBarTime("2026-07-01T00:00");
+
+        LifecycleDecision decision = decide(state, samples(
+                sampleWithOhlc(0, -0.20, -0.10, -0.05, 99.8, 100.1, 99.6, 100.0),
+                sampleWithOhlc(1, -0.18, -0.12, -0.04, 99.9, 100.1, 99.7, 99.95),
+                sampleWithOhlc(2, -0.19, -0.13, -0.06, 99.8, 99.9, 99.5, 99.8),
+                sampleWithOhlc(3, -0.21, -0.14, -0.09, 99.7, 99.8, 99.2, 99.5),
+                sampleWithOhlc(4, -0.24, -0.15, -0.14, 99.4, 99.5, 98.9, 99.1)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.ENTER_SHORT, decision.getType());
+        Assert.assertEquals("relaunch_short_after_strategy_exit", decision.getReason());
+    }
+
+    /**
+     * 验证空头观察态方向破坏后会结束本轮观察。
+     */
+    @Test
+    public void shouldKeepPendingShortWhenDirectionBrokenButNoReverseCross() {
+        LifecycleState state = new LifecycleState("difDeaLifecycle", "ETHUSDT", "5M");
+        state.setPhase(LifecyclePhase.PENDING_SHORT_LAUNCH);
+        state.setDirection(LifecycleDirection.SHORT);
+        state.setPendingStartIndex(0);
+        state.setPendingStartBarTime("2026-07-01T00:00");
+
+        LifecycleDecision decision = decide(state, samples(
+                sample(0, -0.20, -0.10, -0.05, 100.0),
+                sample(1, -0.18, -0.12, -0.04, 100.2),
+                sample(2, -0.16, -0.15, -0.01, 100.1),
+                sample(3, -0.10, -0.14, 0.02, 100.3)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.PENDING_SHORT_LAUNCH, decision.getType());
+        Assert.assertEquals("pending_launch_tracking", decision.getReason());
+    }
+
+    /**
+     * 验证多头观察态即使结构被破坏，只要高频完整版的核心条件满足，仍可二次启动。
+     */
+    @Test
+    public void shouldEnterLongRelaunchWhenStructureBrokenButCoreSignalsPass() {
+        LifecycleState state = new LifecycleState("difDeaLifecycle", "ETHUSDT", "5M");
+        state.setPhase(LifecyclePhase.PENDING_LONG_LAUNCH);
+        state.setDirection(LifecycleDirection.LONG);
+        state.setPendingStartIndex(0);
+        state.setPendingStartBarTime("2026-07-01T00:00");
+
+        LifecycleDecision decision = decide(state, samples(
+                sampleWithOhlc(0, 0.20, 0.10, 0.05, 100.2, 100.4, 99.9, 100.0),
+                sampleWithOhlc(1, 0.18, 0.12, 0.04, 100.1, 100.3, 99.7, 100.05),
+                sampleWithOhlc(2, 0.19, 0.13, 0.06, 100.2, 100.5, 99.6, 100.2),
+                sampleWithOhlc(3, 0.21, 0.14, 0.09, 100.3, 100.8, 99.5, 100.5),
+                sampleWithOhlc(4, 0.24, 0.15, 0.14, 100.6, 101.1, 99.4, 100.9)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.ENTER_LONG, decision.getType());
+        Assert.assertEquals("relaunch_long_after_strategy_exit", decision.getReason());
+    }
+
+    /**
+     * 验证空头观察态即使结构被破坏，只要高频完整版的核心条件满足，仍可二次启动。
+     */
+    @Test
+    public void shouldEnterShortRelaunchWhenStructureBrokenButCoreSignalsPass() {
+        LifecycleState state = new LifecycleState("difDeaLifecycle", "ETHUSDT", "5M");
+        state.setPhase(LifecyclePhase.PENDING_SHORT_LAUNCH);
+        state.setDirection(LifecycleDirection.SHORT);
+        state.setPendingStartIndex(0);
+        state.setPendingStartBarTime("2026-07-01T00:00");
+
+        LifecycleDecision decision = decide(state, samples(
+                sampleWithOhlc(0, -0.20, -0.10, -0.05, 99.8, 100.1, 99.6, 100.0),
+                sampleWithOhlc(1, -0.18, -0.12, -0.04, 99.9, 100.4, 99.7, 99.95),
+                sampleWithOhlc(2, -0.19, -0.13, -0.06, 99.8, 100.5, 99.5, 99.8),
+                sampleWithOhlc(3, -0.21, -0.14, -0.09, 99.7, 100.6, 99.2, 99.5),
+                sampleWithOhlc(4, -0.24, -0.15, -0.14, 99.4, 100.7, 98.9, 99.1)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.ENTER_SHORT, decision.getType());
+        Assert.assertEquals("relaunch_short_after_strategy_exit", decision.getReason());
+    }
+
+    /**
+     * 验证弱交叉会进入观察态而不是直接开仓。
+     */
+    @Test
+    public void shouldRedirectWeakLongCrossToPending() {
+        LifecycleDecision decision = decide(neutralState(), samples(
+                sample(0, -0.30, -0.10, -0.25, 100.0),
+                sample(1, -0.15, -0.05, -0.08, 100.2),
+                sample(2, 0.02, 0.00, 0.10, 100.5)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.PENDING_LONG_LAUNCH, decision.getType());
+        Assert.assertEquals("pending_by_weak_cross", decision.getReason());
+    }
+
+    /**
+     * 验证 MA20 反向背景下的普通金叉会进入观察态。
+     */
+    @Test
+    public void shouldRedirectLongCrossToPendingWhenMa20CounterTrend() {
+        LifecycleDecision decision = decide(neutralState(), samples(
+                sampleWithMa(0, -0.30, -0.10, -0.20, 100.0, 100.4, 99.7, 100.0, 100.0, 100.5, 101.0),
+                sampleWithMa(1, -0.12, -0.06, -0.05, 100.1, 100.5, 99.8, 100.2, 100.1, 100.6, 100.7),
+                sampleWithMa(2, 0.06, 0.00, 0.22, 100.3, 100.8, 100.0, 100.6, 100.2, 100.7, 100.4)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.PENDING_LONG_LAUNCH, decision.getType());
+        Assert.assertEquals("pending_by_ma20_counter_trend", decision.getReason());
+    }
+
+    /**
+     * 验证单根大波幅的普通空仓开仓会被拦截。
+     */
+    @Test
+    public void shouldBlockEntryWhenBarRangeTooLarge() {
+        LifecycleDecision decision = decide(neutralState(), samples(
+                sample(0, -0.60, -0.20, -0.30, 100.0),
+                sample(1, -0.40, -0.10, -0.10, 100.3),
+                sampleWithOhlc(2, 0.10, 0.00, 0.15, 100.0, 101.2, 99.8, 100.8)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.NONE, decision.getType());
+        Assert.assertEquals("entry_blocked_by_large_bar_range", decision.getReason());
+    }
+
+    /**
+     * 验证压缩突破在候选记录后，下一根确认会真实成交。
+     */
+    @Test
+    public void shouldEnterLongOnCompressionBreakoutConfirm() {
+        LifecycleState state = new LifecycleState("difDeaLifecycle", "ETHUSDT", "5M");
+        List<LifecycleIndicatorSample> triggerSamples = samples(
+                sampleWithOhlc(0, -0.05, -0.03, -0.10, 100.0, 100.2, 99.8, 100.0),
+                sampleWithOhlc(1, -0.04, -0.02, -0.08, 100.0, 100.2, 99.8, 100.0),
+                sampleWithOhlc(2, -0.03, -0.01, -0.05, 100.0, 100.2, 99.8, 100.1),
+                sampleWithOhlc(3, -0.02, -0.01, -0.03, 100.1, 100.2, 99.9, 100.0),
+                sampleWithOhlc(4, -0.01, -0.01, -0.02, 100.0, 100.1, 99.9, 100.0),
+                sampleWithOhlc(5, -0.01, -0.01, -0.01, 100.0, 100.1, 99.9, 100.0),
+                sampleWithOhlc(6, 0.00, 0.00, 0.02, 100.0, 100.1, 99.9, 100.0),
+                sampleWithOhlc(7, 0.01, 0.01, 0.03, 100.0, 100.1, 99.9, 100.0),
+                sampleWithOhlc(8, 0.08, 0.02, 0.40, 100.1, 100.8, 100.0, 100.6)
+        );
+        LifecycleDecision triggerDecision = decide(state, triggerSamples);
+        Assert.assertEquals(LifecycleDecisionType.NONE, triggerDecision.getType());
+        Assert.assertEquals("compression_breakout_candidate_long", triggerDecision.getReason());
+        stateTransitionEngine.apply(state, triggerSamples.get(triggerSamples.size() - 1),
+                new LifecycleDecisionResult(triggerDecision, engine.decideWithTrace(
+                        new LifecycleContext("difDeaLifecycle", "ETHUSDT", "5M", triggerSamples, defaultConfig(), state)).getTrace()));
+
+        List<LifecycleIndicatorSample> confirmSamples = new ArrayList<LifecycleIndicatorSample>(triggerSamples);
+        confirmSamples.add(sampleWithOhlc(9, 0.12, 0.03, 0.45, 100.4, 101.0, 100.3, 100.9));
+        LifecycleDecision confirmDecision = decide(state, confirmSamples);
+        Assert.assertEquals(LifecycleDecisionType.ENTER_LONG, confirmDecision.getType());
+        Assert.assertEquals("compression_breakout_long", confirmDecision.getReason());
+    }
+
+    /**
+     * 验证持仓反向交叉遇到大波幅时只平不反手。
+     */
+    @Test
+    public void shouldLeaveLongWithoutReverseWhenReverseCrossBarTooLarge() {
+        LifecycleState state = activeState(LifecyclePhase.LONG_ACTIVE);
+        state.setDirection(LifecycleDirection.LONG);
+
+        LifecycleDecision decision = decide(state, samples(
+                sample(0, 0.50, 0.20, 0.25, 103.0),
+                sample(1, 0.20, 0.15, 0.08, 102.5),
+                sampleWithOhlc(2, -0.05, 0.00, -0.10, 102.0, 103.2, 101.8, 102.6)
+        ));
+
+        Assert.assertEquals(LifecycleDecisionType.LEAVE_LONG, decision.getType());
+        Assert.assertEquals("dif_dea_cross_down", decision.getReason());
+        Assert.assertFalse(decision.isReverseEntryAllowed());
+    }
+
+    /**
+     * 验证压缩突破开多确认必须由当前阳线本体完成，不再接受上一根 open 兜底。
+     */
+    @Test
+    public void shouldRequireCurrentBullishBodyForLongCompressionConfirm() {
+        Assert.assertFalse(support.isLongCompressionConfirmPricePassed(
+                sampleWithOhlc(1, 0.20, 0.10, 0.20, 99.5, 100.5, 99.4, 100.4),
+                sampleWithOhlc(2, 0.30, 0.15, 0.40, 100.6, 100.8, 100.1, 100.2)));
+    }
+
+    /**
+     * 验证压缩突破开空确认必须由当前阴线本体完成，不再接受上一根 open 兜底。
+     */
+    @Test
+    public void shouldRequireCurrentBearishBodyForShortCompressionConfirm() {
+        Assert.assertFalse(support.isShortCompressionConfirmPricePassed(
+                sampleWithOhlc(1, -0.20, -0.10, -0.20, 100.5, 100.6, 99.5, 99.6),
+                sampleWithOhlc(2, -0.30, -0.15, -0.40, 99.4, 99.9, 99.1, 99.7)));
+    }
+
+    /**
+     * 执行一次默认配置决策。
+     */
+    private LifecycleDecision decide(LifecycleState state, List<LifecycleIndicatorSample> samples) {
+        return decide(state, defaultConfig(), samples);
+    }
+
+    /**
+     * 执行一次指定配置决策。
+     */
+    private LifecycleDecision decide(LifecycleState state, LifecycleConfig config, List<LifecycleIndicatorSample> samples) {
+        return engine.decide(new LifecycleContext("difDeaLifecycle", "ETHUSDT", "5M", samples, config, state));
+    }
+
+    /**
+     * 调用状态推进器推进一次状态。
+     */
+    private void updateBacktestState(LifecycleState state,
+                                     LifecycleIndicatorSample latest,
+                                     LifecycleDecision decision) {
+        LifecycleDecisionResult result = new LifecycleDecisionResult(decision, new LifecycleTrace());
+        stateTransitionEngine.apply(state, latest, result);
+    }
+
+    /**
+     * 构造默认配置。
+     */
+    private LifecycleConfig defaultConfig() {
+        return new LifecycleConfig("difDeaLifecycle", "ETHUSDT", "5M", 0.30, 0.0, 5, 4, 3, 2);
+    }
+
+    /**
+     * 构造空仓状态。
+     */
+    private LifecycleState neutralState() {
+        return new LifecycleState("difDeaLifecycle", "ETHUSDT", "5M");
+    }
+
+    /**
+     * 构造持仓状态。
+     */
+    private LifecycleState activeState(LifecyclePhase phase) {
+        LifecycleState state = new LifecycleState("difDeaLifecycle", "ETHUSDT", "5M");
+        state.setPhase(phase);
+        return state;
+    }
+
+    /**
+     * 构造样本列表。
+     */
+    private List<LifecycleIndicatorSample> samples(LifecycleIndicatorSample... samples) {
+        List<LifecycleIndicatorSample> list = new ArrayList<LifecycleIndicatorSample>();
+        for (LifecycleIndicatorSample sample : samples) {
+            list.add(sample);
+        }
+        return list;
+    }
+
+    /**
+     * 构造测试样本。
+     */
+    private LifecycleIndicatorSample sample(int index, double dif, double dea, double macd, double close) {
+        double open = macd >= 0 ? close - 0.2 : close + 0.2;
+        double high = Math.max(open, close) + 0.3;
+        double low = Math.min(open, close) - 0.3;
+        return new LifecycleIndicatorSample(index, "2026-07-01T00:" + String.format("%02d", index),
+                dif, dea, macd, open, high, low, close, Double.NaN,
+                Double.NaN, Double.NaN, Double.NaN, 0, Double.NaN, Double.NaN, Double.NaN);
+    }
+
+    /**
+     * 构造带指定 OHLC 的测试样本。
+     */
+    private LifecycleIndicatorSample sampleWithOhlc(int index,
+                                                    double dif,
+                                                    double dea,
+                                                    double macd,
+                                                    double open,
+                                                    double high,
+                                                    double low,
+                                                    double close) {
+        return new LifecycleIndicatorSample(index, "2026-07-01T00:" + String.format("%02d", index),
+                dif, dea, macd, open, high, low, close, Double.NaN,
+                Double.NaN, Double.NaN, Double.NaN, 0, Double.NaN, Double.NaN, Double.NaN);
+    }
+
+    /**
+     * 构造带 MA10/MA20 的测试样本。
+     */
+    private LifecycleIndicatorSample sampleWithMa(int index,
+                                                  double dif,
+                                                  double dea,
+                                                  double macd,
+                                                  double open,
+                                                  double high,
+                                                  double low,
+                                                  double close,
+                                                  double ma5,
+                                                  double ma10,
+                                                  double ma20) {
+        return new LifecycleIndicatorSample(index, "2026-07-01T00:" + String.format("%02d", index),
+                dif, dea, macd, open, high, low, close, Double.NaN,
+                Double.NaN, Double.NaN, Double.NaN, 0, Double.NaN, ma5, ma10, ma20);
+    }
+}

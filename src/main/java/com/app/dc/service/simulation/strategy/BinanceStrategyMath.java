@@ -17,7 +17,7 @@ public final class BinanceStrategyMath {
         Signal signal = new Signal();
         signal.symbol = symbol;
         signal.text = text == null ? null : text.toLowerCase();
-        signal.algoName = "AI";
+        signal.algoName = "DETERMINISTIC";
         signal.ocType = OCType.OPEN;
         signal.price = currentOhlc.close;
         return signal;

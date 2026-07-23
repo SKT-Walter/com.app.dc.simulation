@@ -36,4 +36,12 @@ public class BacktestStrategyService {
         }
         return strategy;
     }
+
+    public void resetAll(String symbol) {
+        for (BinanceBacktestStrategy strategy : strategyMap.values()) strategy.resetRuntime(symbol);
+    }
+
+    public void resetRuntime(String strategyName, String symbol) {
+        getStrategy(strategyName).resetRuntime(symbol);
+    }
 }

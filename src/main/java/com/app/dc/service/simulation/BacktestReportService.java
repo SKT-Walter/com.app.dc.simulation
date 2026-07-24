@@ -349,6 +349,8 @@ public class BacktestReportService {
             case "stop_first_same_bar": return "同根K线同时触发，按止损处理";
             case "stop_loss": return "触发止损";
             case "take_profit": return "触发止盈";
+            case "take_trailing_stop": return "趋势ATR跟踪止盈";
+            case "take_trend_invalidation": return "趋势失效退出";
             case "max_hold_bars": return "达到最大持仓K线数";
             case "reverse_signal": return "出现反向信号";
             case "strategy_close_signal": return "策略主动平仓";

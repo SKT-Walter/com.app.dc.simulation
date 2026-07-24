@@ -65,6 +65,7 @@ public class BacktestTradeService {
                 param.fallbackStopLossPct.doubleValue(), true);
         position.takePrice = resolveRiskPrice(signal.takerPrice, signal.side, position.entryPrice,
                 param.fallbackTakeProfitPct.doubleValue(), false);
+        position.stopExitReason = "stop_loss";
         position.maxHoldBars = param.maxHoldBars == null ? 0 : param.maxHoldBars;
         return position;
     }
@@ -75,6 +76,7 @@ public class BacktestTradeService {
         position.currentHoldBars++;
 
         if (position.side == Side.BUY) {
+            String stopReason = position.stopExitReason == null ? "stop_loss" : position.stopExitReason;
             boolean hitStop = position.stopPrice != null && low <= position.stopPrice;
             boolean hitTake = position.takePrice != null && high >= position.takePrice;
             if (hitStop && hitTake) {
@@ -83,13 +85,14 @@ public class BacktestTradeService {
             }
             if (hitStop) {
                 return closePosition(position, position.stopPrice, currentBar.getEndTime().toString(),
-                        "stop_loss", currentIndex, feeRatePct);
+                        stopReason, currentIndex, feeRatePct);
             }
             if (hitTake) {
                 return closePosition(position, position.takePrice, currentBar.getEndTime().toString(),
                         "take_profit", currentIndex, feeRatePct);
             }
         } else if (position.side == Side.SELL) {
+            String stopReason = position.stopExitReason == null ? "stop_loss" : position.stopExitReason;
             boolean hitStop = position.stopPrice != null && high >= position.stopPrice;
             boolean hitTake = position.takePrice != null && low <= position.takePrice;
             if (hitStop && hitTake) {
@@ -98,7 +101,7 @@ public class BacktestTradeService {
             }
             if (hitStop) {
                 return closePosition(position, position.stopPrice, currentBar.getEndTime().toString(),
-                        "stop_loss", currentIndex, feeRatePct);
+                        stopReason, currentIndex, feeRatePct);
             }
             if (hitTake) {
                 return closePosition(position, position.takePrice, currentBar.getEndTime().toString(),
@@ -134,6 +137,23 @@ public class BacktestTradeService {
     public boolean isOpposite(Side positionSide, Side signalSide) {
         return (positionSide == Side.BUY && signalSide == Side.SELL)
                 || (positionSide == Side.SELL && signalSide == Side.BUY);
+    }
+
+    /** Applies only a stricter protective stop and never widens the original risk. */
+    public void tightenStop(Position position, double candidateStop, double currentClose) {
+        if (position == null || !Double.isFinite(candidateStop) || candidateStop <= 0.0
+                || !Double.isFinite(currentClose) || currentClose <= 0.0) {
+            return;
+        }
+        if (position.side == Side.BUY && candidateStop < currentClose
+                && (position.stopPrice == null || candidateStop > position.stopPrice)) {
+            position.stopPrice = candidateStop;
+            position.stopExitReason = "take_trailing_stop";
+        } else if (position.side == Side.SELL && candidateStop > currentClose
+                && (position.stopPrice == null || candidateStop < position.stopPrice)) {
+            position.stopPrice = candidateStop;
+            position.stopExitReason = "take_trailing_stop";
+        }
     }
 
     public Double resolveRiskPrice(BigDecimal strategyPrice, Side side, double entryPrice,

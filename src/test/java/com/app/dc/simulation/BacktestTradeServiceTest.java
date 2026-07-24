@@ -3,6 +3,7 @@ package com.app.dc.simulation;
 import com.app.dc.po.Side;
 import com.app.dc.po.Signal;
 import com.app.dc.po.backtest.BacktestParam;
+import com.app.dc.service.simulation.BacktestModels.Position;
 import com.app.dc.service.simulation.BacktestTradeService;
 import org.junit.Assert;
 import org.junit.Test;
@@ -37,6 +38,26 @@ public class BacktestTradeServiceTest {
 
         BacktestParam noFallback = param("0", "0");
         Assert.assertNull(service.validateOpenSignal(signal(Side.BUY, "100", null, null), noFallback));
+    }
+
+    @Test
+    public void trailingStopCanOnlyTightenRisk() {
+        BacktestTradeService service = new BacktestTradeService();
+        Position buy = new Position();
+        buy.side = Side.BUY;
+        buy.stopPrice = 95.0;
+        service.tightenStop(buy, 101.0, 105.0);
+        Assert.assertEquals(101.0, buy.stopPrice, 0.0);
+        service.tightenStop(buy, 99.0, 105.0);
+        Assert.assertEquals(101.0, buy.stopPrice, 0.0);
+
+        Position sell = new Position();
+        sell.side = Side.SELL;
+        sell.stopPrice = 105.0;
+        service.tightenStop(sell, 99.0, 95.0);
+        Assert.assertEquals(99.0, sell.stopPrice, 0.0);
+        service.tightenStop(sell, 101.0, 95.0);
+        Assert.assertEquals(99.0, sell.stopPrice, 0.0);
     }
 
     @Test

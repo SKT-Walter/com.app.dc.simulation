@@ -94,6 +94,7 @@ public final class BacktestModels {
         public int entryIndex;
         public Double stopPrice;
         public Double takePrice;
+        public String stopExitReason;
         public int maxHoldBars;
         public int currentHoldBars;
         public String strategyName;

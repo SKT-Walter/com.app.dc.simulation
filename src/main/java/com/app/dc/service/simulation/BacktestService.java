@@ -10,6 +10,7 @@ import com.app.dc.service.simulation.BacktestModels.EquityContext;
 import com.app.dc.service.simulation.BacktestModels.Position;
 import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import com.app.dc.service.simulation.strategy.BinanceBacktestMarketGuard;
+import com.app.dc.service.simulation.strategy.PositionManagementResult;
 import com.app.dc.service.simulation.deterministic.DeterministicBacktestPipeline;
 import com.app.dc.service.simulation.deterministic.DeterministicPipelineResult;
 import com.app.dc.service.simulation.deterministic.StrategyRoutingDecision;
@@ -251,6 +252,14 @@ public class BacktestService {
                     session.position = null;
                 }
             }
+            if (session.position != null && session.position.entryIndex < index) {
+                TradeRecord managed = manageOwnedPosition(session.position, session.param.symbol, session.param.text,
+                        session.series, ohlc, bar, index, session.param.feeRatePct.doubleValue());
+                if (managed != null) {
+                    applyClosedTrade(session.result, managed, session.equity, session.param.symbol, index);
+                    session.position = null;
+                }
+            }
             DeterministicPipelineResult pipelineResult = deterministicPipeline.onClosedBar(
                     session.routerState, session.param.symbol, session.param.text, session.series, ohlc);
             StrategyRoutingDecision decision = pipelineResult.routingDecision;
@@ -269,6 +278,7 @@ public class BacktestService {
                 session.position = tradeService.openPosition(signal, index, bar, session.param);
                 session.position.strategyName = decision.strategyName;
                 session.position.regime = decision.regime;
+                disableFallbackTakeProfitWhenRequested(session.position, signal, decision.strategyName);
                 increment(session.stats.strategyTradeCounts, decision.strategyName);
             } else if (tradeService.isOpposite(session.position.side, signal.side)) {
                 String rejection = tradeService.validateOpenSignal(signal, session.param);
@@ -281,6 +291,7 @@ public class BacktestService {
                 session.position = tradeService.openPosition(signal, index, bar, session.param);
                 session.position.strategyName = decision.strategyName;
                 session.position.regime = decision.regime;
+                disableFallbackTakeProfitWhenRequested(session.position, signal, decision.strategyName);
                 increment(session.stats.strategyTradeCounts, decision.strategyName);
             }
         }
@@ -377,6 +388,16 @@ public class BacktestService {
                     session.position = null;
                 }
             }
+            if (session.position != null && session.position.entryIndex < session.replaySeries.getEndIndex()) {
+                TradeRecord managed = manageOwnedPosition(session.position, session.param.symbol, session.param.text,
+                        session.replaySeries, ohlc, bar, session.replaySeries.getEndIndex(),
+                        session.param.feeRatePct.doubleValue());
+                if (managed != null) {
+                    applyClosedTrade(session.result, managed, session.equityContext,
+                            session.param.symbol, session.replaySeries.getEndIndex());
+                    session.position = null;
+                }
+            }
 
             Signal signal = strategyService.evaluateSignal(session.normalizedStrategy, session.param.symbol, session.param.text, session.replaySeries, ohlc);
             // NONE 表示无信号，不开仓也不反手。
@@ -396,6 +417,7 @@ public class BacktestService {
                 }
                 session.position = tradeService.openPosition(signal, session.replaySeries.getEndIndex(), bar, session.param);
                 session.position.strategyName = session.normalizedStrategy;
+                disableFallbackTakeProfitWhenRequested(session.position, signal, session.normalizedStrategy);
                 continue;
             }
 
@@ -412,7 +434,36 @@ public class BacktestService {
                         session.param.symbol, session.replaySeries.getEndIndex());
                 session.position = tradeService.openPosition(signal, session.replaySeries.getEndIndex(), bar, session.param);
                 session.position.strategyName = session.normalizedStrategy;
+                disableFallbackTakeProfitWhenRequested(session.position, signal, session.normalizedStrategy);
             }
+        }
+    }
+
+    private TradeRecord manageOwnedPosition(Position position, String symbol, String text, BarSeries series,
+                                             TTbookOhlc currentOhlc, Bar bar, int index, double feeRatePct) {
+        if (position == null || position.strategyName == null) {
+            return null;
+        }
+        PositionManagementResult management = strategyService.managePosition(
+                position.strategyName, symbol, text, series, currentOhlc, position);
+        if (management == null) {
+            return null;
+        }
+        if (management.exit) {
+            String reason = management.exitReason == null ? "strategy_close_signal" : management.exitReason;
+            return tradeService.closePosition(position, bar.getClosePrice().doubleValue(),
+                    bar.getEndTime().toString(), reason, index, feeRatePct);
+        }
+        if (management.stopPrice != null) {
+            tradeService.tightenStop(position, management.stopPrice, bar.getClosePrice().doubleValue());
+        }
+        return null;
+    }
+
+    private void disableFallbackTakeProfitWhenRequested(Position position, Signal signal, String strategyName) {
+        if (position != null && signal != null && signal.takerPrice == null
+                && !strategyService.useFallbackTakeProfit(strategyName)) {
+            position.takePrice = null;
         }
     }
 

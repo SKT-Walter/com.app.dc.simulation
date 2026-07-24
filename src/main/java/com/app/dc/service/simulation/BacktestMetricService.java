@@ -53,7 +53,9 @@ public class BacktestMetricService {
         context.equity = nextEquity;
         context.peakEquity = Math.max(context.peakEquity, context.equity);
         context.totalHoldBars += tradeRecord.holdBars == null ? 0 : tradeRecord.holdBars;
-        result.maxDrawdownPct = scale(calcDrawdownPct(context.peakEquity, context.equity));
+        context.maxDrawdownPct = Math.max(context.maxDrawdownPct,
+                calcDrawdownPct(context.peakEquity, context.equity));
+        result.maxDrawdownPct = scale(context.maxDrawdownPct);
     }
 
     public void finishResult(BacktestResult result, EquityContext context) {

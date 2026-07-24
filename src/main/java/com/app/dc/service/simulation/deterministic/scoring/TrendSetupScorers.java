@@ -17,6 +17,16 @@ abstract class TrendScorer extends AbstractSetupScorer {
     public String strategyName(){return "binanceTrend";}
     public StrategySetupScore score(StrategyEvaluationContext x){return result(.6*trendAlignment(x)+.4*pullback(x.technical),"均线趋势与回踩");}
 }
+@Service class VwapDeviationMomentumSetupScorer extends TrendScorer {
+    public String strategyName(){return "vwapDeviationMomentum";}
+    public StrategySetupScore score(StrategyEvaluationContext x){
+        TechnicalSnapshot t=x.technical;
+        double deviation=n(Math.abs(t.close-t.vwap20)/Math.max(t.atr,1e-9),.5,2);
+        boolean aligned="UP".equals(x.regime.trend)?t.close>t.vwap20:"DOWN".equals(x.regime.trend)&&t.close<t.vwap20;
+        boolean expanding="UP".equals(x.regime.trend)?t.close>t.previousClose:t.close<t.previousClose;
+        return result(.45*trendAlignment(x)+.35*deviation+.2*(aligned&&expanding?1:0),"趋势中的VWAP偏离扩张");
+    }
+}
 @Service class EmaPullbackBuySetupScorer extends TrendScorer {
     public String strategyName(){return "emaPullbackBuy";}
     public StrategySetupScore score(StrategyEvaluationContext x){double direction="UP".equals(x.regime.trend)?1:0;return result(.45*trendAlignment(x)+.4*pullback(x.technical)+.15*direction,"EMA多头回踩");}

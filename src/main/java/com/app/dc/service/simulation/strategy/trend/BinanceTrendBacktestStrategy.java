@@ -15,6 +15,7 @@ public class BinanceTrendBacktestStrategy implements BinanceBacktestStrategy {
     private static final int MID = 21;
     private static final int SLOW = 55;
     private static final double TREND_PULLBACK_PCT = 0.006;
+    private static final double STOP_LOSS_PCT = 0.05;
 
     @Override
     public String getName() {
@@ -42,8 +43,10 @@ public class BinanceTrendBacktestStrategy implements BinanceBacktestStrategy {
 
         if (upTrend && nearFastMa) {
             signal.side = Side.BUY;
+            signal.stopPrice = BinanceStrategyMath.scale(close * (1.0 - STOP_LOSS_PCT));
         } else if (downTrend && nearFastMa) {
             signal.side = Side.SELL;
+            signal.stopPrice = BinanceStrategyMath.scale(close * (1.0 + STOP_LOSS_PCT));
         }
         return signal;
     }

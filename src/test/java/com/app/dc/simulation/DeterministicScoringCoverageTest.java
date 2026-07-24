@@ -50,6 +50,12 @@ public class DeterministicScoringCoverageTest {
                 Assert.assertTrue(meta.strategyName, card.score >= 0 && card.score <= 100);
             }
             Assert.assertEquals(25, enabled);
+            Assert.assertEquals(26, catalog.all().size());
+            DynamicStrategyMeta momentum = catalog.find("vwapDeviationMomentum");
+            Assert.assertNotNull(momentum);
+            Assert.assertFalse(momentum.enabled);
+            DeterministicScoreCard momentumCard = scoring.score(context, momentum);
+            Assert.assertTrue(Double.isFinite(momentumCard.score));
         } finally {
             spring.close();
         }

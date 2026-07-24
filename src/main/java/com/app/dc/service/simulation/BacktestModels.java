@@ -103,6 +103,7 @@ public final class BacktestModels {
     public static class EquityContext {
         public double equity;
         public double peakEquity;
+        public double maxDrawdownPct;
         public double totalPositiveReturnPct;
         public double totalNegativeReturnPct;
         public long totalHoldBars;

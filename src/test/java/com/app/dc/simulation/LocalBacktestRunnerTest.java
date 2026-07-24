@@ -25,7 +25,8 @@ public class LocalBacktestRunnerTest {
     public void runLocalBacktest() throws Exception {
         LocalBacktestRunner.main(new String[]{
                 "--strategy=all",
-                "--symbols=ETHUSDT",
+//                "--symbols=ETHUSDT",
+                "--symbols=SOLUSDT",
                 "--text=15m",
                 "--begin=2026-06-01",
                 "--end=2026-06-30",
@@ -44,10 +45,14 @@ public class LocalBacktestRunnerTest {
         LocalBacktestRunner.main(new String[]{
                 "--strategy=deterministic",
                 "--symbols=ETHUSDT",
+//                "--symbols=SOLUSDT",
                 "--text=15m",
                 "--begin=2025-05-01",
-                "--end=2025-12-30",
-                "--chunkDays=2"
+                "--end=2026-05-01",
+                "--chunkDays=2",
+                "--fee=0.04",
+                "--stopLoss=5",
+                "--takeProfit=7",
         });
     }
 

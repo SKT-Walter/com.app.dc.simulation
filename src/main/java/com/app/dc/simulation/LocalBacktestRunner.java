@@ -5,6 +5,7 @@ import com.app.dc.service.simulation.BacktestModels;
 import com.app.dc.service.simulation.BacktestQueryService;
 import com.app.dc.service.simulation.BacktestReportService;
 import com.app.dc.service.simulation.BacktestService;
+import org.apache.log4j.PropertyConfigurator;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -34,6 +35,7 @@ public final class LocalBacktestRunner {
         BacktestParam param = toParam(options);
         int chunkDays = integer(options, "chunkDays", 2, 1, 20);
         Path projectDir = resolveProjectDir(options);
+        configureLogging(projectDir);
         ConfigurableApplicationContext context = new SpringApplicationBuilder(LocalApp.class)
                 .web(WebApplicationType.NONE)
                 .properties("spring.config.location="
@@ -66,6 +68,13 @@ public final class LocalBacktestRunner {
         } finally {
             context.close();
         }
+    }
+
+    private static void configureLogging(Path projectDir) {
+        Path log4jConfig = projectDir.resolve("config/log4j.ini").toAbsolutePath().normalize();
+        if (!Files.isRegularFile(log4jConfig))
+            throw new IllegalStateException("log4j config does not exist: " + log4jConfig);
+        PropertyConfigurator.configure(log4jConfig.toString());
     }
 
     static Map<String, String> parse(String[] args) {

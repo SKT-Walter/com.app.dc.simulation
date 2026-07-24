@@ -343,9 +343,18 @@ public class TrendPullbackRecoveryBacktestStrategy implements BinanceBacktestStr
         }
         int start = slowPeriod - 1;
         double[] difArr = new double[end - start + 1];
-        int idx = 0;
-        for (int i = start; i <= end; i++) {
-            difArr[idx++] = ema(series, i, fastPeriod) - ema(series, i, slowPeriod);
+        double fast = sma(series, fastPeriod - 1, fastPeriod);
+        double fastK = 2.0 / (fastPeriod + 1.0);
+        for (int i = fastPeriod; i <= start; i++) {
+            fast = close(series, i) * fastK + fast * (1.0 - fastK);
+        }
+        double slow = sma(series, slowPeriod - 1, slowPeriod);
+        double slowK = 2.0 / (slowPeriod + 1.0);
+        difArr[0] = fast - slow;
+        for (int i = start + 1; i <= end; i++) {
+            fast = close(series, i) * fastK + fast * (1.0 - fastK);
+            slow = close(series, i) * slowK + slow * (1.0 - slowK);
+            difArr[i - start] = fast - slow;
         }
         double dea = emaOfArray(difArr, signalPeriod);
         return difArr[difArr.length - 1] - dea;

@@ -85,6 +85,7 @@ public class BacktestService {
                 results.add(runSingleStrategy("binanceRangeMacd", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceChannel", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceTrend", symbolParam, ohlcList));
+                results.add(runSingleStrategy("vwapDeviationMomentum", symbolParam, ohlcList));
                 results.add(runSingleStrategy("breakoutRetestContinuationTrend", symbolParam, ohlcList));
                 results.add(runSingleStrategy("emaPullbackBuy", symbolParam, ohlcList));
                 results.add(runSingleStrategy("trendRestart", symbolParam, ohlcList));
@@ -246,7 +247,7 @@ public class BacktestService {
             if (session.position != null && session.position.entryIndex < index) {
                 TradeRecord closed = tradeService.tryCloseByRisk(session.position, bar, index, session.param.feeRatePct.doubleValue());
                 if (closed != null) {
-                    metricService.applyTrade(session.result, closed, session.equity);
+                    applyClosedTrade(session.result, closed, session.equity, session.param.symbol, index);
                     session.position = null;
                 }
             }
@@ -276,7 +277,7 @@ public class BacktestService {
                     continue;
                 }
                 TradeRecord reversed = tradeService.closePosition(session.position, bar.getClosePrice().doubleValue(), bar.getEndTime().toString(), "reverse_signal", index, session.param.feeRatePct.doubleValue());
-                metricService.applyTrade(session.result, reversed, session.equity);
+                applyClosedTrade(session.result, reversed, session.equity, session.param.symbol, index);
                 session.position = tradeService.openPosition(signal, index, bar, session.param);
                 session.position.strategyName = decision.strategyName;
                 session.position.regime = decision.regime;
@@ -304,7 +305,7 @@ public class BacktestService {
         if (session.position != null && session.series.getBarCount() > 0) {
             Bar last = session.series.getLastBar();
             TradeRecord closed = tradeService.closePosition(session.position, last.getClosePrice().doubleValue(), last.getEndTime().toString(), "end_of_test", session.series.getEndIndex(), session.param.feeRatePct.doubleValue());
-            metricService.applyTrade(session.result, closed, session.equity);
+            applyClosedTrade(session.result, closed, session.equity, session.param.symbol, session.series.getEndIndex());
             session.position = null;
         }
         metricService.finishResult(session.result, session.equity);
@@ -350,7 +351,7 @@ public class BacktestService {
         String normalizedStrategy = supportService.normalizeStrategyName(strategyName);
         Duration duration = supportService.resolveDuration(param.text);
         BarSeries replaySeries = new BaseBarSeries(param.symbol + "-" + param.text + "-" + normalizedStrategy);
-        strategyService.getStrategy(normalizedStrategy).resetRuntime(param.symbol);
+        strategyService.getStrategy(normalizedStrategy).resetSession(param.symbol);
 
         BacktestResult result = initResult(normalizedStrategy, param);
         EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue());
@@ -371,7 +372,8 @@ public class BacktestService {
                 TradeRecord riskClosed = tradeService.tryCloseByRisk(session.position, bar, session.replaySeries.getEndIndex(),
                         session.param.feeRatePct.doubleValue());
                 if (riskClosed != null) {
-                    metricService.applyTrade(session.result, riskClosed, session.equityContext);
+                    applyClosedTrade(session.result, riskClosed, session.equityContext,
+                            session.param.symbol, session.replaySeries.getEndIndex());
                     session.position = null;
                 }
             }
@@ -393,6 +395,7 @@ public class BacktestService {
                     continue;
                 }
                 session.position = tradeService.openPosition(signal, session.replaySeries.getEndIndex(), bar, session.param);
+                session.position.strategyName = session.normalizedStrategy;
                 continue;
             }
 
@@ -405,8 +408,10 @@ public class BacktestService {
                 TradeRecord reversed = tradeService.closePosition(session.position, bar.getClosePrice().doubleValue(),
                         bar.getEndTime().toString(), "reverse_signal", session.replaySeries.getEndIndex(),
                         session.param.feeRatePct.doubleValue());
-                metricService.applyTrade(session.result, reversed, session.equityContext);
+                applyClosedTrade(session.result, reversed, session.equityContext,
+                        session.param.symbol, session.replaySeries.getEndIndex());
                 session.position = tradeService.openPosition(signal, session.replaySeries.getEndIndex(), bar, session.param);
+                session.position.strategyName = session.normalizedStrategy;
             }
         }
     }
@@ -417,7 +422,8 @@ public class BacktestService {
             TradeRecord ended = tradeService.closePosition(session.position, lastBar.getClosePrice().doubleValue(),
                     lastBar.getEndTime().toString(), "end_of_test", session.replaySeries.getEndIndex(),
                     session.param.feeRatePct.doubleValue());
-            metricService.applyTrade(session.result, ended, session.equityContext);
+            applyClosedTrade(session.result, ended, session.equityContext,
+                    session.param.symbol, session.replaySeries.getEndIndex());
             session.position = null;
         }
 
@@ -432,6 +438,12 @@ public class BacktestService {
             }
         }
         return session.result;
+    }
+
+    private void applyClosedTrade(BacktestResult result, TradeRecord trade, EquityContext equity,
+                                  String symbol, int exitBarIndex) {
+        metricService.applyTrade(result, trade, equity);
+        strategyService.onTradeClosed(trade.strategyName, symbol, exitBarIndex, trade);
     }
 
     private void updateActualCoverage(BacktestResult result, BarSeries series) {

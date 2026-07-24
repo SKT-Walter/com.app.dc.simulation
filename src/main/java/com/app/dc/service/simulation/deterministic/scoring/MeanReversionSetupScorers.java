@@ -31,7 +31,14 @@ abstract class MeanReversionScorer extends AbstractSetupScorer {
 }
 @Service class VwapReversionSetupScorer extends MeanReversionScorer {
     public String strategyName(){return "vwapReversion";}
-    public StrategySetupScore score(StrategyEvaluationContext x){TechnicalSnapshot t=x.technical;return result(n(Math.abs(t.close-t.vwap20)/Math.max(t.atr,1e-9),.3,1.5),"VWAP偏离");}
+    public StrategySetupScore score(StrategyEvaluationContext x){
+        TechnicalSnapshot t=x.technical;
+        double deviation=n(Math.abs(t.close-t.vwap20)/Math.max(t.atr,1e-9),.3,1.5);
+        boolean recovering=t.close<t.vwap20
+                ? t.close>t.previousClose && t.close>t.open
+                : t.close>t.vwap20 && t.close<t.previousClose && t.close<t.open;
+        return result(.55*deviation+.45*(recovering?1:0),"VWAP偏离后出现方向性回归");
+    }
 }
 @Service class ZScoreReversionSetupScorer extends MeanReversionScorer {
     public String strategyName(){return "zscoreReversion";}
@@ -63,4 +70,4 @@ abstract class MeanReversionScorer extends AbstractSetupScorer {
 }
 
 /** Marker file; concrete package-private scorer classes above are independent Spring components. */
-public final class MeanReversionSetupScorers { private MeanReversionSetupScorers(){} }
+public final class MeanReversionSetupScorers { private MeanReversionSetupScorers(){}}

@@ -106,6 +106,11 @@ public class BacktestSupportService {
         if ("vwap".equalsIgnoreCase(value)) {
             return "vwapReversion";
         }
+        if ("vwapmomentum".equalsIgnoreCase(value)
+                || "vwap_momentum".equalsIgnoreCase(value)
+                || "vwapdeviationmomentum".equalsIgnoreCase(value)) {
+            return "vwapDeviationMomentum";
+        }
         if ("zscore".equalsIgnoreCase(value) || "z_score".equalsIgnoreCase(value)) {
             return "zscoreReversion";
         }

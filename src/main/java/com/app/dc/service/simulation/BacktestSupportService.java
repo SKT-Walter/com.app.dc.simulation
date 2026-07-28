@@ -21,8 +21,10 @@ public class BacktestSupportService {
         if ("range".equalsIgnoreCase(value)) {
             return "binanceRange";
         }
-        if ("rangeguarded".equalsIgnoreCase(value) || "range_guarded".equalsIgnoreCase(value)) {
-            return "binanceRangeGuarded";
+        if ("binanceRangeGuarded".equalsIgnoreCase(value)
+                || "rangeguarded".equalsIgnoreCase(value)
+                || "range_guarded".equalsIgnoreCase(value)) {
+            return "binanceRange";
         }
         if ("rangemacd".equalsIgnoreCase(value) || "range_macd".equalsIgnoreCase(value)) {
             return "binanceRangeMacd";

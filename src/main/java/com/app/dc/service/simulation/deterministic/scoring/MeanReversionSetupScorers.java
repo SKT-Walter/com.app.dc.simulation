@@ -3,6 +3,7 @@ package com.app.dc.service.simulation.deterministic.scoring;
 import com.app.dc.service.simulation.deterministic.StrategyEvaluationContext;
 import com.app.dc.service.simulation.deterministic.StrategySetupScore;
 import com.app.dc.service.simulation.deterministic.TechnicalSnapshot;
+import com.app.dc.service.simulation.strategy.range.BinanceRangeSetupAnalyzer;
 import org.springframework.stereotype.Service;
 
 abstract class MeanReversionScorer extends AbstractSetupScorer {
@@ -11,11 +12,10 @@ abstract class MeanReversionScorer extends AbstractSetupScorer {
 
 @Service class BinanceRangeSetupScorer extends MeanReversionScorer {
     public String strategyName(){return "binanceRange";}
-    public StrategySetupScore score(StrategyEvaluationContext x){return result(rangeEdge(x.technical),"价格接近区间边缘");}
-}
-@Service class BinanceRangeGuardedSetupScorer extends MeanReversionScorer {
-    public String strategyName(){return "binanceRangeGuarded";}
-    public StrategySetupScore score(StrategyEvaluationContext x){return result(.6*rangeEdge(x.technical)+.4*reversal(x.technical),"区间边缘与反转确认");}
+    public StrategySetupScore score(StrategyEvaluationContext x){
+        BinanceRangeSetupAnalyzer.Snapshot setup=BinanceRangeSetupAnalyzer.analyze(x.series);
+        return result(setup.readiness,setup.reason);
+    }
 }
 @Service class BinanceRangeMacdSetupScorer extends MeanReversionScorer {
     public String strategyName(){return "binanceRangeMacd";}

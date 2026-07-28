@@ -81,7 +81,6 @@ public class BacktestService {
             BacktestParam symbolParam = copyParamForSymbol(req, symbol);
             if ("all".equalsIgnoreCase(req.strategyName)) {
                 results.add(runSingleStrategy("binanceRange", symbolParam, ohlcList));
-                results.add(runSingleStrategy("binanceRangeGuarded", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceRangeMacd", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceChannel", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceTrend", symbolParam, ohlcList));

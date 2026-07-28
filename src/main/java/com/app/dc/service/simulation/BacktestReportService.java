@@ -377,6 +377,13 @@ public class BacktestReportService {
             case "virtual_position_active": return "虚拟持仓仍有效";
             case "cooldown": return "策略处于冷却期";
             case "VWAP_STOP_COOLDOWN": return "VWAP止损后冷却";
+            case "BINANCE_RANGE_STOP_COOLDOWN": return "区间策略止损后冷却";
+            case "RANGE_DATA_WARMUP": return "区间策略数据预热";
+            case "RANGE_INVALID_REFERENCE": return "区间参考边界无效";
+            case "RANGE_BOX_UNSTABLE": return "历史箱体不稳定";
+            case "RANGE_BREAKOUT_INVALIDATED": return "区间突破超过容许范围";
+            case "RANGE_RECOVERY_NOT_CONFIRMED": return "触边后尚未确认回归";
+            case "RANGE_EDGE_NOT_TOUCHED": return "价格尚未触及区间边缘";
             case "drift_block_buy": return "趋势漂移阻止买入";
             case "drift_block_sell": return "趋势漂移阻止卖出";
             case "INVALID_ENTRY_PRICE": return "开仓价格无效";

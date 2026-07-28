@@ -228,7 +228,7 @@ public class BacktestReportService {
                     "前一策略", "当前策略", "执行策略", "信号来源",
                     "当前分数", "挑战策略", "挑战分数", "分差", "确认计数",
                     "候选Top3", "路由原因");
-            List<List<String>> routingRows = new ArrayList<>();
+            appendCompactTableHeader(sb, routingHeaders);
             for (StrategyRoutingDecision d : response.routingDecisions) {
                 List<String> row = new ArrayList<>();
                 row.add(String.valueOf(d.barTime)); row.add(s(d.regime)); row.add(percent(d.regimeConfidence));
@@ -239,9 +239,8 @@ public class BacktestReportService {
                 row.add(score(d.activeScore)); row.add(s(d.challengerStrategyName)); row.add(score(d.challengerScore));
                 row.add(score(d.scoreGap)); row.add(String.valueOf(d.pendingCount));
                 row.add(topScores(d.scoreCards)); row.add(translateRoutingReason(d.reason));
-                routingRows.add(row);
+                appendCompactRow(sb, row, routingHeaders.size());
             }
-            appendAlignedTable(sb, routingHeaders, routingRows);
             sb.append("\n");
         }
 
@@ -421,6 +420,22 @@ public class BacktestReportService {
                     .append("(").append(signedScore(card.structuralAdjustment)).append(")");
         }
         return value.toString();
+    }
+
+    private void appendCompactTableHeader(StringBuilder sb, List<String> headers) {
+        appendCompactRow(sb, headers, headers.size());
+        sb.append("|");
+        for (int i = 0; i < headers.size(); i++) sb.append(" --- |");
+        sb.append("\n");
+    }
+
+    private void appendCompactRow(StringBuilder sb, List<String> row, int columns) {
+        sb.append("|");
+        for (int i = 0; i < columns; i++) {
+            String cell = i < row.size() ? safeCell(row.get(i)) : "";
+            sb.append(" ").append(cell).append(" |");
+        }
+        sb.append("\n");
     }
 
     private String percent(BigDecimal ratio) {

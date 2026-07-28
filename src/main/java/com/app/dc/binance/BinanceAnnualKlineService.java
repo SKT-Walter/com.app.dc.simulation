@@ -10,12 +10,16 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Coordinates monthly/daily archives and builds one validated Beijing-calendar-year dataset. */
 @Slf4j
@@ -78,7 +82,11 @@ public final class BinanceAnnualKlineService {
         Path monthlyZip = repository.obtain(monthly);
         if (monthlyZip != null) {
             logArchive("monthly", monthly);
-            return new MonthResult(parser.parse(monthlyZip, interval));
+            List<BinanceKline> rows = parser.parse(monthlyZip, interval);
+            if (historical) {
+                repairHistoricalMonthlyGaps(symbol, interval, month, rows);
+            }
+            return new MonthResult(rows);
         }
 
         LocalDate yesterdayUtc = LocalDate.now(clock.withZone(ZoneId.of("UTC"))).minusDays(1);
@@ -103,6 +111,38 @@ public final class BinanceAnnualKlineService {
             if (!dailyRows.isEmpty()) started = true;
         }
         return new MonthResult(rows);
+    }
+
+    /**
+     * Binance Vision occasionally publishes a monthly archive with missing days even though
+     * the corresponding daily archives are complete. Repair only those missing UTC days and
+     * leave the final continuity/conflict validation to {@link #normalizeAndFilter}.
+     */
+    private void repairHistoricalMonthlyGaps(String symbol, String interval, YearMonth month,
+                                             List<BinanceKline> rows) throws IOException {
+        if (rows.isEmpty()) return;
+        long duration = BinanceInterval.durationMillis(interval);
+        long expectedStart = month.atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
+        long expectedEnd = month.plusMonths(1).atDay(1).atStartOfDay(ZoneOffset.UTC)
+                .toInstant().toEpochMilli();
+        Set<Long> actualTimes = new HashSet<Long>();
+        for (BinanceKline row : rows) actualTimes.add(row.getOpenTime());
+
+        Set<LocalDate> missingDays = new LinkedHashSet<LocalDate>();
+        for (long time = expectedStart; time < expectedEnd; time += duration) {
+            if (!actualTimes.contains(time)) {
+                missingDays.add(Instant.ofEpochMilli(time).atZone(ZoneOffset.UTC).toLocalDate());
+            }
+        }
+        for (LocalDate date : missingDays) {
+            BinanceVisionArchiveLocator.Archive daily = locator.daily(symbol, interval, date);
+            Path dailyZip = repository.obtain(daily);
+            if (dailyZip == null)
+                throw new IOException("monthly archive has a gap and repair daily archive is missing: "
+                        + daily.getZipUri());
+            logArchive("daily gap repair", daily);
+            rows.addAll(parser.parse(dailyZip, interval));
+        }
     }
 
     private void logArchive(String cadence, BinanceVisionArchiveLocator.Archive archive) {

@@ -38,8 +38,6 @@ public class BacktestReportService {
     @Value("${binanceBacktestReportDir:./src/docs}")
     private String reportDir;
 
-    @Value("${binanceBacktestReportMaxTrades:120}")
-    private int reportMaxTrades;
 
     public String writeReport(BacktestResponse response) {
         if (!reportEnabled || response == null) {
@@ -216,21 +214,32 @@ public class BacktestReportService {
             sb.append("- 信号统计：").append(a.signalCounts).append("\n");
             sb.append("- 策略信号统计：").append(a.strategySignalCounts).append("\n");
             sb.append("- 策略成交统计：").append(a.strategyTradeCounts).append("\n\n");
+            sb.append("- 结构趋势分布：").append(a.structuralTrendCounts).append("\n");
+            sb.append("- 结构趋势阶段：").append(a.structuralPhaseCounts).append("\n");
+            sb.append("- 信号来源统计：").append(a.signalSourceCounts).append("\n");
+            sb.append("- 结构评分修正：").append(a.structuralScoreAdjustmentCounts).append("\n\n");
         }
 
         if (response.routingDecisions != null && !response.routingDecisions.isEmpty()) {
             sb.append("## Market Regime 与确定性策略路由记录").append("\n\n");
             List<String> routingHeaders = java.util.Arrays.asList(
-                    "决策时间戳", "Regime", "Regime置信度", "前一策略", "当前策略",
-                    "当前分数", "挑战策略", "挑战分数", "分差", "确认计数", "候选Top3", "路由原因");
+                    "决策时间戳", "Regime", "Regime置信度", "结构趋势", "结构阶段",
+                    "结构置信度", "结构分数修正", "结构修正原因",
+                    "前一策略", "当前策略", "执行策略", "信号来源",
+                    "当前分数", "挑战策略", "挑战分数", "分差", "确认计数",
+                    "候选Top3", "路由原因");
             List<List<String>> routingRows = new ArrayList<>();
             for (StrategyRoutingDecision d : response.routingDecisions) {
                 List<String> row = new ArrayList<>();
                 row.add(String.valueOf(d.barTime)); row.add(s(d.regime)); row.add(percent(d.regimeConfidence));
+                row.add(s(d.structuralTrend)); row.add(s(d.structuralPhase)); row.add(percent(d.structuralConfidence));
+                row.add(signedScore(d.structuralScoreAdjustment)); row.add(s(d.structuralScoreReason));
                 row.add(s(d.previousStrategyName)); row.add(d.strategyName == null ? "NO_TRADE" : s(d.strategyName));
+                row.add(s(d.executionStrategyName)); row.add(s(d.signalSource));
                 row.add(score(d.activeScore)); row.add(s(d.challengerStrategyName)); row.add(score(d.challengerScore));
                 row.add(score(d.scoreGap)); row.add(String.valueOf(d.pendingCount));
-                row.add(topScores(d.scoreCards)); row.add(translateRoutingReason(d.reason)); routingRows.add(row);
+                row.add(topScores(d.scoreCards)); row.add(translateRoutingReason(d.reason));
+                routingRows.add(row);
             }
             appendAlignedTable(sb, routingHeaders, routingRows);
             sb.append("\n");
@@ -246,8 +255,7 @@ public class BacktestReportService {
 
             List<List<String>> tradeRows = new ArrayList<>();
             List<TradeRecord> tradeList = r.tradeList == null ? Collections.<TradeRecord>emptyList() : r.tradeList;
-            int max = Math.min(Math.max(reportMaxTrades, 0), tradeList.size());
-            for (int idx = 0; idx < max; idx++) {
+            for (int idx = 0; idx < tradeList.size(); idx++) {
                 TradeRecord t = tradeList.get(idx);
                 List<String> row = new ArrayList<>();
                 row.add(String.valueOf(idx + 1));
@@ -268,11 +276,6 @@ public class BacktestReportService {
                 tradeRows.add(row);
             }
             appendAlignedTable(sb, tradeHeaders, tradeRows);
-            if (tradeList.size() > max) {
-                sb.append("\n");
-                sb.append("> 交易明细已截断：另有 ").append(tradeList.size() - max)
-                        .append(" 条未显示（当前上限=").append(max).append("）\n");
-            }
             sb.append("\n");
 
             if (r.rejectReasonCounts != null && !r.rejectReasonCounts.isEmpty()) {
@@ -374,6 +377,7 @@ public class BacktestReportService {
             case "confirm_failed": return "信号确认失败";
             case "virtual_position_active": return "虚拟持仓仍有效";
             case "cooldown": return "策略处于冷却期";
+            case "VWAP_STOP_COOLDOWN": return "VWAP止损后冷却";
             case "drift_block_buy": return "趋势漂移阻止买入";
             case "drift_block_sell": return "趋势漂移阻止卖出";
             case "INVALID_ENTRY_PRICE": return "开仓价格无效";
@@ -413,7 +417,8 @@ public class BacktestReportService {
             if (i > 0) value.append("; ");
             DeterministicScoreCard card = cards.get(i);
             value.append(card.strategyName).append("=")
-                    .append(BigDecimal.valueOf(card.score).setScale(2, RoundingMode.HALF_UP).toPlainString());
+                    .append(BigDecimal.valueOf(card.score).setScale(2, RoundingMode.HALF_UP).toPlainString())
+                    .append("(").append(signedScore(card.structuralAdjustment)).append(")");
         }
         return value.toString();
     }
@@ -432,6 +437,12 @@ public class BacktestReportService {
     private String score(double value) {
         if (!Double.isFinite(value)) return "";
         return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_UP).toPlainString() + "/100";
+    }
+
+    private String signedScore(double value) {
+        if (!Double.isFinite(value)) return "";
+        String number = BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_UP).toPlainString();
+        return (value > 0 ? "+" : "") + number;
     }
 
     private String money(BigDecimal value) {

@@ -22,10 +22,13 @@ public final class TechnicalSnapshot {
     public final double zScore20;
     public final double rsi14;
     public final double vwap20;
+    public final double previousVwap20;
     public final double recentHigh;
     public final double recentLow;
     public final double previousHigh;
     public final double previousLow;
+    public final double previousBarHigh;
+    public final double previousBarLow;
     public final double closeLocation;
     public final double bodyAtr;
     public final double structureStrength;
@@ -36,8 +39,10 @@ public final class TechnicalSnapshot {
                              double atr, double atrPercentile, double adx,
                              double emaFast, double emaSlow, double ema10, double ema20, double ema60,
                              double emaSlowSlope, double volumeRatio, double bandwidth,
-                             double previousBandwidth, double zScore20, double rsi14, double vwap20,
+                             double previousBandwidth, double zScore20, double rsi14,
+                             double vwap20, double previousVwap20,
                              double recentHigh, double recentLow, double previousHigh, double previousLow,
+                             double previousBarHigh, double previousBarLow,
                              double closeLocation, double bodyAtr, double structureStrength,
                              double meanRecoveryStrength, double macdImprovement) {
         this.open = open;
@@ -60,10 +65,13 @@ public final class TechnicalSnapshot {
         this.zScore20 = zScore20;
         this.rsi14 = rsi14;
         this.vwap20 = vwap20;
+        this.previousVwap20 = previousVwap20;
         this.recentHigh = recentHigh;
         this.recentLow = recentLow;
         this.previousHigh = previousHigh;
         this.previousLow = previousLow;
+        this.previousBarHigh = previousBarHigh;
+        this.previousBarLow = previousBarLow;
         this.closeLocation = closeLocation;
         this.bodyAtr = bodyAtr;
         this.structureStrength = structureStrength;

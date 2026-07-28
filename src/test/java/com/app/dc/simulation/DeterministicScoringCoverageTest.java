@@ -49,7 +49,7 @@ public class DeterministicScoringCoverageTest {
                 Assert.assertTrue(meta.strategyName, Double.isFinite(card.score));
                 Assert.assertTrue(meta.strategyName, card.score >= 0 && card.score <= 100);
             }
-            Assert.assertEquals(25, enabled);
+            Assert.assertEquals(24, enabled);
         } finally {
             spring.close();
         }

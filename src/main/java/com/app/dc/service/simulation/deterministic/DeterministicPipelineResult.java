@@ -6,5 +6,8 @@ public final class DeterministicPipelineResult {
     public StrategyEvaluationContext context;
     public CandidateSelectionResult candidates;
     public StrategyRoutingDecision routingDecision;
+    public StructuralTrendSnapshot structuralTrend;
     public Signal signal;
+    public String signalSource;
+    public String executionStrategyName;
 }

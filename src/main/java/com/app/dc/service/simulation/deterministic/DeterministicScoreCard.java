@@ -13,6 +13,9 @@ public final class DeterministicScoreCard {
     public double setupReadiness;
     public double regimeScore;
     public double penalty;
+    /** Signed score contribution from the slow structural trend context. */
+    public double structuralAdjustment;
+    public String structuralAdjustmentReason;
     public final Map<String, Double> components = new LinkedHashMap<String, Double>();
     public final List<String> supportingFactors = new ArrayList<String>();
     public final List<String> penaltyFactors = new ArrayList<String>();

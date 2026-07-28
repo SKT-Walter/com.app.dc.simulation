@@ -11,9 +11,9 @@ import com.app.dc.service.simulation.BacktestModels.Position;
 import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import com.app.dc.service.simulation.strategy.BinanceBacktestMarketGuard;
 import com.app.dc.service.simulation.deterministic.DeterministicBacktestPipeline;
+import com.app.dc.service.simulation.deterministic.DeterministicPipelineState;
 import com.app.dc.service.simulation.deterministic.DeterministicPipelineResult;
 import com.app.dc.service.simulation.deterministic.StrategyRoutingDecision;
-import com.app.dc.service.simulation.deterministic.StrategyRoutingState;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
@@ -207,6 +207,10 @@ public class BacktestService {
         mergeCounts(target.signalCounts, source.signalCounts);
         mergeCounts(target.strategySignalCounts, source.strategySignalCounts);
         mergeCounts(target.strategyTradeCounts, source.strategyTradeCounts);
+        mergeCounts(target.structuralTrendCounts, source.structuralTrendCounts);
+        mergeCounts(target.structuralPhaseCounts, source.structuralPhaseCounts);
+        mergeCounts(target.signalSourceCounts, source.signalSourceCounts);
+        mergeCounts(target.structuralScoreAdjustmentCounts, source.structuralScoreAdjustmentCounts);
     }
 
     private void mergeCounts(Map<String, Integer> target, Map<String, Integer> source) {
@@ -246,7 +250,7 @@ public class BacktestService {
             if (session.position != null && session.position.entryIndex < index) {
                 TradeRecord closed = tradeService.tryCloseByRisk(session.position, bar, index, session.param.feeRatePct.doubleValue());
                 if (closed != null) {
-                    metricService.applyTrade(session.result, closed, session.equity);
+                    applyClosedTrade(session.result, closed, session.equity, session.param.symbol, index);
                     session.position = null;
                 }
             }
@@ -256,8 +260,9 @@ public class BacktestService {
             session.decisions.add(decision);
             recordRouting(session.stats, pipelineResult);
             Signal signal = pipelineResult.signal;
-            if (decision.strategyName == null || signal == null || signal.side == null || signal.side == Side.NONE) continue;
-            if (marketGuard.shouldBlock(decision.strategyName, session.guard, bar.getEndTime().toInstant(), Boolean.TRUE.equals(session.param.ignoreSentimentGuard)))
+            String executionStrategy = pipelineResult.executionStrategyName;
+            if (executionStrategy == null || signal == null || signal.side == null || signal.side == Side.NONE) continue;
+            if (marketGuard.shouldBlock(executionStrategy, session.guard, bar.getEndTime().toInstant(), Boolean.TRUE.equals(session.param.ignoreSentimentGuard)))
                 continue;
             if (session.position == null) {
                 String rejection = tradeService.validateOpenSignal(signal, session.param);
@@ -266,9 +271,9 @@ public class BacktestService {
                     continue;
                 }
                 session.position = tradeService.openPosition(signal, index, bar, session.param);
-                session.position.strategyName = decision.strategyName;
-                session.position.regime = decision.regime;
-                increment(session.stats.strategyTradeCounts, decision.strategyName);
+                session.position.strategyName = executionStrategy;
+                session.position.regime = executionRegime(pipelineResult);
+                increment(session.stats.strategyTradeCounts, executionStrategy);
             } else if (tradeService.isOpposite(session.position.side, signal.side)) {
                 String rejection = tradeService.validateOpenSignal(signal, session.param);
                 if (rejection != null) {
@@ -276,13 +281,17 @@ public class BacktestService {
                     continue;
                 }
                 TradeRecord reversed = tradeService.closePosition(session.position, bar.getClosePrice().doubleValue(), bar.getEndTime().toString(), "reverse_signal", index, session.param.feeRatePct.doubleValue());
-                metricService.applyTrade(session.result, reversed, session.equity);
+                applyClosedTrade(session.result, reversed, session.equity, session.param.symbol, index);
                 session.position = tradeService.openPosition(signal, index, bar, session.param);
-                session.position.strategyName = decision.strategyName;
-                session.position.regime = decision.regime;
-                increment(session.stats.strategyTradeCounts, decision.strategyName);
+                session.position.strategyName = executionStrategy;
+                session.position.regime = executionRegime(pipelineResult);
+                increment(session.stats.strategyTradeCounts, executionStrategy);
             }
         }
+    }
+
+    private String executionRegime(DeterministicPipelineResult result) {
+        return result.routingDecision == null ? null : result.routingDecision.regime;
     }
 
     private void recordRouting(BacktestModels.RoutingStats stats, DeterministicPipelineResult result) {
@@ -297,17 +306,29 @@ public class BacktestService {
         String side = result.signal == null || result.signal.side == null || result.signal.side == Side.NONE
                 ? "HOLD" : result.signal.side.name();
         increment(stats.signalCounts, side);
-        if (decision.strategyName != null) increment(stats.strategySignalCounts, decision.strategyName + ":" + side);
+        String executionStrategy = result.executionStrategyName == null
+                ? decision.strategyName : result.executionStrategyName;
+        if (executionStrategy != null) increment(stats.strategySignalCounts, executionStrategy + ":" + side);
+        if (result.structuralTrend != null) {
+            increment(stats.structuralTrendCounts, result.structuralTrend.direction);
+            increment(stats.structuralPhaseCounts, result.structuralTrend.phase);
+        }
+        increment(stats.signalSourceCounts, result.signalSource == null ? "NONE" : result.signalSource);
+        String adjustment = decision.structuralScoreAdjustment > 0 ? "BONUS"
+                : decision.structuralScoreAdjustment < 0 ? "PENALTY" : "NEUTRAL";
+        increment(stats.structuralScoreAdjustmentCounts, adjustment);
     }
 
     private BacktestResult finishDeterministic(DeterministicSession session) {
         if (session.position != null && session.series.getBarCount() > 0) {
             Bar last = session.series.getLastBar();
             TradeRecord closed = tradeService.closePosition(session.position, last.getClosePrice().doubleValue(), last.getEndTime().toString(), "end_of_test", session.series.getEndIndex(), session.param.feeRatePct.doubleValue());
-            metricService.applyTrade(session.result, closed, session.equity);
+            applyClosedTrade(session.result, closed, session.equity,
+                    session.param.symbol, session.series.getEndIndex());
             session.position = null;
         }
         metricService.finishResult(session.result, session.equity);
+        mergeRejectStats(session.result, strategyService.snapshotAllRejectStats(session.param.symbol));
         return session.result;
     }
 
@@ -318,13 +339,13 @@ public class BacktestService {
         final BacktestResult result;
         final EquityContext equity;
         final BinanceBacktestMarketGuard.GuardContext guard;
-        final StrategyRoutingState routerState;
+        final DeterministicPipelineState routerState;
         final List<StrategyRoutingDecision> decisions = new ArrayList<StrategyRoutingDecision>();
         final BacktestModels.RoutingStats stats = new BacktestModels.RoutingStats();
         Position position;
 
         DeterministicSession(BacktestParam p, Duration d, BarSeries s, BacktestResult r, EquityContext e,
-                             BinanceBacktestMarketGuard.GuardContext g, StrategyRoutingState state) {
+                             BinanceBacktestMarketGuard.GuardContext g, DeterministicPipelineState state) {
             param = p;
             duration = d;
             series = s;
@@ -350,7 +371,7 @@ public class BacktestService {
         String normalizedStrategy = supportService.normalizeStrategyName(strategyName);
         Duration duration = supportService.resolveDuration(param.text);
         BarSeries replaySeries = new BaseBarSeries(param.symbol + "-" + param.text + "-" + normalizedStrategy);
-        strategyService.getStrategy(normalizedStrategy).resetRuntime(param.symbol);
+        strategyService.getStrategy(normalizedStrategy).resetSession(param.symbol);
 
         BacktestResult result = initResult(normalizedStrategy, param);
         EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue());
@@ -371,7 +392,8 @@ public class BacktestService {
                 TradeRecord riskClosed = tradeService.tryCloseByRisk(session.position, bar, session.replaySeries.getEndIndex(),
                         session.param.feeRatePct.doubleValue());
                 if (riskClosed != null) {
-                    metricService.applyTrade(session.result, riskClosed, session.equityContext);
+                    applyClosedTrade(session.result, riskClosed, session.equityContext,
+                            session.param.symbol, session.replaySeries.getEndIndex());
                     session.position = null;
                 }
             }
@@ -393,6 +415,7 @@ public class BacktestService {
                     continue;
                 }
                 session.position = tradeService.openPosition(signal, session.replaySeries.getEndIndex(), bar, session.param);
+                session.position.strategyName = session.normalizedStrategy;
                 continue;
             }
 
@@ -405,8 +428,10 @@ public class BacktestService {
                 TradeRecord reversed = tradeService.closePosition(session.position, bar.getClosePrice().doubleValue(),
                         bar.getEndTime().toString(), "reverse_signal", session.replaySeries.getEndIndex(),
                         session.param.feeRatePct.doubleValue());
-                metricService.applyTrade(session.result, reversed, session.equityContext);
+                applyClosedTrade(session.result, reversed, session.equityContext,
+                        session.param.symbol, session.replaySeries.getEndIndex());
                 session.position = tradeService.openPosition(signal, session.replaySeries.getEndIndex(), bar, session.param);
+                session.position.strategyName = session.normalizedStrategy;
             }
         }
     }
@@ -417,21 +442,31 @@ public class BacktestService {
             TradeRecord ended = tradeService.closePosition(session.position, lastBar.getClosePrice().doubleValue(),
                     lastBar.getEndTime().toString(), "end_of_test", session.replaySeries.getEndIndex(),
                     session.param.feeRatePct.doubleValue());
-            metricService.applyTrade(session.result, ended, session.equityContext);
+            applyClosedTrade(session.result, ended, session.equityContext,
+                    session.param.symbol, session.replaySeries.getEndIndex());
             session.position = null;
         }
 
         metricService.finishResult(session.result, session.equityContext);
         Map<String, Integer> strategyRejects = strategyService.getStrategy(session.normalizedStrategy)
                 .snapshotRejectStats(session.param.symbol);
-        if (strategyRejects != null) {
-            for (Map.Entry<String, Integer> entry : strategyRejects.entrySet()) {
-                Integer previous = session.result.rejectReasonCounts.get(entry.getKey());
-                session.result.rejectReasonCounts.put(entry.getKey(), (previous == null ? 0 : previous)
-                        + (entry.getValue() == null ? 0 : entry.getValue()));
-            }
-        }
+        mergeRejectStats(session.result, strategyRejects);
         return session.result;
+    }
+
+    private void applyClosedTrade(BacktestResult result, TradeRecord trade, EquityContext equity,
+                                  String symbol, int exitBarIndex) {
+        metricService.applyTrade(result, trade, equity);
+        strategyService.onTradeClosed(trade.strategyName, symbol, exitBarIndex, trade);
+    }
+
+    private void mergeRejectStats(BacktestResult result, Map<String, Integer> strategyRejects) {
+        if (strategyRejects == null) return;
+        for (Map.Entry<String, Integer> entry : strategyRejects.entrySet()) {
+            Integer previous = result.rejectReasonCounts.get(entry.getKey());
+            result.rejectReasonCounts.put(entry.getKey(), (previous == null ? 0 : previous)
+                    + (entry.getValue() == null ? 0 : entry.getValue()));
+        }
     }
 
     private void updateActualCoverage(BacktestResult result, BarSeries series) {

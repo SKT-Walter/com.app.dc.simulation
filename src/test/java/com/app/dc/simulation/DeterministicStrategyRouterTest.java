@@ -117,7 +117,6 @@ public class DeterministicStrategyRouterTest {
         card.family = "TREND";
         card.score = value;
         card.minimumScore = threshold;
-        card.setupReadiness = .8;
         card.regimeScore = 16;
         return card;
     }

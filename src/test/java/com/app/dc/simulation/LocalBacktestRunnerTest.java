@@ -44,9 +44,10 @@ public class LocalBacktestRunnerTest {
         LocalBacktestRunner.main(new String[]{
                 "--strategy=deterministic",
                 "--symbols=ETHUSDT",
+//                "--symbols=SOLUSDT",
                 "--text=15m",
-                "--begin=2025-05-01",
-                "--end=2025-12-30",
+                "--begin=2024-05-01",
+                "--end=2025-05-01",
                 "--chunkDays=2"
         });
     }

@@ -43,12 +43,12 @@ public class BacktestQueryService {
 
     public List<TTbookOhlc> queryOhlc(String symbol, String text, String beginDate, String endDate) {
         validateRange(beginDate, endDate);
-        Path local = resolveLocalDataFile(symbol);
-        if (Files.isRegularFile(local)) {
-            List<TTbookOhlc> rows = queryLocalFile(local, symbol, text, beginDate, endDate);
+        List<Path> localFiles = resolveLocalDataFiles(symbol, beginDate, endDate);
+        if (!localFiles.isEmpty()) {
+            List<TTbookOhlc> rows = queryLocalFiles(localFiles, symbol, text, beginDate, endDate);
             if (rows.isEmpty())
-                throw new IllegalStateException("local market data has no matching closed bars: " + local);
-            lastSources.put(key(symbol), "JSON:" + local.toAbsolutePath().normalize());
+                throw new IllegalStateException("local market data has no matching closed bars: " + localFiles);
+            lastSources.put(key(symbol), localSource(localFiles));
             return rows;
         }
         requireClickHouse();
@@ -65,12 +65,12 @@ public class BacktestQueryService {
     public void forEachOhlcChunk(String symbol, String text, String beginDate, String endDate, int chunkDays, OhlcChunkConsumer consumer) throws Exception {
         if (consumer == null) throw new IllegalArgumentException("ohlc chunk consumer must not be null");
         validateRange(beginDate, endDate);
-        Path local = resolveLocalDataFile(symbol);
-        if (Files.isRegularFile(local)) {
-            List<TTbookOhlc> rows = queryLocalFile(local, symbol, text, beginDate, endDate);
+        List<Path> localFiles = resolveLocalDataFiles(symbol, beginDate, endDate);
+        if (!localFiles.isEmpty()) {
+            List<TTbookOhlc> rows = queryLocalFiles(localFiles, symbol, text, beginDate, endDate);
             if (rows.isEmpty())
-                throw new IllegalStateException("local market data has no matching closed bars: " + local);
-            lastSources.put(key(symbol), "JSON:" + local.toAbsolutePath().normalize());
+                throw new IllegalStateException("local market data has no matching closed bars: " + localFiles);
+            lastSources.put(key(symbol), localSource(localFiles));
             consumer.accept(beginDate, endDate, rows);
             return;
         }
@@ -97,6 +97,52 @@ public class BacktestQueryService {
 
     public Path resolveLocalDataFile(String symbol) {
         return Paths.get(localDataDir, key(symbol) + ".json").toAbsolutePath().normalize();
+    }
+
+    /**
+     * The legacy symbol file has precedence. Otherwise every annual partition touched by
+     * the requested Beijing-calendar date range must exist; local and ClickHouse data are
+     * never mixed in one replay.
+     */
+    public List<Path> resolveLocalDataFiles(String symbol, String beginDate, String endDate) {
+        Path legacy = resolveLocalDataFile(symbol);
+        if (Files.isRegularFile(legacy)) return Collections.singletonList(legacy);
+        if (StringUtils.isBlank(beginDate) || StringUtils.isBlank(endDate))
+            return Collections.emptyList();
+
+        LocalDate begin = LocalDate.parse(beginDate.trim());
+        LocalDate end = LocalDate.parse(endDate.trim());
+        List<Path> expected = new ArrayList<Path>();
+        int existing = 0;
+        for (int year = begin.getYear(); year <= end.getYear(); year++) {
+            Path annual = Paths.get(localDataDir, key(symbol) + "_" + year + ".json")
+                    .toAbsolutePath().normalize();
+            expected.add(annual);
+            if (Files.isRegularFile(annual)) existing++;
+        }
+        if (existing == 0) return Collections.emptyList();
+        if (existing != expected.size()) {
+            List<Path> missing = new ArrayList<Path>();
+            for (Path file : expected) if (!Files.isRegularFile(file)) missing.add(file);
+            throw new IllegalStateException("annual local market data is incomplete; missing files: " + missing);
+        }
+        return expected;
+    }
+
+    private List<TTbookOhlc> queryLocalFiles(List<Path> paths, String symbol, String text,
+                                             String beginDate, String endDate) {
+        List<TTbookOhlc> combined = new ArrayList<TTbookOhlc>();
+        for (Path path : paths) combined.addAll(queryLocalFile(path, symbol, text, beginDate, endDate));
+        return normalizeRows(combined);
+    }
+
+    private String localSource(List<Path> files) {
+        StringBuilder source = new StringBuilder("JSON:");
+        for (int i = 0; i < files.size(); i++) {
+            if (i > 0) source.append(',');
+            source.append(files.get(i).toAbsolutePath().normalize());
+        }
+        return source.toString();
     }
 
     private List<TTbookOhlc> queryLocalFile(Path path, String symbol, String text, String beginDate, String endDate) {

@@ -34,6 +34,10 @@ public final class BacktestModels {
         public Map<String, Integer> signalCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> strategySignalCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> strategyTradeCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> structuralTrendCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> structuralPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> signalSourceCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> structuralScoreAdjustmentCounts = new java.util.LinkedHashMap<String, Integer>();
     }
 
     public static class BacktestResult {

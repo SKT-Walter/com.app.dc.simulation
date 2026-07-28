@@ -19,6 +19,7 @@ public class DeterministicScoringService {
     private final Map<String, StrategySetupScorer> scorers = new HashMap<String, StrategySetupScorer>();
     @Autowired private DynamicStrategyCatalog catalog;
     @Autowired private BacktestStrategyService strategyService;
+    @Autowired private StructuralTrendScoreModifier structuralTrendScoreModifier;
 
     @Autowired
     public DeterministicScoringService(List<StrategySetupScorer> scorerList) {
@@ -65,7 +66,8 @@ public class DeterministicScoringService {
         else if ("BREAKOUT".equalsIgnoreCase(meta.family)) breakout(context, t, setup, card);
         else throw new IllegalStateException("unsupported strategy family: " + meta.family);
         card.penalty += setup.penalty;
-        card.score = clampScore(sum(card.components) - card.penalty);
+        structuralTrendScoreModifier.apply(context, meta, card);
+        card.score = clampScore(sum(card.components) - card.penalty + card.structuralAdjustment);
         return card;
     }
 

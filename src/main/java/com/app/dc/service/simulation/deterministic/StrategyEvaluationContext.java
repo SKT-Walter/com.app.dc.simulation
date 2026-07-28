@@ -13,10 +13,19 @@ public final class StrategyEvaluationContext {
     public final TTbookOhlc currentOhlc;
     public final BacktestRegime regime;
     public final TechnicalSnapshot technical;
+    public final StructuralTrendSnapshot structuralTrend;
 
     public StrategyEvaluationContext(String symbol, String timeframe, int barIndex, BarSeries series,
                                      TTbookOhlc currentOhlc, BacktestRegime regime,
                                      TechnicalSnapshot technical) {
+        this(symbol, timeframe, barIndex, series, currentOhlc, regime, technical,
+                StructuralTrendSnapshot.warmup());
+    }
+
+    public StrategyEvaluationContext(String symbol, String timeframe, int barIndex, BarSeries series,
+                                     TTbookOhlc currentOhlc, BacktestRegime regime,
+                                     TechnicalSnapshot technical,
+                                     StructuralTrendSnapshot structuralTrend) {
         this.symbol = symbol;
         this.timeframe = timeframe;
         this.barIndex = barIndex;
@@ -24,5 +33,7 @@ public final class StrategyEvaluationContext {
         this.currentOhlc = currentOhlc;
         this.regime = regime;
         this.technical = technical;
+        this.structuralTrend = structuralTrend == null
+                ? StructuralTrendSnapshot.warmup() : structuralTrend;
     }
 }

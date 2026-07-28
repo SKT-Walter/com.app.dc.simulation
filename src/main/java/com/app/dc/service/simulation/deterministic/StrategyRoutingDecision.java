@@ -17,6 +17,13 @@ public final class StrategyRoutingDecision {
     public double scoreGap;
     public String reason;
     public int pendingCount;
+    public String structuralTrend;
+    public String structuralPhase;
+    public double structuralConfidence;
+    public String executionStrategyName;
+    public String signalSource;
+    public double structuralScoreAdjustment;
+    public String structuralScoreReason;
     public final List<DeterministicScoreCard> scoreCards = new ArrayList<DeterministicScoreCard>();
     public final Map<String, String> candidateRejections = new LinkedHashMap<String, String>();
 }

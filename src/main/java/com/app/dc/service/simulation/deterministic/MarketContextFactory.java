@@ -16,6 +16,12 @@ public class MarketContextFactory {
 
     public StrategyEvaluationContext create(String symbol, String timeframe, BarSeries series,
                                             TTbookOhlc ohlc, BacktestRegime regime) {
+        return create(symbol, timeframe, series, ohlc, regime, StructuralTrendSnapshot.warmup());
+    }
+
+    public StrategyEvaluationContext create(String symbol, String timeframe, BarSeries series,
+                                            TTbookOhlc ohlc, BacktestRegime regime,
+                                            StructuralTrendSnapshot structuralTrend) {
         int end = series.getEndIndex();
         Bar bar = series.getBar(end);
         double open = bar.getOpenPrice().doubleValue();
@@ -39,6 +45,12 @@ public class MarketContextFactory {
         double recentLow = lowest(series, end, 20);
         double previousHigh = end > series.getBeginIndex() ? highest(series, end - 1, 20) : recentHigh;
         double previousLow = end > series.getBeginIndex() ? lowest(series, end - 1, 20) : recentLow;
+        double previousBarHigh = end > series.getBeginIndex()
+                ? series.getBar(end - 1).getHighPrice().doubleValue() : high;
+        double previousBarLow = end > series.getBeginIndex()
+                ? series.getBar(end - 1).getLowPrice().doubleValue() : low;
+        double vwap20 = vwap(series, end, 20);
+        double previousVwap20 = end > series.getBeginIndex() ? vwap(series, end - 1, 20) : vwap20;
         double range = Math.max(1e-9, high - low);
         double closeLocation = clamp((close - low) / range);
         double bodyAtr = atr <= 0 ? 0 : Math.abs(close - open) / atr;
@@ -54,10 +66,12 @@ public class MarketContextFactory {
                 emaFast, emaSlow, ema10, ema20, ema60, slope,
                 feature(regime, "volumeRatio", volumeRatio(series, end, 20)),
                 bandwidth, previousBandwidth, zScore, rsi(series, end, 14),
-                vwap(series, end, 20), recentHigh, recentLow, previousHigh, previousLow,
+                vwap20, previousVwap20, recentHigh, recentLow, previousHigh, previousLow,
+                previousBarHigh, previousBarLow,
                 closeLocation, bodyAtr, structure, recovery,
                 clamp(.5 + (macdNow - macdPrevious) / Math.max(atr, 1e-9)));
-        return new StrategyEvaluationContext(symbol, timeframe, end, series, ohlc, regime, technical);
+        return new StrategyEvaluationContext(symbol, timeframe, end, series, ohlc, regime, technical,
+                structuralTrend);
     }
 
     private double feature(BacktestRegime regime, String name, double fallback) {

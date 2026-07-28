@@ -30,8 +30,21 @@ abstract class MeanReversionScorer extends AbstractSetupScorer {
     public StrategySetupScore score(StrategyEvaluationContext x){return result(.7*rangeEdge(x.technical)+.3*reversal(x.technical),"唐奇安边缘反转");}
 }
 @Service class VwapReversionSetupScorer extends MeanReversionScorer {
+    private static final double DEVIATION_THRESHOLD = .0038;
     public String strategyName(){return "vwapReversion";}
-    public StrategySetupScore score(StrategyEvaluationContext x){TechnicalSnapshot t=x.technical;return result(n(Math.abs(t.close-t.vwap20)/Math.max(t.atr,1e-9),.3,1.5),"VWAP偏离");}
+    public StrategySetupScore score(StrategyEvaluationContext x){
+        TechnicalSnapshot t=x.technical;
+        double currentDeviation=(t.close-t.vwap20)/Math.max(t.vwap20,1e-9);
+        double previousDeviation=(t.previousClose-t.previousVwap20)/Math.max(t.previousVwap20,1e-9);
+        double deviation=n(Math.abs(currentDeviation),DEVIATION_THRESHOLD,DEVIATION_THRESHOLD*2.5);
+        boolean recovering=currentDeviation<=-DEVIATION_THRESHOLD
+                ? currentDeviation>previousDeviation && t.close>t.previousClose
+                    && t.close>t.open && t.low>=t.previousBarLow
+                : currentDeviation>=DEVIATION_THRESHOLD
+                    && currentDeviation<previousDeviation && t.close<t.previousClose
+                    && t.close<t.open && t.high<=t.previousBarHigh;
+        return result(.55*deviation+.45*(recovering?1:0),"VWAP偏离后出现方向性回归");
+    }
 }
 @Service class ZScoreReversionSetupScorer extends MeanReversionScorer {
     public String strategyName(){return "zscoreReversion";}

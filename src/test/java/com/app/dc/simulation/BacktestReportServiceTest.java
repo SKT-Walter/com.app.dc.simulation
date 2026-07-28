@@ -9,7 +9,9 @@ import org.junit.Assert;
 import org.junit.Test;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 public class BacktestReportServiceTest {
     @Test
@@ -54,9 +56,6 @@ public class BacktestReportServiceTest {
         response.routingStats.routingDecisionCount = 960;
         response.routingStats.routingReasonCounts.put("ACTIVATED", 1);
         BacktestReportService service = new BacktestReportService();
-        java.lang.reflect.Field max = BacktestReportService.class.getDeclaredField("reportMaxTrades");
-        max.setAccessible(true);
-        max.set(service, 120);
         Method method = BacktestReportService.class.getDeclaredMethod("buildMarkdown", BacktestResponse.class);
         method.setAccessible(true);
         String markdown = (String) method.invoke(service, response);
@@ -74,6 +73,41 @@ public class BacktestReportServiceTest {
         Assert.assertTrue(markdown.contains("87.50/100"));
         Assert.assertTrue(markdown.contains("确定性路由执行统计"));
         Assert.assertTrue(markdown.contains("路由决策次数：960"));
+        Assert.assertFalse(markdown.contains("品种评分档案"));
+        Assert.assertFalse(markdown.contains("评分—信号一致性审计"));
+        Assert.assertFalse(markdown.contains("饥饿释放次数"));
+    }
+
+    @Test
+    public void reportPrintsEveryTradeWithoutTruncation() throws Exception {
+        List<TradeRecord> trades = new ArrayList<TradeRecord>();
+        for (int i = 1; i <= 227; i++) {
+            TradeRecord trade = new TradeRecord();
+            trade.strategyName = "trade-" + i;
+            trade.side = "BUY";
+            trade.entryPrice = new BigDecimal("100");
+            trade.exitPrice = new BigDecimal("101");
+            trade.returnPct = new BigDecimal("0.01");
+            trade.pnl = BigDecimal.ONE;
+            trades.add(trade);
+        }
+        BacktestResult result = new BacktestResult();
+        result.strategyName = "deterministic";
+        result.symbol = "ETHUSDT";
+        result.tradeList = trades;
+        BacktestResponse response = new BacktestResponse();
+        response.results = Arrays.asList(result);
+
+        BacktestReportService service = new BacktestReportService();
+        Method method = BacktestReportService.class.getDeclaredMethod("buildMarkdown", BacktestResponse.class);
+        method.setAccessible(true);
+        String markdown = (String) method.invoke(service, response);
+
+        Assert.assertTrue(markdown.contains("trade-1"));
+        Assert.assertTrue(markdown.contains("trade-120"));
+        Assert.assertTrue(markdown.contains("trade-227"));
+        Assert.assertFalse(markdown.contains("交易明细已截断"));
+        Assert.assertFalse(markdown.contains("条未显示"));
     }
 
 }

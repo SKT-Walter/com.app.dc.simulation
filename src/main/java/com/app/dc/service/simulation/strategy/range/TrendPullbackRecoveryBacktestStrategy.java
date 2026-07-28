@@ -8,6 +8,11 @@ import com.app.dc.service.simulation.strategy.BinanceStrategyMath;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.BarSeries;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
+
 /**
  * 趋势回撤恢复回测策略。
  *
@@ -38,6 +43,7 @@ public class TrendPullbackRecoveryBacktestStrategy implements BinanceBacktestStr
     private static final double LONG_RSI_RECOVER = 48.0;
     private static final double SHORT_RSI_RECOVER = 52.0;
     private static final boolean NEED_MACD_IMPROVE = true;
+    private final Map<BarSeries, MacdState> macdStates = new WeakHashMap<>();
 
     @Override
     public String getName() {
@@ -341,29 +347,88 @@ public class TrendPullbackRecoveryBacktestStrategy implements BinanceBacktestStr
         if (end < slowPeriod + signalPeriod) {
             return Double.NaN;
         }
-        int start = slowPeriod - 1;
-        double[] difArr = new double[end - start + 1];
-        int idx = 0;
-        for (int i = start; i <= end; i++) {
-            difArr[idx++] = ema(series, i, fastPeriod) - ema(series, i, slowPeriod);
+        MacdState state = macdStates.get(series);
+        if (state == null
+                || state.fastPeriod != fastPeriod
+                || state.slowPeriod != slowPeriod
+                || state.signalPeriod != signalPeriod) {
+            state = new MacdState(fastPeriod, slowPeriod, signalPeriod);
+            macdStates.put(series, state);
         }
-        double dea = emaOfArray(difArr, signalPeriod);
-        return difArr[difArr.length - 1] - dea;
+        state.advance(series, end);
+        return state.histograms.get(end);
     }
 
-    private double emaOfArray(double[] arr, int period) {
-        if (arr == null || arr.length < period || period <= 0) {
-            return Double.NaN;
+    /**
+     * Incrementally reproduces the former EMA/MACD calculation. The old implementation
+     * recalculated every historical EMA for every bar, which made a long-lived strategy
+     * quadratic to cubic over annual backtests.
+     */
+    private static final class MacdState {
+        private final int fastPeriod;
+        private final int slowPeriod;
+        private final int signalPeriod;
+        private final List<Double> histograms = new ArrayList<>();
+        private int lastProcessed = -1;
+        private double fastSeedSum;
+        private double slowSeedSum;
+        private double fastEma = Double.NaN;
+        private double slowEma = Double.NaN;
+        private int difCount;
+        private double deaSeedSum;
+        private double dea = Double.NaN;
+
+        private MacdState(int fastPeriod, int slowPeriod, int signalPeriod) {
+            this.fastPeriod = fastPeriod;
+            this.slowPeriod = slowPeriod;
+            this.signalPeriod = signalPeriod;
         }
-        double sum = 0.0;
-        for (int i = 0; i < period; i++) {
-            sum += arr[i];
+
+        private void advance(BarSeries series, int target) {
+            for (int i = lastProcessed + 1; i <= target; i++) {
+                double close = series.getBar(i).getClosePrice().doubleValue();
+                fastEma = advancePriceEma(close, i, fastPeriod, true);
+                slowEma = advancePriceEma(close, i, slowPeriod, false);
+
+                double histogram = Double.NaN;
+                if (i >= slowPeriod - 1) {
+                    double dif = fastEma - slowEma;
+                    difCount++;
+                    if (difCount <= signalPeriod) {
+                        deaSeedSum += dif;
+                        if (difCount == signalPeriod) {
+                            dea = deaSeedSum / signalPeriod;
+                            histogram = dif - dea;
+                        }
+                    } else {
+                        double signalK = 2.0 / (signalPeriod + 1.0);
+                        dea = dif * signalK + dea * (1.0 - signalK);
+                        histogram = dif - dea;
+                    }
+                }
+                histograms.add(histogram);
+                lastProcessed = i;
+            }
         }
-        double ema = sum / period;
-        double k = 2.0 / (period + 1.0);
-        for (int i = period; i < arr.length; i++) {
-            ema = arr[i] * k + ema * (1.0 - k);
+
+        private double advancePriceEma(double close, int index, int period, boolean fast) {
+            if (index < period) {
+                if (fast) {
+                    fastSeedSum += close;
+                    if (index == period - 1) {
+                        return fastSeedSum / period;
+                    }
+                    return fastEma;
+                }
+                slowSeedSum += close;
+                if (index == period - 1) {
+                    return slowSeedSum / period;
+                }
+                return slowEma;
+            }
+            double previous = fast ? fastEma : slowEma;
+            double k = 2.0 / (period + 1.0);
+            return close * k + previous * (1.0 - k);
         }
-        return ema;
     }
 }

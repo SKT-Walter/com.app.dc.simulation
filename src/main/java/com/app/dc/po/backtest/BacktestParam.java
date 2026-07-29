@@ -18,6 +18,9 @@ public class BacktestParam {
 
     public BigDecimal initialCapital;
 
+    /** Fixed notional used for every trade; it does not grow with account equity. */
+    public BigDecimal tradeNotional;
+
     public BigDecimal feeRatePct;
 
     public BigDecimal fallbackStopLossPct;

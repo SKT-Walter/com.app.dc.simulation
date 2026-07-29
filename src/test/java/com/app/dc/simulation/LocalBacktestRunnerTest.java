@@ -14,6 +14,8 @@ public class LocalBacktestRunnerTest {
         Assert.assertEquals("binanceTrend", p.strategyName);
         Assert.assertEquals("ETHUSDT,BTCUSDT", p.symbols);
         Assert.assertEquals("2026-06-30", p.endDate);
+        Assert.assertEquals("7", p.fallbackTakeProfitPct.toPlainString());
+        Assert.assertEquals("10000", p.tradeNotional.toPlainString());
     }
 
     /**
@@ -32,7 +34,7 @@ public class LocalBacktestRunnerTest {
                 "--capital=10000",
                 "--fee=0.04",
                 "--stopLoss=6",
-                "--takeProfit=6",
+                "--takeProfit=7",
                 "--maxHoldBars=0",
                 "--chunkDays=2",
                 "--ignoreSentimentGuard=true"

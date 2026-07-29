@@ -12,9 +12,14 @@ import java.math.RoundingMode;
 public class BacktestMetricService {
 
     public EquityContext initEquityContext(double initialCapital) {
+        return initEquityContext(initialCapital, initialCapital);
+    }
+
+    public EquityContext initEquityContext(double initialCapital, double tradeNotional) {
         EquityContext context = new EquityContext();
         context.equity = initialCapital;
         context.peakEquity = initialCapital;
+        context.tradeNotional = tradeNotional;
         return context;
     }
 
@@ -48,12 +53,17 @@ public class BacktestMetricService {
             result.flatCount++;
         }
 
-        double nextEquity = context.equity * (1.0 + tradeRecord.returnPct.doubleValue());
-        tradeRecord.pnl = scale(nextEquity - context.equity);
+        double pnl = context.tradeNotional * tradeRecord.returnPct.doubleValue();
+        double nextEquity = context.equity + pnl;
+        tradeRecord.pnl = scale(pnl);
         context.equity = nextEquity;
         context.peakEquity = Math.max(context.peakEquity, context.equity);
         context.totalHoldBars += tradeRecord.holdBars == null ? 0 : tradeRecord.holdBars;
-        result.maxDrawdownPct = scale(calcDrawdownPct(context.peakEquity, context.equity));
+        BigDecimal currentDrawdown = scale(calcDrawdownPct(context.peakEquity, context.equity));
+        if (result.maxDrawdownPct == null
+                || currentDrawdown.compareTo(result.maxDrawdownPct) > 0) {
+            result.maxDrawdownPct = currentDrawdown;
+        }
     }
 
     public void finishResult(BacktestResult result, EquityContext context) {

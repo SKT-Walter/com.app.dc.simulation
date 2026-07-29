@@ -49,6 +49,7 @@ public final class BacktestModels {
         public String actualBeginTime;
         public String actualEndTime;
         public BigDecimal initialCapital;
+        public BigDecimal tradeNotional;
         public BigDecimal finalCapital;
         public BigDecimal feeRatePct;
         public BigDecimal fallbackStopLossPct;
@@ -102,11 +103,15 @@ public final class BacktestModels {
         public int currentHoldBars;
         public String strategyName;
         public String regime;
+        public int trendRegimeConflictBars;
+        public int trendStructuralStrengtheningBars;
+        public double lastStructuralConflictConfidence = Double.NaN;
     }
 
     public static class EquityContext {
         public double equity;
         public double peakEquity;
+        public double tradeNotional;
         public double totalPositiveReturnPct;
         public double totalNegativeReturnPct;
         public long totalHoldBars;

@@ -15,20 +15,6 @@
       ]
     },
     {
-      "strategyName": "binanceRangeGuarded",
-      "family": "MEAN_REVERSION",
-      "enabled": true,
-      "minimumScore": 65,
-      "supportedRegimes": [
-        "NONE_LOW",
-        "NONE_NORMAL"
-      ],
-      "requiredFeatures": [
-        "atr",
-        "atrPercentile"
-      ]
-    },
-    {
       "strategyName": "binanceRangeMacd",
       "family": "MEAN_REVERSION",
       "enabled": true,

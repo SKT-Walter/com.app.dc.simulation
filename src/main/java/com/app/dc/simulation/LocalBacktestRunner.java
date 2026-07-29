@@ -59,6 +59,7 @@ public final class LocalBacktestRunner {
                 System.out.println("result strategy=" + r.strategyName + ", symbol=" + r.symbol
                         + ", actualRange=" + r.actualBeginTime + ".." + r.actualEndTime
                         + ", bars=" + r.totalBars + ", trades=" + r.tradeCount
+                        + ", tradeNotional=" + money(r.tradeNotional)
                         + ", return=" + percent(r.totalReturnPct)
                         + ", maxDrawdown=" + percent(r.maxDrawdownPct)
                         + ", finalCapital=" + money(r.finalCapital));
@@ -103,9 +104,10 @@ public final class LocalBacktestRunner {
         p.beginDate = begin.toString();
         p.endDate = end.toString();
         p.initialCapital = decimal(o, "capital", "10000");
+        p.tradeNotional = decimal(o, "tradeNotional", "10000");
         p.feeRatePct = decimal(o, "fee", "0.04");
         p.fallbackStopLossPct = decimal(o, "stopLoss", "6");
-        p.fallbackTakeProfitPct = decimal(o, "takeProfit", "6");
+        p.fallbackTakeProfitPct = decimal(o, "takeProfit", "7");
         p.maxHoldBars = integer(o, "maxHoldBars", 0, 0, Integer.MAX_VALUE);
         p.ignoreSentimentGuard = bool(o, "ignoreSentimentGuard", true);
         return p;
@@ -152,8 +154,8 @@ public final class LocalBacktestRunner {
 
     private static void printHelp() {
         System.out.println("Usage: --strategy=all|deterministic|策略名 --symbols=ETHUSDT,BTCUSDT --text=15m "
-                + "--begin=2026-01-01 --end=2026-01-31 [--capital=10000 --fee=0.04 --stopLoss=6 "
-                + "--takeProfit=6 --maxHoldBars=0 --chunkDays=2 --ignoreSentimentGuard=true --projectDir=...]");
+                + "--begin=2026-01-01 --end=2026-01-31 [--capital=10000 --tradeNotional=10000 --fee=0.04 --stopLoss=6 "
+                + "--takeProfit=7 --maxHoldBars=0 --chunkDays=2 --ignoreSentimentGuard=true --projectDir=...]");
     }
 
     /** Resolves simulator paths independently of the IDE's configured working directory. */

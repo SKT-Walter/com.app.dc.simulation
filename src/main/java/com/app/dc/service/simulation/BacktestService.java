@@ -14,6 +14,15 @@ import com.app.dc.service.simulation.deterministic.DeterministicBacktestPipeline
 import com.app.dc.service.simulation.deterministic.DeterministicPipelineState;
 import com.app.dc.service.simulation.deterministic.DeterministicPipelineResult;
 import com.app.dc.service.simulation.deterministic.StrategyRoutingDecision;
+import com.app.dc.service.simulation.deterministic.StructuralTrendService;
+import com.app.dc.service.simulation.deterministic.StructuralTrendSnapshot;
+import com.app.dc.service.simulation.deterministic.StructuralTrendState;
+import com.app.dc.service.simulation.dynamic.BacktestRegime;
+import com.app.dc.service.simulation.dynamic.BacktestRegimeService;
+import com.app.dc.service.simulation.strategy.exit.PositionExitDecision;
+import com.app.dc.service.simulation.strategy.exit.StrategyPositionExitContext;
+import com.app.dc.service.simulation.strategy.exit.StrategyPositionExitService;
+import com.app.dc.service.simulation.strategy.risk.BinanceTrendEntryRiskService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
@@ -56,6 +65,14 @@ public class BacktestService {
     private BinanceBacktestMarketGuard marketGuard;
     @Autowired
     private DeterministicBacktestPipeline deterministicPipeline;
+    @Autowired
+    private StrategyPositionExitService positionExitService;
+    @Autowired
+    private BacktestRegimeService regimeService;
+    @Autowired
+    private StructuralTrendService structuralTrendService;
+    @Autowired
+    private BinanceTrendEntryRiskService trendEntryRiskService;
 
     public BacktestResponse run(BacktestParam param) throws Exception {
         BacktestParam req = normalizeParam(param);
@@ -121,6 +138,7 @@ public class BacktestService {
         target.beginDate = source.beginDate;
         target.endDate = source.endDate;
         target.initialCapital = source.initialCapital;
+        target.tradeNotional = source.tradeNotional;
         target.feeRatePct = source.feeRatePct;
         target.fallbackStopLossPct = source.fallbackStopLossPct;
         target.fallbackTakeProfitPct = source.fallbackTakeProfitPct;
@@ -228,7 +246,8 @@ public class BacktestService {
         Duration duration = supportService.resolveDuration(param.text);
         BarSeries series = new BaseBarSeries(param.symbol + "-" + param.text + "-deterministic");
         BacktestResult result = initResult("deterministic", param);
-        EquityContext equity = metricService.initEquityContext(param.initialCapital.doubleValue());
+        EquityContext equity = metricService.initEquityContext(param.initialCapital.doubleValue(),
+                param.tradeNotional.doubleValue());
         BinanceBacktestMarketGuard.GuardContext guard = marketGuard.prepareContext(param.symbol, param.beginDate, param.endDate);
         strategyService.resetAll(param.symbol);
         return new DeterministicSession(param, duration, series, result, equity, guard,
@@ -258,9 +277,25 @@ public class BacktestService {
             StrategyRoutingDecision decision = pipelineResult.routingDecision;
             session.decisions.add(decision);
             recordRouting(session.stats, pipelineResult);
+            if (session.position != null) {
+                PositionExitDecision exit = positionExitService.evaluate(session.position,
+                        new StrategyPositionExitContext(session.series,
+                                pipelineResult.context.regime, pipelineResult.structuralTrend));
+                if (exit.exit) {
+                    TradeRecord invalidated = tradeService.closePosition(session.position,
+                            bar.getClosePrice().doubleValue(), bar.getEndTime().toString(),
+                            exit.reason, index, session.param.feeRatePct.doubleValue());
+                    applyClosedTrade(session.result, invalidated, session.equity,
+                            session.param.symbol, index);
+                    session.position = null;
+                    continue;
+                }
+            }
             Signal signal = pipelineResult.signal;
             String executionStrategy = pipelineResult.executionStrategyName;
             if (executionStrategy == null || signal == null || signal.side == null || signal.side == Side.NONE) continue;
+            trendEntryRiskService.apply(executionStrategy, signal, session.series,
+                    pipelineResult.structuralTrend);
             if (marketGuard.shouldBlock(executionStrategy, session.guard, bar.getEndTime().toInstant(), Boolean.TRUE.equals(session.param.ignoreSentimentGuard)))
                 continue;
             if (session.position == null) {
@@ -373,10 +408,12 @@ public class BacktestService {
         strategyService.getStrategy(normalizedStrategy).resetSession(param.symbol);
 
         BacktestResult result = initResult(normalizedStrategy, param);
-        EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue());
+        EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue(),
+                param.tradeNotional.doubleValue());
         BinanceBacktestMarketGuard.GuardContext guardContext =
                 marketGuard.prepareContext(param.symbol, param.beginDate, param.endDate);
-        return new SingleStrategySession(normalizedStrategy, param, duration, replaySeries, result, equityContext, guardContext);
+        return new SingleStrategySession(normalizedStrategy, param, duration, replaySeries, result,
+                equityContext, guardContext, structuralTrendService.newState());
     }
 
     private void processChunk(SingleStrategySession session, List<TTbookOhlc> ohlcList) throws Exception {
@@ -397,11 +434,30 @@ public class BacktestService {
                 }
             }
 
+            BacktestRegime currentRegime = regimeService.identify(session.replaySeries);
+            StructuralTrendSnapshot structural = structuralTrendService.update(
+                    session.structuralTrendState, session.replaySeries);
+            if (session.position != null) {
+                PositionExitDecision exit = positionExitService.evaluate(session.position,
+                        new StrategyPositionExitContext(session.replaySeries, currentRegime, structural));
+                if (exit.exit) {
+                    TradeRecord invalidated = tradeService.closePosition(session.position,
+                            bar.getClosePrice().doubleValue(), bar.getEndTime().toString(), exit.reason,
+                            session.replaySeries.getEndIndex(), session.param.feeRatePct.doubleValue());
+                    applyClosedTrade(session.result, invalidated, session.equityContext,
+                            session.param.symbol, session.replaySeries.getEndIndex());
+                    session.position = null;
+                    continue;
+                }
+            }
+
             Signal signal = strategyService.evaluateSignal(session.normalizedStrategy, session.param.symbol, session.param.text, session.replaySeries, ohlc);
             // NONE 表示无信号，不开仓也不反手。
             if (signal.side == null || signal.side == Side.NONE) {
                 continue;
             }
+            trendEntryRiskService.apply(session.normalizedStrategy, signal,
+                    session.replaySeries, structural);
             boolean ignoreSentimentGuard = Boolean.TRUE.equals(session.param.ignoreSentimentGuard);
             if (marketGuard.shouldBlock(session.normalizedStrategy, session.guardContext, bar.getEndTime().toInstant(), ignoreSentimentGuard)) {
                 continue;
@@ -492,9 +548,13 @@ public class BacktestService {
         final BacktestResult result;
         final EquityContext equityContext;
         final BinanceBacktestMarketGuard.GuardContext guardContext;
+        final StructuralTrendState structuralTrendState;
         Position position;
 
-        SingleStrategySession(String n, BacktestParam p, Duration d, BarSeries s, BacktestResult r, EquityContext e, BinanceBacktestMarketGuard.GuardContext g) {
+        SingleStrategySession(String n, BacktestParam p, Duration d, BarSeries s,
+                              BacktestResult r, EquityContext e,
+                              BinanceBacktestMarketGuard.GuardContext g,
+                              StructuralTrendState structuralState) {
             normalizedStrategy = n;
             param = p;
             duration = d;
@@ -502,6 +562,7 @@ public class BacktestService {
             result = r;
             equityContext = e;
             guardContext = g;
+            structuralTrendState = structuralState;
         }
     }
 
@@ -522,6 +583,9 @@ public class BacktestService {
         }
         if (req.initialCapital == null || req.initialCapital.compareTo(BigDecimal.ZERO) <= 0) {
             req.initialCapital = BigDecimal.valueOf(10000);
+        }
+        if (req.tradeNotional == null || req.tradeNotional.compareTo(BigDecimal.ZERO) <= 0) {
+            req.tradeNotional = req.initialCapital;
         }
         if (req.feeRatePct == null || req.feeRatePct.compareTo(BigDecimal.ZERO) < 0) {
             req.feeRatePct = BigDecimal.ZERO;
@@ -549,6 +613,7 @@ public class BacktestService {
         result.beginDate = param.beginDate;
         result.endDate = param.endDate;
         result.initialCapital = scale(param.initialCapital.doubleValue());
+        result.tradeNotional = scale(param.tradeNotional.doubleValue());
         result.finalCapital = scale(param.initialCapital.doubleValue());
         result.feeRatePct = scale(param.feeRatePct.doubleValue());
         result.fallbackStopLossPct = scale(param.fallbackStopLossPct.doubleValue());

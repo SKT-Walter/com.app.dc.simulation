@@ -80,6 +80,10 @@ public class BacktestReportService {
         List<BacktestResult> results = response.results == null
                 ? Collections.<BacktestResult>emptyList()
                 : response.results;
+        if (!results.isEmpty()) {
+            sb.append("- 资金模型：固定名义本金，不复利\n");
+            sb.append("- 每笔下单资金：").append(money(results.get(0).tradeNotional)).append("\n\n");
+        }
         List<BacktestResult> sortedResults = new ArrayList<>(results);
         sortedResults.sort(Comparator.comparing(this::safeTotalPnl).reversed()
                 .thenComparing(result -> s(result.strategyName))
@@ -354,6 +358,7 @@ public class BacktestReportService {
             case "max_hold_bars": return "达到最大持仓K线数";
             case "reverse_signal": return "出现反向信号";
             case "strategy_close_signal": return "策略主动平仓";
+            case "trend_consensus_confirmation_exit": return "Regime、均线与慢结构共识退出";
             case "end_of_test": return "回测结束强制平仓";
             default: return s(reason);
         }

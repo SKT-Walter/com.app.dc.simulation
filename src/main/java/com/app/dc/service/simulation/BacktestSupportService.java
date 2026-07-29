@@ -111,8 +111,8 @@ public class BacktestSupportService {
         if ("zscore".equalsIgnoreCase(value) || "z_score".equalsIgnoreCase(value)) {
             return "zscoreReversion";
         }
-        if ("grid".equalsIgnoreCase(value)) {
-            return "gridRange";
+        if ("grid".equalsIgnoreCase(value) || "gridRange".equalsIgnoreCase(value)) {
+            return "binanceRange";
         }
         if ("atrchannel".equalsIgnoreCase(value) || "atr_channel".equalsIgnoreCase(value)) {
             return "atrChannelReversion";

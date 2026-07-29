@@ -64,7 +64,7 @@ public class DeterministicStrategyRouterTest {
         StrategyRoutingState state = router.newState();
         route(router, state, 60, candidates("binanceTrend"), score("binanceTrend", 75, 67));
         StrategyRoutingDecision invalid = route(router, state, 61,
-                candidates("gridRange"), score("gridRange", 60, 65));
+                candidates("binanceRange"), score("binanceRange", 60, 65));
         Assert.assertEquals("HARD_INVALID", invalid.reason);
         Assert.assertNull(invalid.strategyName);
     }

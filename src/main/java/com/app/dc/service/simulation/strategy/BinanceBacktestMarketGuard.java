@@ -182,7 +182,6 @@ public class BinanceBacktestMarketGuard {
                 || "donchianReversion".equalsIgnoreCase(name)
                 || "vwapReversion".equalsIgnoreCase(name)
                 || "zscoreReversion".equalsIgnoreCase(name)
-                || "gridRange".equalsIgnoreCase(name)
                 || "atrChannelReversion".equalsIgnoreCase(name)
                 || "orderBookImbalanceReversion".equalsIgnoreCase(name)) {
             return "range";

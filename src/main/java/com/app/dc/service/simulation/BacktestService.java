@@ -117,7 +117,6 @@ public class BacktestService {
                 results.add(runSingleStrategy("donchianReversion", symbolParam, ohlcList));
                 results.add(runSingleStrategy("vwapReversion", symbolParam, ohlcList));
                 results.add(runSingleStrategy("zscoreReversion", symbolParam, ohlcList));
-                results.add(runSingleStrategy("gridRange", symbolParam, ohlcList));
                 results.add(runSingleStrategy("atrChannelReversion", symbolParam, ohlcList));
                 results.add(runSingleStrategy("atrChannelBiasReversion", symbolParam, ohlcList));
 //                results.add(runSingleStrategy("orderBookImbalanceReversion", symbolParam, ohlcList));

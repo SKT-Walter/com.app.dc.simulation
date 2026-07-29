@@ -50,10 +50,6 @@ abstract class MeanReversionScorer extends AbstractSetupScorer {
     public String strategyName(){return "zscoreReversion";}
     public StrategySetupScore score(StrategyEvaluationContext x){return result(n(Math.abs(x.technical.zScore20),1,2.5),"ZScore偏离");}
 }
-@Service class GridRangeSetupScorer extends MeanReversionScorer {
-    public String strategyName(){return "gridRange";}
-    public StrategySetupScore score(StrategyEvaluationContext x){return result(rangeEdge(x.technical),"网格边缘位置");}
-}
 @Service class AtrChannelReversionSetupScorer extends MeanReversionScorer {
     public String strategyName(){return "atrChannelReversion";}
     public StrategySetupScore score(StrategyEvaluationContext x){TechnicalSnapshot t=x.technical;return result(n(Math.abs(t.close-t.ema20)/Math.max(t.atr,1e-9),.5,2),"ATR通道偏离");}

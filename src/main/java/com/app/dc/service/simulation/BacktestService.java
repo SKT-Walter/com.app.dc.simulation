@@ -293,7 +293,8 @@ public class BacktestService {
             Signal signal = pipelineResult.signal;
             String executionStrategy = pipelineResult.executionStrategyName;
             if (executionStrategy == null || signal == null || signal.side == null || signal.side == Side.NONE) continue;
-            trendEntryRiskService.apply(executionStrategy, signal, session.series,
+            trendEntryRiskService.apply(executionStrategy, session.param.symbol,
+                    session.param.text, signal, session.series,
                     pipelineResult.structuralTrend);
             if (marketGuard.shouldBlock(executionStrategy, session.guard, bar.getEndTime().toInstant(), Boolean.TRUE.equals(session.param.ignoreSentimentGuard)))
                 continue;
@@ -455,7 +456,8 @@ public class BacktestService {
             if (signal.side == null || signal.side == Side.NONE) {
                 continue;
             }
-            trendEntryRiskService.apply(session.normalizedStrategy, signal,
+            trendEntryRiskService.apply(session.normalizedStrategy, session.param.symbol,
+                    session.param.text, signal,
                     session.replaySeries, structural);
             boolean ignoreSentimentGuard = Boolean.TRUE.equals(session.param.ignoreSentimentGuard);
             if (marketGuard.shouldBlock(session.normalizedStrategy, session.guardContext, bar.getEndTime().toInstant(), ignoreSentimentGuard)) {

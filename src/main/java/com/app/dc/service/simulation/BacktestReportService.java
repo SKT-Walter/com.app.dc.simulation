@@ -367,6 +367,7 @@ public class BacktestReportService {
     private String translateRejectReason(String reason) {
         if (reason == null) return "";
         switch (reason) {
+            case "SYMBOL_STRATEGY_DISABLED": return "该品种已禁用此策略";
             case "not_enough_bars": return "K线数量不足";
             case "invalid_atr": return "ATR无效";
             case "invalid_std": return "标准差无效";
@@ -387,6 +388,7 @@ public class BacktestReportService {
             case "RANGE_INVALID_REFERENCE": return "区间参考边界无效";
             case "RANGE_BOX_UNSTABLE": return "历史箱体不稳定";
             case "RANGE_BREAKOUT_INVALIDATED": return "区间突破超过容许范围";
+            case "RANGE_TRIGGER_RANGE_TOO_SMALL": return "触边反转K线振幅不足";
             case "RANGE_RECOVERY_NOT_CONFIRMED": return "触边后尚未确认回归";
             case "RANGE_EDGE_NOT_TOUCHED": return "价格尚未触及区间边缘";
             case "drift_block_buy": return "趋势漂移阻止买入";

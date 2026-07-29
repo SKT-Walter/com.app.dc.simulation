@@ -6,6 +6,8 @@ import com.app.dc.po.TTbookOhlc;
 import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import com.app.dc.service.simulation.strategy.BinanceBacktestStrategy;
 import com.app.dc.service.simulation.strategy.BinanceStrategyMath;
+import com.app.dc.service.simulation.strategy.profile.SymbolStrategyProfileService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.BarSeries;
 
@@ -26,6 +28,8 @@ public class BinanceRangeBacktestStrategy implements BinanceBacktestStrategy {
             new ConcurrentHashMap<String, Integer>();
     private final Map<String, Map<String, Integer>> rejectStats =
             new ConcurrentHashMap<String, Map<String, Integer>>();
+    @Autowired(required = false)
+    private SymbolStrategyProfileService strategyProfiles;
 
     @Override
     public String getName() {
@@ -42,7 +46,11 @@ public class BinanceRangeBacktestStrategy implements BinanceBacktestStrategy {
             return signal;
         }
 
-        BinanceRangeSetupAnalyzer.Snapshot setup = BinanceRangeSetupAnalyzer.analyze(series);
+        double minimumTriggerRangeAtr = strategyProfiles == null ? 0.0
+                : strategyProfiles.minimumTriggerRangeAtr(
+                        symbol, text, getName());
+        BinanceRangeSetupAnalyzer.Snapshot setup = BinanceRangeSetupAnalyzer.analyze(
+                series, minimumTriggerRangeAtr);
         if (!setup.actionable()) {
             reject(symbol, setup.reason);
             return signal;

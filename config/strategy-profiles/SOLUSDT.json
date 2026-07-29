@@ -1,0 +1,14 @@
+{
+  "profileVersion": "2026-07-v1",
+  "symbol": "SOLUSDT",
+  "timeframe": "15M",
+  "enabled": true,
+  "strategies": {
+    "binanceTrend": {
+      "takeProfitPct": 10
+    },
+    "binanceRange": {
+      "enabled": true
+    }
+  }
+}

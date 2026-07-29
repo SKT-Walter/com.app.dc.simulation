@@ -2,6 +2,7 @@ package com.app.dc.service.simulation.deterministic;
 
 import com.app.dc.service.simulation.dynamic.DynamicStrategyCatalog;
 import com.app.dc.service.simulation.dynamic.DynamicStrategyMeta;
+import com.app.dc.service.simulation.strategy.profile.SymbolStrategyProfileService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class CandidateRuleChain {
     @Autowired private DynamicStrategyCatalog catalog;
+    @Autowired private SymbolStrategyProfileService strategyProfiles;
     @Value("${backtest.regime.minimumBars:60}") private int minimumBars;
 
     public CandidateSelectionResult select(StrategyEvaluationContext context) {
@@ -30,6 +32,8 @@ public class CandidateRuleChain {
                 || !finitePositive(t.close) || t.high < t.low) return "INVALID_OHLC";
         if (context.regime == null || !context.regime.tradeable) return "NO_TRADE_REGIME";
         if (!meta.enabled) return "STRATEGY_DISABLED";
+        if (!strategyProfiles.isStrategyEnabled(context.symbol, context.timeframe,
+                meta.strategyName)) return "SYMBOL_STRATEGY_DISABLED";
         if (!supportsRegime(meta, context.regime.code())) return "UNSUPPORTED_REGIME";
         if ("orderBookImbalanceReversion".equalsIgnoreCase(meta.strategyName))
             return "MISSING_ORDER_BOOK_FEATURE";

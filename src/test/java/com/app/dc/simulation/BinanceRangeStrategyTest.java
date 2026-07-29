@@ -47,6 +47,18 @@ public class BinanceRangeStrategyTest {
     }
 
     @Test
+    public void rejectsConfirmedRecoveryWhenTriggerRangeIsBelowProfileMinimum() {
+        BarSeries series = stableBox();
+        add(series, 98.15, 98.60, 97.90, 98.50);
+
+        BinanceRangeSetupAnalyzer.Snapshot setup =
+                BinanceRangeSetupAnalyzer.analyze(series, 5.0);
+        Assert.assertEquals("HOLD", setup.side);
+        Assert.assertEquals("RANGE_TRIGGER_RANGE_TOO_SMALL", setup.reason);
+        Assert.assertTrue(setup.triggerRangeAtr < 5.0);
+    }
+
+    @Test
     public void currentBreakoutDoesNotMoveReferenceBoundaryAndInvalidatesEntry() {
         BarSeries series = stableBox();
         add(series, 98.10, 98.60, 94.00, 98.50);

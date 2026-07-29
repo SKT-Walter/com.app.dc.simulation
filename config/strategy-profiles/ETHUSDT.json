@@ -1,0 +1,15 @@
+{
+  "profileVersion": "2026-07-v1",
+  "symbol": "ETHUSDT",
+  "timeframe": "15M",
+  "enabled": true,
+  "strategies": {
+    "binanceTrend": {
+      "takeProfitPct": 10
+    },
+    "binanceRange": {
+      "enabled": true,
+      "minimumTriggerRangeAtr": 0.7
+    }
+  }
+}

@@ -10,6 +10,7 @@ import com.app.dc.service.simulation.strategy.exit.BinanceTrendPositionExitPolic
 import com.app.dc.service.simulation.strategy.exit.PositionExitDecision;
 import com.app.dc.service.simulation.strategy.exit.StrategyPositionExitContext;
 import com.app.dc.service.simulation.strategy.risk.BinanceTrendEntryRiskService;
+import com.app.dc.service.simulation.strategy.profile.SymbolStrategyProfileService;
 import com.app.dc.service.simulation.strategy.trend.BinanceTrendBacktestStrategy;
 import org.junit.Assert;
 import org.junit.Test;
@@ -22,6 +23,8 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.nio.file.Path;
+import java.util.Collections;
 
 public class BinanceTrendRiskAndExitTest {
 
@@ -64,6 +67,26 @@ public class BinanceTrendRiskAndExitTest {
                         StructuralTrendSnapshot.BEAR, "TREND", .80, 10, 0, true));
 
         Assert.assertFalse(applied);
+        Assert.assertNull(signal.stopPrice);
+    }
+
+    @Test
+    public void appliesSymbolSpecificTrendTakeProfit() throws Exception {
+        BinanceTrendBacktestStrategy strategy = new BinanceTrendBacktestStrategy();
+        BarSeries series = decliningSeries(64, 150.0, 0.08);
+        double close = series.getLastBar().getClosePrice().doubleValue();
+        Signal signal = strategy.evaluate("ETHUSDT", "15m", series, ohlc(close));
+        BinanceTrendEntryRiskService risk = new BinanceTrendEntryRiskService();
+        setField(risk, "initialStopAtrMultiplier", 2.0);
+        setField(risk, "minimumInitialStopPct", 0.03);
+        setField(risk, "maximumInitialStopPct", 0.04);
+        setField(risk, "strategyProfiles", profileService());
+
+        boolean applied = risk.apply("binanceTrend", "ETHUSDT", "15M",
+                signal, series, StructuralTrendSnapshot.warmup());
+
+        Assert.assertTrue(applied);
+        Assert.assertEquals(close * 0.90, signal.takerPrice.doubleValue(), 0.000001);
         Assert.assertNull(signal.stopPrice);
     }
 
@@ -224,5 +247,15 @@ public class BinanceTrendRiskAndExitTest {
         Field field = target.getClass().getDeclaredField(name);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    private SymbolStrategyProfileService profileService() throws Exception {
+        Path project = LocalBacktestRunner.resolveProjectDir(
+                Collections.<String, String>emptyMap());
+        SymbolStrategyProfileService service = new SymbolStrategyProfileService();
+        setField(service, "profileDir",
+                project.resolve("config/strategy-profiles").toString());
+        service.load();
+        return service;
     }
 }

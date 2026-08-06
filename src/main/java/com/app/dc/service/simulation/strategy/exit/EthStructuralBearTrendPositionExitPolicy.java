@@ -4,6 +4,7 @@ import com.app.dc.po.Side;
 import com.app.dc.service.simulation.BacktestModels.Position;
 import com.app.dc.service.simulation.strategy.trend.bear.EthBearMultiTimeframeContextService;
 import com.app.dc.service.simulation.strategy.trend.bear.EthBearMultiTimeframeSnapshot;
+import com.app.dc.service.simulation.strategy.trend.bear.EthDailyBearContextSnapshot;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -12,10 +13,8 @@ import org.springframework.stereotype.Service;
 public class EthStructuralBearTrendPositionExitPolicy implements StrategyPositionExitPolicy {
     static final double BREAKEVEN_ACTIVATION_R=2.5;
     static final double BREAKEVEN_BUFFER_RATIO=.001;
-    static final double FOUR_HOUR_TRAIL_ACTIVATION_R=5.0;
-    static final double FOUR_HOUR_CHANDELIER_ATR=5.0;
     static final int FOUR_HOUR_REVERSAL_CONFIRMATION=3;
-    static final int SOFT_INVALIDATION_CONFIRMATION=2;
+    static final int SOFT_INVALIDATION_CONFIRMATION=8;
 
     @Autowired(required=false) private EthBearMultiTimeframeContextService multiTimeframe;
 
@@ -37,7 +36,14 @@ public class EthStructuralBearTrendPositionExitPolicy implements StrategyPositio
                 ||snapshot.oneHourBarIndex<0||snapshot.fourHourBarIndex<0)
             return PositionExitDecision.hold();
         updateConfirmations(position,snapshot);
-        if(position.ethBearFourHourBullBars>=FOUR_HOUR_REVERSAL_CONFIRMATION){
+        int reversalBars=fourHourReversalBars(snapshot.dailyState);
+        boolean dailyBull=EthDailyBearContextSnapshot.BULL.equals(snapshot.dailyState);
+        boolean dailyConfirmedBear=EthDailyBearContextSnapshot.BEAR.equals(snapshot.dailyState);
+        boolean brokeFourHourStructure=!snapshot.bearCampaignActive&&!dailyConfirmedBear&&Double.isFinite(snapshot.fourHourClose)
+                &&Double.isFinite(snapshot.fourHourEma60)&&snapshot.fourHourClose>snapshot.fourHourEma60;
+        boolean confirmedFourHourReversal=!snapshot.bearCampaignActive&&!dailyConfirmedBear
+                &&position.ethBearFourHourBullBars>=reversalBars;
+        if(dailyBull||confirmedFourHourReversal||brokeFourHourStructure){
             position.exitLifecyclePhase="ETH_BEAR_4H_BULL_CONFIRMED";
             return PositionExitDecision.exit("eth_bear_4h_bull_reversal_exit");
         }
@@ -46,10 +52,25 @@ public class EthStructuralBearTrendPositionExitPolicy implements StrategyPositio
             return PositionExitDecision.exit("eth_bear_1h_soft_invalidation_exit");
         }
         double risk=position.initialRiskPriceDistance;
-        if(Double.isFinite(position.entryAtr)&&position.entryAtr>0)risk=Math.min(risk,2*position.entryAtr);
         if(!Double.isFinite(risk)||risk<=0||!Double.isFinite(position.lowestSinceEntry))
             return PositionExitDecision.hold();
         double favorableR=(position.entryPrice-position.lowestSinceEntry)/risk;
+        double mfe=position.maxFavorableExcursionPct;
+        // Do not strangle a multi-month leg after its first ordinary rebound.
+        // Protection begins only after a meaningful wave has developed and
+        // tightens progressively as the campaign matures.
+        double capture=mfe>=.30?.92:mfe>=.15?.701:mfe>=.08?.50:0;
+        if(capture>0){
+            double candidate=position.entryPrice*(1-mfe*capture);
+            if(Double.isFinite(currentClose)&&currentClose<candidate
+                    &&(position.stopPrice==null||candidate<position.stopPrice)){
+                position.stopPrice=candidate;
+                boolean mature=mfe>=.30;
+                position.stopExitReason=mature?"eth_bear_mfe_capture_exit":"eth_bear_staged_profit_lock_exit";
+                position.exitLifecyclePhase=mature?"ETH_BEAR_MFE_CAPTURE":"ETH_BEAR_STAGED_PROFIT_LOCK";
+                position.trendTrailingActive=true;
+            }
+        }
         if(favorableR>=BREAKEVEN_ACTIVATION_R){
             double candidate=position.entryPrice*(1-BREAKEVEN_BUFFER_RATIO);
             if(Double.isFinite(currentClose)&&currentClose<candidate
@@ -58,27 +79,13 @@ public class EthStructuralBearTrendPositionExitPolicy implements StrategyPositio
                 position.exitLifecyclePhase="ETH_BEAR_BREAKEVEN_PROTECTED";position.trendTrailingActive=true;
             }
         }
-        // A slow ETH short must keep enough room for rebounds, but it must not
-        // return a mature bearish leg to breakeven. Lock only a fraction of MFE.
-        double lockedR=favorableR>=10?5.0:favorableR>=6?2.5:favorableR>=4?1.0:0;
-        if(lockedR>0){
-            double candidate=position.entryPrice-lockedR*risk;
-            if(Double.isFinite(currentClose)&&currentClose<candidate
-                    &&(position.stopPrice==null||candidate<position.stopPrice)){
-                position.stopPrice=candidate;position.stopExitReason="eth_bear_staged_profit_lock_exit";
-                position.exitLifecyclePhase="ETH_BEAR_STAGED_PROFIT_LOCK";position.trendTrailingActive=true;
-            }
-        }
-        if(favorableR>=FOUR_HOUR_TRAIL_ACTIVATION_R&&Double.isFinite(snapshot.fourHourAtr)
-                &&snapshot.fourHourAtr>0){
-            double candidate=position.lowestSinceEntry+FOUR_HOUR_CHANDELIER_ATR*snapshot.fourHourAtr;
-            if(Double.isFinite(candidate)&&candidate>snapshot.fourHourClose+snapshot.fourHourAtr
-                    &&(position.stopPrice==null||candidate<position.stopPrice)){
-                position.stopPrice=candidate;position.stopExitReason="eth_bear_4h_chandelier_exit";
-                position.exitLifecyclePhase="ETH_BEAR_4H_CHANDELIER";position.trendTrailingActive=true;
-            }
-        }
         return PositionExitDecision.hold();
+    }
+
+    private int fourHourReversalBars(String dailyState){
+        if(EthDailyBearContextSnapshot.BEAR.equals(dailyState))return 6;
+        if(EthDailyBearContextSnapshot.BEAR_RISK.equals(dailyState))return 4;
+        return FOUR_HOUR_REVERSAL_CONFIRMATION;
     }
 
     private void updateConfirmations(Position p,EthBearMultiTimeframeSnapshot s){

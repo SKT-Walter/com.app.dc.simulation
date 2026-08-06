@@ -16,12 +16,13 @@ public class LifecycleTrendPriorityPolicy {
     public String priorityStrategy(StrategyEvaluationContext context,
                                    List<DeterministicScoreCard> scores,
                                    String positionOwner) {
-        if (context == null || positionOwner != null) return null;
+        if (context == null) return null;
         String candidate = actionable(context.ethBullTrend)
                 ? "ethStructuralBullTrend"
                 : actionable(context.ethBearTrend) ? "ethStructuralBearTrend"
                 : actionable(context.solBullTrend) ? "solMomentumBullTrend" : null;
         if (candidate == null || scores == null) return null;
+        if (positionOwner != null && candidate.equalsIgnoreCase(positionOwner)) return null;
         // Presence in score cards proves that the hard candidate chain accepted it.
         // TRIGGERED already contains 4H direction, 1H structure and 15m execution
         // confirmation; the generic family score must not veto that event again.

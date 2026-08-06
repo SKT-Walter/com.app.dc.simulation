@@ -179,16 +179,25 @@ public final class BinanceAnnualKlineService {
                         + annual.get(i - 1).getOpenTime() + " and " + annual.get(i).getOpenTime());
         }
         if (historical && !annual.isEmpty()) {
-            long expectedFirst = LocalDate.of(year, 1, 1).atStartOfDay(BEIJING_ZONE)
+            long yearStart = LocalDate.of(year, 1, 1).atStartOfDay(BEIJING_ZONE)
                     .toInstant().toEpochMilli();
-            long expectedLast = LocalDate.of(year + 1, 1, 1).atStartOfDay(BEIJING_ZONE)
-                    .toInstant().toEpochMilli() - duration;
+            long nextYearStart = LocalDate.of(year + 1, 1, 1).atStartOfDay(BEIJING_ZONE)
+                    .toInstant().toEpochMilli();
+            // Binance intervals are aligned to the Unix/UTC cadence. A 1d bar
+            // therefore opens at 08:00 Asia/Shanghai, not local midnight.
+            long expectedFirst = alignAtOrAfter(yearStart, duration);
+            long expectedLast = alignAtOrAfter(nextYearStart, duration) - duration;
             if (hadPriorYearData && annual.get(0).getOpenTime() != expectedFirst)
                 throw new IOException("historical year starts with a kline gap, expected openTime " + expectedFirst);
             if (annual.get(annual.size() - 1).getOpenTime() != expectedLast)
                 throw new IOException("historical year ends with a kline gap, expected openTime " + expectedLast);
         }
         return annual;
+    }
+
+    private long alignAtOrAfter(long timestamp,long duration){
+        long remainder=Math.floorMod(timestamp,duration);
+        return remainder==0?timestamp:timestamp+(duration-remainder);
     }
 
     private String normalizeSymbol(String symbol) {

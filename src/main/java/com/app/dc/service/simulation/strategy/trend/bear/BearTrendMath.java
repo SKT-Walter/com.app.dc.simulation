@@ -6,6 +6,7 @@ import org.ta4j.core.BarSeries;
 final class BearTrendMath {
     private BearTrendMath(){}
     static double close(BarSeries s,int i){return s.getBar(i).getClosePrice().doubleValue();}
+    static double open(BarSeries s,int i){return s.getBar(i).getOpenPrice().doubleValue();}
     static double high(BarSeries s,int i){return s.getBar(i).getHighPrice().doubleValue();}
     static double low(BarSeries s,int i){return s.getBar(i).getLowPrice().doubleValue();}
     static double highest(BarSeries s,int end,int count){double v=Double.NEGATIVE_INFINITY;for(int i=Math.max(s.getBeginIndex(),end-count+1);i<=end;i++)v=Math.max(v,high(s,i));return v;}

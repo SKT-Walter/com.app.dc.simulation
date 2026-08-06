@@ -31,7 +31,7 @@
       "enabled": true
     },
     "ethStructuralBearTrend": {
-      "enabled": false
+      "enabled": true
     },
     "binanceRange": {
       "enabled": true,

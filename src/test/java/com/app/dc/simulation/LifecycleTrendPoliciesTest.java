@@ -1,5 +1,6 @@
 package com.app.dc.simulation;
 
+import com.app.dc.po.Side;
 import com.app.dc.service.simulation.BacktestModels.Position;
 import com.app.dc.service.simulation.deterministic.*;
 import com.app.dc.service.simulation.dynamic.BacktestRegime;
@@ -12,13 +13,15 @@ import org.junit.Test;
 import java.util.Arrays;
 
 public class LifecycleTrendPoliciesTest {
-    @Test public void actionableEthTriggerGetsPriorityOnlyWhenFlatAndHardCandidateAccepted(){
+    @Test public void actionableEthTriggerCanTakePriorityFromAnotherStrategy(){
         LifecycleTrendPriorityPolicy policy=new LifecycleTrendPriorityPolicy();
         StrategyEvaluationContext context=context(true);
         DeterministicScoreCard eth=score("ethStructuralBullTrend",80,70);
         Assert.assertEquals("ethStructuralBullTrend",
                 policy.priorityStrategy(context,Arrays.asList(eth),null));
-        Assert.assertNull(policy.priorityStrategy(context,Arrays.asList(eth),"binanceRange"));
+        Assert.assertEquals("ethStructuralBullTrend",
+                policy.priorityStrategy(context,Arrays.asList(eth),"binanceRange"));
+        Assert.assertNull(policy.priorityStrategy(context,Arrays.asList(eth),"ethStructuralBullTrend"));
         eth.score=60;
         Assert.assertEquals("ethStructuralBullTrend",
                 policy.priorityStrategy(context,Arrays.asList(eth),null));
@@ -37,6 +40,10 @@ public class LifecycleTrendPoliciesTest {
         Position position=new Position();position.strategyName="ethStructuralBullTrend";
         Assert.assertTrue(policy.blocksForeignReversal(position,"donchianReversion"));
         Assert.assertFalse(policy.blocksForeignReversal(position,"ethStructuralBullTrend"));
+        position.side=Side.BUY;
+        Assert.assertTrue(policy.shouldHandoffSameDirection(position,"ethStructuralBearTrend",Side.BUY));
+        Assert.assertFalse(policy.shouldHandoffSameDirection(position,"ethStructuralBullTrend",Side.BUY));
+        Assert.assertFalse(policy.shouldHandoffSameDirection(position,"ethStructuralBearTrend",Side.SELL));
         position.strategyName="binanceRange";
         Assert.assertFalse(policy.blocksForeignReversal(position,"donchianReversion"));
     }

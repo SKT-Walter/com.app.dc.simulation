@@ -116,6 +116,9 @@ public class DeterministicScoringService {
                 : Math.max(t.closeLocation, 1 - t.closeLocation);
         put(card, "closeQuality", 10 * closeQuality);
         put(card, "structure", 5 * t.structureStrength);
+        if ("compressionBreak".equalsIgnoreCase(card.strategyName)
+                && x.trendCompression != null && x.trendCompression.triggered)
+            put(card, "trendCompression", 15);
         if (t.volumeRatio < 1) { card.penalty += 10; card.penaltyFactors.add("突破缺少成交量"); }
         double wickRatio = 1 - clamp(t.bodyAtr / Math.max((t.high - t.low) / Math.max(t.atr, 1e-9), 1e-9));
         if (wickRatio > .6) { card.penalty += 8; card.penaltyFactors.add("影线占比过高"); }

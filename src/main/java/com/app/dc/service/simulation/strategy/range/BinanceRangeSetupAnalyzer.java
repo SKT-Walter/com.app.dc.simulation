@@ -29,6 +29,12 @@ public final class BinanceRangeSetupAnalyzer {
     }
 
     public static Snapshot analyze(BarSeries series, double minimumTriggerRangeAtr) {
+        return analyze(series, minimumTriggerRangeAtr, 0.0, MIN_CLOSE_LOCATION);
+    }
+
+    public static Snapshot analyze(BarSeries series, double minimumTriggerRangeAtr,
+                                   double minimumBuyRecoveryBodyAtr,
+                                   double minimumBuyCloseLocation) {
         if (series == null || series.getBarCount() < minimumBars()) {
             return Snapshot.rejected("RANGE_DATA_WARMUP");
         }
@@ -63,17 +69,22 @@ public final class BinanceRangeSetupAnalyzer {
         boolean upperBreakInvalid = barHigh > high + MAX_BREAKOUT_ATR * atr;
         double barRange = Math.max(barHigh - barLow, 1e-9);
         double triggerRangeAtr = barRange / atr;
+        double bodyAtr = Math.abs(close - open) / atr;
         double closeLocation = clamp((close - barLow) / barRange);
         boolean bullishRecovery = lowerTouched && !lowerBreakInvalid
                 && close >= low + zone * RECOVERY_ZONE_RATIO
                 && close <= low + range * .35
                 && close > open && close > previousClose
-                && closeLocation >= MIN_CLOSE_LOCATION;
+                && closeLocation >= Math.max(MIN_CLOSE_LOCATION,
+                        minimumBuyCloseLocation);
         boolean bearishRecovery = upperTouched && !upperBreakInvalid
                 && close <= high - zone * RECOVERY_ZONE_RATIO
                 && close >= high - range * .35
                 && close < open && close < previousClose
                 && closeLocation <= 1 - MIN_CLOSE_LOCATION;
+        boolean buyConfirmationTooWeak = bullishRecovery
+                && bodyAtr < Math.max(0.0, minimumBuyRecoveryBodyAtr);
+        if (buyConfirmationTooWeak) bullishRecovery = false;
         boolean triggerRangeTooSmall = (bullishRecovery || bearishRecovery)
                 && triggerRangeAtr < Math.max(0.0, minimumTriggerRangeAtr);
         if (triggerRangeTooSmall) {
@@ -109,12 +120,13 @@ public final class BinanceRangeSetupAnalyzer {
         double readiness = clamp(.75 + .20 * edgeReadiness + .05 * recoveryReadiness);
         String reason;
         if (lowerBreakInvalid || upperBreakInvalid) reason = "RANGE_BREAKOUT_INVALIDATED";
+        else if (buyConfirmationTooWeak) reason = "RANGE_BUY_CONFIRMATION_TOO_WEAK";
         else if (triggerRangeTooSmall) reason = "RANGE_TRIGGER_RANGE_TOO_SMALL";
         else if ("HOLD".equals(side) && (lowerTouched || upperTouched)) reason = "RANGE_RECOVERY_NOT_CONFIRMED";
         else if ("HOLD".equals(side)) reason = "RANGE_EDGE_NOT_TOUCHED";
         else reason = "RANGE_REVERSAL_CONFIRMED";
         return new Snapshot(true, side, readiness, reason, high, low, stop, take,
-                rewardRisk, triggerRangeAtr);
+                rewardRisk, triggerRangeAtr, bodyAtr, closeLocation);
     }
 
     private static double stability(BarSeries series, int referenceEnd,
@@ -178,10 +190,13 @@ public final class BinanceRangeSetupAnalyzer {
         public final double takePrice;
         public final double rewardRisk;
         public final double triggerRangeAtr;
+        public final double bodyAtr;
+        public final double closeLocation;
 
         Snapshot(boolean stable, String side, double readiness, String reason,
                  double high, double low, double stopPrice, double takePrice,
-                 double rewardRisk, double triggerRangeAtr) {
+                 double rewardRisk, double triggerRangeAtr, double bodyAtr,
+                 double closeLocation) {
             this.stable = stable;
             this.side = side;
             this.readiness = readiness;
@@ -192,12 +207,14 @@ public final class BinanceRangeSetupAnalyzer {
             this.takePrice = takePrice;
             this.rewardRisk = rewardRisk;
             this.triggerRangeAtr = triggerRangeAtr;
+            this.bodyAtr = bodyAtr;
+            this.closeLocation = closeLocation;
         }
 
         static Snapshot rejected(String reason) {
             return new Snapshot(false, "HOLD", 0, reason,
                     Double.NaN, Double.NaN, Double.NaN, Double.NaN, 0,
-                    Double.NaN);
+                    Double.NaN, Double.NaN, Double.NaN);
         }
 
         public boolean actionable() {

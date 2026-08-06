@@ -87,6 +87,38 @@ public class DeterministicStrategyRouterTest {
         Assert.assertNull(exited.strategyName);
     }
 
+    @Test
+    public void breakoutEventActivatesWithoutThreeBarDelay() throws Exception {
+        DeterministicStrategyRouter router = router(3, 0, 5, 10, 3);
+        StrategyRoutingState state = router.newState();
+        DeterministicScoreCard breakout = score("compressionBreak", 82, 70);
+        breakout.family = "BREAKOUT";
+
+        StrategyRoutingDecision decision = route(router, state, 60,
+                candidates("compressionBreak"), breakout);
+
+        Assert.assertEquals("ACTIVATED", decision.reason);
+        Assert.assertEquals("compressionBreak", decision.strategyName);
+    }
+
+    @Test
+    public void lifecycleTriggerPriorityPreemptsHigherScoredHoldStrategyImmediately() throws Exception {
+        DeterministicStrategyRouter router=router(3,4,5,10,3);
+        StrategyRoutingState state=router.newState();
+        CandidateSelectionResult candidates=candidates("atrChannelBiasReversion","ethStructuralBullTrend");
+        routeWithPriority(router,state,60,candidates,null,
+                score("atrChannelBiasReversion",90,65));
+        routeWithPriority(router,state,61,candidates,null,
+                score("atrChannelBiasReversion",90,65));
+        routeWithPriority(router,state,62,candidates,null,
+                score("atrChannelBiasReversion",90,65));
+        StrategyRoutingDecision priority=routeWithPriority(router,state,63,candidates,
+                "ethStructuralBullTrend",score("atrChannelBiasReversion",90,65),
+                score("ethStructuralBullTrend",60,70));
+        Assert.assertEquals("LIFECYCLE_TRIGGER_PRIORITY",priority.reason);
+        Assert.assertEquals("ethStructuralBullTrend",priority.strategyName);
+    }
+
     private StrategyRoutingDecision route(DeterministicStrategyRouter router, StrategyRoutingState state,
                                           int index, CandidateSelectionResult candidates,
                                           DeterministicScoreCard... scores) {
@@ -99,6 +131,16 @@ public class DeterministicStrategyRouterTest {
         StrategyEvaluationContext context = new StrategyEvaluationContext(
                 "ETHUSDT", "15M", index, null, null, regime, null);
         return router.route(state, context, candidates, Arrays.asList(scores));
+    }
+
+    private StrategyRoutingDecision routeWithPriority(DeterministicStrategyRouter router,StrategyRoutingState state,
+                                                       int index,CandidateSelectionResult candidates,String priority,
+                                                       DeterministicScoreCard... scores){
+        BacktestRegime regime=new BacktestRegime();regime.tradeable=true;regime.trend="UP";
+        regime.volatility="NORMAL";regime.confidence=.8;regime.barTime=index*900000L;
+        StrategyEvaluationContext context=new StrategyEvaluationContext(
+                "ETHUSDT","15M",index,null,null,regime,null);
+        return router.route(state,context,candidates,Arrays.asList(scores),priority);
     }
 
     private CandidateSelectionResult candidates(String... names) {

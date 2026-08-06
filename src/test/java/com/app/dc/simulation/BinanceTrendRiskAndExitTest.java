@@ -71,7 +71,7 @@ public class BinanceTrendRiskAndExitTest {
     }
 
     @Test
-    public void appliesSymbolSpecificTrendTakeProfit() throws Exception {
+    public void appliesSymbolSpecificTrendTakeProfitWhenLifecycleIsDisabled() throws Exception {
         BinanceTrendBacktestStrategy strategy = new BinanceTrendBacktestStrategy();
         BarSeries series = decliningSeries(64, 150.0, 0.08);
         double close = series.getLastBar().getClosePrice().doubleValue();

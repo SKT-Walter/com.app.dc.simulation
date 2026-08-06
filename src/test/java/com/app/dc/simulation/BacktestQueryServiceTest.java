@@ -100,6 +100,15 @@ public class BacktestQueryServiceTest {
         }
     }
 
+    @Test public void auxiliaryTimeframesUseIntervalSpecificAnnualFiles() throws Exception {
+        Path dir=Files.createTempDirectory("sim-mtf-");
+        String json="["+barFor("1767225600000","100","true","1h")+"]";
+        Files.write(dir.resolve("ETHUSDT_1h_2026.json"),json.getBytes(StandardCharsets.UTF_8));
+        BacktestQueryService service=service(dir);
+        List<TTbookOhlc> rows=service.queryLocalOhlc("ETHUSDT","1h","2026-01-01","2026-01-01");
+        Assert.assertEquals(1,rows.size());Assert.assertEquals("1H",rows.get(0).text);
+    }
+
     private BacktestQueryService service(Path dir) throws Exception {
         BacktestQueryService s = new BacktestQueryService();
         java.lang.reflect.Field f = BacktestQueryService.class.getDeclaredField("localDataDir");
@@ -109,8 +118,9 @@ public class BacktestQueryServiceTest {
     }
 
     private String bar(String ts, String close, String closed) {
-        return "{\"SecurityID\":\"ETHUSDT\",\"OpenPrice\":\"100\",\"HighPrice\":\"105\",\"LowPrice\":\"95\",\"ClosePrice\":\"" + close + "\",\"Volume\":\"10\",\"Info1\":\"" + ts + "\",\"Info3\":\"15m\",\"Info4\":\"" + closed + "\"}";
+        return barFor(ts,close,closed,"15m");
     }
+    private String barFor(String ts,String close,String closed,String text){return "{\"SecurityID\":\"ETHUSDT\",\"OpenPrice\":\"100\",\"HighPrice\":\"105\",\"LowPrice\":\"95\",\"ClosePrice\":\""+close+"\",\"Volume\":\"10\",\"Info1\":\""+ts+"\",\"Info3\":\""+text+"\",\"Info4\":\""+closed+"\"}";}
 
     private String epoch(String instant) {
         return String.valueOf(Instant.parse(instant).toEpochMilli());

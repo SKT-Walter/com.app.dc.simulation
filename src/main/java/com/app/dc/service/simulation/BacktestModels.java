@@ -38,6 +38,16 @@ public final class BacktestModels {
         public Map<String, Integer> structuralPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> signalSourceCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> structuralScoreAdjustmentCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> trendCompressionPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> trendCompressionDirectionCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> trendLifecyclePhaseCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> trendLifecycleReasonCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> ethBullTrendPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> ethBullTrendReasonCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> solBullTrendPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> solBullTrendReasonCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> ethBearTrendPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> ethBearTrendReasonCounts = new java.util.LinkedHashMap<String, Integer>();
     }
 
     public static class BacktestResult {
@@ -90,6 +100,12 @@ public final class BacktestModels {
         public String regime;
         public BigDecimal returnPct;
         public BigDecimal pnl;
+        public BigDecimal maxFavorableExcursionPct;
+        public BigDecimal maxAdverseExcursionPct;
+        public BigDecimal profitCaptureRatio;
+        public String entryLifecyclePhase;
+        public String trendTriggerType;
+        public String exitLifecyclePhase;
     }
 
     public static class Position {
@@ -106,6 +122,27 @@ public final class BacktestModels {
         public int trendRegimeConflictBars;
         public int trendStructuralStrengtheningBars;
         public double lastStructuralConflictConfidence = Double.NaN;
+        public double initialRiskPriceDistance = Double.NaN;
+        public double entryAtr = Double.NaN;
+        public double highestSinceEntry = Double.NaN;
+        public double lowestSinceEntry = Double.NaN;
+        public double maxFavorableExcursionPct;
+        public double maxAdverseExcursionPct;
+        public boolean trendTrailingActive;
+        public String entryLifecyclePhase;
+        public String trendTriggerType;
+        public String exitLifecyclePhase;
+        public String stopExitReason;
+        public int ethLastFourHourIndex = -1;
+        public int ethFourHourBearBars;
+        public int ethLastOneHourIndex = -1;
+        public int ethSoftInvalidationBars;
+        public double ethSoftStopPrice = Double.NaN;
+        public int ethBearLastFourHourIndex = -1;
+        public int ethBearFourHourBullBars;
+        public int ethBearLastOneHourIndex = -1;
+        public int ethBearSoftInvalidationBars;
+        public double ethBearSoftStopPrice = Double.NaN;
     }
 
     public static class EquityContext {

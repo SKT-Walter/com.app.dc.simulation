@@ -59,6 +59,25 @@ public class BinanceRangeStrategyTest {
     }
 
     @Test
+    public void ethStyleBuyConfirmationRequiresBodyAndCloseQuality() {
+        BarSeries weakBody = stableBox();
+        add(weakBody, 98.40, 98.60, 97.90, 98.50);
+
+        BinanceRangeSetupAnalyzer.Snapshot rejected =
+                BinanceRangeSetupAnalyzer.analyze(weakBody, 0.0, 0.12, 0.70);
+        Assert.assertEquals("HOLD", rejected.side);
+        Assert.assertEquals("RANGE_BUY_CONFIRMATION_TOO_WEAK", rejected.reason);
+
+        BarSeries confirmed = stableBox();
+        add(confirmed, 97.95, 98.60, 97.90, 98.50);
+        BinanceRangeSetupAnalyzer.Snapshot accepted =
+                BinanceRangeSetupAnalyzer.analyze(confirmed, 0.0, 0.12, 0.70);
+        Assert.assertEquals("BUY", accepted.side);
+        Assert.assertTrue(accepted.bodyAtr >= 0.12);
+        Assert.assertTrue(accepted.closeLocation >= 0.70);
+    }
+
+    @Test
     public void currentBreakoutDoesNotMoveReferenceBoundaryAndInvalidatesEntry() {
         BarSeries series = stableBox();
         add(series, 98.10, 98.60, 94.00, 98.50);

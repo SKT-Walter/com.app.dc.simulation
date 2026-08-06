@@ -24,4 +24,14 @@ public class BacktestStrategyAliasTest {
         Assert.assertEquals("binanceRangeMacd",
                 support.normalizeStrategyName("range_macd"));
     }
+
+    @Test public void independentBullTrendAliasesRemainDistinct(){
+        Assert.assertEquals("ethStructuralBullTrend",support.normalizeStrategyName("ethbull"));
+        Assert.assertEquals("solMomentumBullTrend",support.normalizeStrategyName("solbull"));
+    }
+
+    @Test public void ethBearTrendAliasesResolveToIndependentStrategy(){
+        Assert.assertEquals("ethStructuralBearTrend",support.normalizeStrategyName("ethbear"));
+        Assert.assertEquals("ethStructuralBearTrend",support.normalizeStrategyName("eth_structural_bear"));
+    }
 }

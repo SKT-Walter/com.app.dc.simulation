@@ -4,10 +4,13 @@ package com.app.dc.service.simulation.deterministic;
 public final class DeterministicPipelineState {
     final StrategyRoutingState routerState;
     final StructuralTrendState structuralTrendState;
+    final TrendCompressionState trendCompressionState;
 
     public DeterministicPipelineState(StrategyRoutingState routerState,
-                                      StructuralTrendState structuralTrendState) {
+                                      StructuralTrendState structuralTrendState,
+                                      TrendCompressionState trendCompressionState) {
         this.routerState = routerState;
         this.structuralTrendState = structuralTrendState;
+        this.trendCompressionState = trendCompressionState;
     }
 }

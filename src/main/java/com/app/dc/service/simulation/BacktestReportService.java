@@ -221,7 +221,19 @@ public class BacktestReportService {
             sb.append("- 结构趋势分布：").append(a.structuralTrendCounts).append("\n");
             sb.append("- 结构趋势阶段：").append(a.structuralPhaseCounts).append("\n");
             sb.append("- 信号来源统计：").append(a.signalSourceCounts).append("\n");
-            sb.append("- 结构评分修正：").append(a.structuralScoreAdjustmentCounts).append("\n\n");
+            sb.append("- 结构评分修正：").append(a.structuralScoreAdjustmentCounts).append("\n");
+            sb.append("- TREND_COMPRESSION阶段：")
+                    .append(a.trendCompressionPhaseCounts).append("\n");
+            sb.append("- TREND_COMPRESSION方向：")
+                    .append(a.trendCompressionDirectionCounts).append("\n\n");
+            sb.append("- 趋势生命周期阶段：").append(a.trendLifecyclePhaseCounts).append("\n");
+            sb.append("- 趋势生命周期原因：").append(a.trendLifecycleReasonCounts).append("\n\n");
+            sb.append("- ETH多头趋势阶段：").append(a.ethBullTrendPhaseCounts).append("\n");
+            sb.append("- ETH多头趋势原因：").append(a.ethBullTrendReasonCounts).append("\n");
+            sb.append("- SOL多头趋势阶段：").append(a.solBullTrendPhaseCounts).append("\n");
+            sb.append("- SOL多头趋势原因：").append(a.solBullTrendReasonCounts).append("\n\n");
+            sb.append("- ETH空头趋势阶段：").append(a.ethBearTrendPhaseCounts).append("\n");
+            sb.append("- ETH空头趋势原因：").append(a.ethBearTrendReasonCounts).append("\n\n");
         }
 
         if (response.routingDecisions != null && !response.routingDecisions.isEmpty()) {
@@ -248,6 +260,32 @@ public class BacktestReportService {
             sb.append("\n");
         }
 
+        sb.append("## 按年度、策略和方向归因\n\n");
+        Map<String,List<TradeRecord>> annualAttribution=new LinkedHashMap<String,List<TradeRecord>>();
+        for(BacktestResult r:results){
+            if(r.tradeList==null)continue;
+            for(TradeRecord t:r.tradeList){
+                String year=t.entryTime!=null&&t.entryTime.length()>=4?t.entryTime.substring(0,4):"UNKNOWN";
+                String key=year+"|"+s(r.symbol)+"|"+s(t.strategyName)+"|"+s(t.side);
+                List<TradeRecord> values=annualAttribution.get(key);
+                if(values==null){values=new ArrayList<TradeRecord>();annualAttribution.put(key,values);}
+                values.add(t);
+            }
+        }
+        List<List<String>> attributionRows=new ArrayList<List<String>>();
+        for(Entry<String,List<TradeRecord>> entry:annualAttribution.entrySet()){
+            String[] key=entry.getKey().split("\\|",-1);int wins=0;BigDecimal pnl=BigDecimal.ZERO;
+            BigDecimal positive=BigDecimal.ZERO,negative=BigDecimal.ZERO;
+            for(TradeRecord t:entry.getValue())if(t.pnl!=null){pnl=pnl.add(t.pnl);if(t.pnl.signum()>0){wins++;positive=positive.add(t.pnl);}else if(t.pnl.signum()<0)negative=negative.add(t.pnl.abs());}
+            List<String> row=new ArrayList<String>();row.add(key[0]);row.add(key[1]);row.add(key[2]);row.add(translateSide(key[3]));
+            row.add(String.valueOf(entry.getValue().size()));row.add(String.valueOf(wins));
+            row.add(entry.getValue().isEmpty()?"0.0000%":BigDecimal.valueOf(wins*100d/entry.getValue().size()).setScale(4,RoundingMode.HALF_UP).toPlainString()+"%");
+            row.add(money(pnl));row.add(negative.signum()==0?(positive.signum()>0?"INF":"0.0000"):
+                    positive.divide(negative,4,RoundingMode.HALF_UP).toPlainString());attributionRows.add(row);
+        }
+        appendAlignedTable(sb,java.util.Arrays.asList("年度","品种","策略","方向","交易数","盈利数","胜率","净盈亏","Profit Factor"),attributionRows);
+        sb.append("\n");
+
         for (BacktestResult r : sortedResults) {
             sb.append("## 交易明细 - ").append(s(r.strategyName)).append(" - ").append(s(r.symbol)).append("\n\n");
             List<String> tradeHeaders = new ArrayList<>();
@@ -255,6 +293,10 @@ public class BacktestReportService {
             tradeHeaders.add("开仓时间"); tradeHeaders.add("平仓时间"); tradeHeaders.add("开仓价"); tradeHeaders.add("平仓价");
             tradeHeaders.add("止损价"); tradeHeaders.add("止盈价"); tradeHeaders.add("持仓K线数");
             tradeHeaders.add("收益率"); tradeHeaders.add("盈亏"); tradeHeaders.add("退出原因");
+
+            tradeHeaders.add("最大有利波动"); tradeHeaders.add("最大不利波动");
+            tradeHeaders.add("利润捕获率"); tradeHeaders.add("入场生命周期");
+            tradeHeaders.add("趋势触发类型"); tradeHeaders.add("退出生命周期");
 
             List<List<String>> tradeRows = new ArrayList<>();
             List<TradeRecord> tradeList = r.tradeList == null ? Collections.<TradeRecord>emptyList() : r.tradeList;
@@ -276,6 +318,12 @@ public class BacktestReportService {
                 row.add(percent(t.returnPct));
                 row.add(money(t.pnl));
                 row.add(translateExitReason(t.exitReason));
+                row.add(percent(t.maxFavorableExcursionPct));
+                row.add(percent(t.maxAdverseExcursionPct));
+                row.add(percent(t.profitCaptureRatio));
+                row.add(s(t.entryLifecyclePhase));
+                row.add(s(t.trendTriggerType));
+                row.add(s(t.exitLifecyclePhase));
                 tradeRows.add(row);
             }
             appendAlignedTable(sb, tradeHeaders, tradeRows);
@@ -360,6 +408,14 @@ public class BacktestReportService {
             case "strategy_close_signal": return "策略主动平仓";
             case "trend_consensus_confirmation_exit": return "Regime、均线与慢结构共识退出";
             case "end_of_test": return "回测结束强制平仓";
+            case "trend_slow_structure_reversed": return "\u6162\u7ed3\u6784\u53cd\u8f6c\u9000\u51fa";
+            case "trend_lifecycle_invalidated": return "\u8d8b\u52bf\u751f\u547d\u5468\u671f\u5931\u6548\u9000\u51fa";
+            case "bull_slow_structure_reversed": return "多头慢结构反转退出";
+            case "bull_atr_structure_trailing_exit": return "多头ATR/结构跟踪退出";
+            case "eth_4h_chandelier_exit": return "ETH四小时ATR跟踪退出";
+            case "eth_4h_bear_reversal_exit": return "ETH四小时趋势反转退出";
+            case "eth_1h_soft_invalidation_exit": return "ETH一小时软失效确认退出";
+            case "eth_breakeven_protection_exit": return "ETH趋势保本退出";
             default: return s(reason);
         }
     }
@@ -368,6 +424,9 @@ public class BacktestReportService {
         if (reason == null) return "";
         switch (reason) {
             case "SYMBOL_STRATEGY_DISABLED": return "该品种已禁用此策略";
+            case "SYMBOL_NOT_SUPPORTED": return "策略不支持该品种或周期";
+            case "SYMBOL_SIDE_BLOCKED": return "该品种已关闭此交易方向";
+            case "LIFECYCLE_TREND_POSITION_OWNED": return "生命周期趋势持仓由开仓策略管理，拒绝外部反手";
             case "not_enough_bars": return "K线数量不足";
             case "invalid_atr": return "ATR无效";
             case "invalid_std": return "标准差无效";
@@ -406,6 +465,7 @@ public class BacktestReportService {
             case "ACTIVATED": return "连续确认完成，主策略激活";
             case "ACTIVE_RETAIN": return "当前主策略继续保持";
             case "MINIMUM_HOLD": return "当前策略处于最短保持期";
+            case "LIFECYCLE_TRIGGER_PRIORITY": return "生命周期趋势信号已触发，获得优先执行权";
             case "AWAITING_ACTIVATION": return "等待首次激活连续确认";
             case "AWAITING_SWITCH": return "挑战策略等待连续确认";
             case "SWITCHED": return "挑战策略满足条件，完成切换";

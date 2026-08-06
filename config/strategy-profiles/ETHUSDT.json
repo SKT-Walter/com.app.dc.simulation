@@ -5,11 +5,56 @@
   "enabled": true,
   "strategies": {
     "binanceTrend": {
-      "takeProfitPct": 10
+      "takeProfitPct": 10,
+      "binanceTrendBuyEnabled": false,
+      "trendLifecycleEnabled": false,
+      "trendImpulseLookbackBars": 96,
+      "trendMinimumPullbackBars": 3,
+      "trendMinimumRetracement": 0.236,
+      "trendMaximumRetracement": 0.618,
+      "trendInvalidationRetracement": 0.786,
+      "trendMaximumLifecycleBars": 384,
+      "trendTriggerValidityBars": 4,
+      "trendMinimumBodyAtr": 0.30,
+      "trendMinimumVolumeRatio": 0.80,
+      "trendMinimumCloseLocation": 0.65,
+      "trendMaximumTriggerExtensionAtr": 1.0,
+      "trendStopPaddingAtr": 0.50,
+      "trendMinimumStopAtr": 2.0,
+      "trendMaximumStopAtr": 4.0,
+      "trendTrailActivationAtr": 2.0,
+      "trendInitialTrailAtr": 3.5,
+      "trendMatureTrailActivationAtr": 4.0,
+      "trendMatureTrailAtr": 3.0
+    },
+    "ethStructuralBullTrend": {
+      "enabled": true
+    },
+    "ethStructuralBearTrend": {
+      "enabled": false
     },
     "binanceRange": {
       "enabled": true,
-      "minimumTriggerRangeAtr": 0.7
+      "minimumTriggerRangeAtr": 0.7,
+      "minimumBuyRecoveryBodyAtr": 0.10,
+      "minimumBuyCloseLocation": 0.65,
+      "rangeStateMachineEnabled": false,
+      "rangeLookbackBars": 20,
+      "rangeStabilityBars": 6,
+      "rangeMinimumMidCrosses": 3,
+      "minimumBoxRangeAtr": 3.5,
+      "maximumBoxRangeAtr": 5.5,
+      "rangeEdgeZoneRatio": 0.15,
+      "rangeTouchValidityBars": 3,
+      "rangeConfirmedValidityBars": 8,
+      "rangeNextBarConfirmationRequired": false,
+      "rangeMaximumBreakoutAtr": 0.50,
+      "rangeMinimumRewardRisk": 1.25,
+      "rangeStopPaddingAtr": 0.10,
+      "rangeTargetExtensionRatio": 0.15
+    },
+    "compressionBreak": {
+      "enabled": false
     }
   }
 }

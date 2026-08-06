@@ -55,7 +55,7 @@ public final class BinanceVisionKlineRunner {
         System.out.println("币种: " + symbols + ", 周期: " + interval + ", 年份: " + year);
         System.out.println("缓存目录: " + cacheDir);
         for (String symbol : symbols) {
-            Path output = dataDir.resolve(symbol + "_" + year + ".json");
+            Path output = dataDir.resolve(outputFileName(symbol, interval, year));
             BinanceAnnualKlineService.DownloadResult result =
                     service.download(symbol, interval, year, output, overwrite);
             System.out.println(String.format(Locale.ROOT,
@@ -65,6 +65,12 @@ public final class BinanceVisionKlineRunner {
                     DISPLAY_TIME.format(Instant.ofEpochMilli(result.lastOpenTime)),
                     result.output));
         }
+    }
+
+    static String outputFileName(String symbol,String interval,int year) {
+        return "15m".equalsIgnoreCase(interval)
+                ? symbol + "_" + year + ".json"
+                : symbol + "_" + interval.toLowerCase(Locale.ROOT) + "_" + year + ".json";
     }
 
     private static Map<String, String> parse(String[] args) {

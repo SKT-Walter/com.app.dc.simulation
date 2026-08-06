@@ -22,7 +22,19 @@ import com.app.dc.service.simulation.dynamic.BacktestRegimeService;
 import com.app.dc.service.simulation.strategy.exit.PositionExitDecision;
 import com.app.dc.service.simulation.strategy.exit.StrategyPositionExitContext;
 import com.app.dc.service.simulation.strategy.exit.StrategyPositionExitService;
+import com.app.dc.service.simulation.strategy.exit.LifecycleTrendPositionOwnershipPolicy;
 import com.app.dc.service.simulation.strategy.risk.BinanceTrendEntryRiskService;
+import com.app.dc.service.simulation.strategy.trend.TrendLifecycleService;
+import com.app.dc.service.simulation.strategy.trend.TrendLifecycleSnapshot;
+import com.app.dc.service.simulation.strategy.trend.bull.BullTrendSnapshot;
+import com.app.dc.service.simulation.strategy.trend.bull.EthStructuralBullTrendService;
+import com.app.dc.service.simulation.strategy.trend.bull.EthMultiTimeframeContextService;
+import com.app.dc.service.simulation.strategy.profile.SymbolStrategyProfileService;
+import com.app.dc.service.simulation.strategy.trend.bull.SolMomentumBullTrendService;
+import com.app.dc.service.simulation.strategy.trend.bear.BearTrendSnapshot;
+import com.app.dc.service.simulation.strategy.trend.bear.EthStructuralBearTrendService;
+import com.app.dc.service.simulation.strategy.trend.bear.EthBearMultiTimeframeContextService;
+import com.app.dc.service.simulation.strategy.BinanceStrategyMath;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
@@ -73,6 +85,15 @@ public class BacktestService {
     private StructuralTrendService structuralTrendService;
     @Autowired
     private BinanceTrendEntryRiskService trendEntryRiskService;
+    @Autowired
+    private TrendLifecycleService trendLifecycleService;
+    @Autowired private EthStructuralBullTrendService ethBullTrendService;
+    @Autowired private EthMultiTimeframeContextService ethMultiTimeframeContextService;
+    @Autowired private SymbolStrategyProfileService symbolStrategyProfiles;
+    @Autowired private SolMomentumBullTrendService solBullTrendService;
+    @Autowired private EthStructuralBearTrendService ethBearTrendService;
+    @Autowired private EthBearMultiTimeframeContextService ethBearMultiTimeframeContextService;
+    @Autowired private LifecycleTrendPositionOwnershipPolicy lifecyclePositionOwnership;
 
     public BacktestResponse run(BacktestParam param) throws Exception {
         BacktestParam req = normalizeParam(param);
@@ -101,6 +122,9 @@ public class BacktestService {
                 results.add(runSingleStrategy("binanceRangeMacd", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceChannel", symbolParam, ohlcList));
                 results.add(runSingleStrategy("binanceTrend", symbolParam, ohlcList));
+                results.add(runSingleStrategy("ethStructuralBullTrend", symbolParam, ohlcList));
+                results.add(runSingleStrategy("ethStructuralBearTrend", symbolParam, ohlcList));
+                results.add(runSingleStrategy("solMomentumBullTrend", symbolParam, ohlcList));
                 results.add(runSingleStrategy("breakoutRetestContinuationTrend", symbolParam, ohlcList));
                 results.add(runSingleStrategy("emaPullbackBuy", symbolParam, ohlcList));
                 results.add(runSingleStrategy("trendRestart", symbolParam, ohlcList));
@@ -227,6 +251,16 @@ public class BacktestService {
         mergeCounts(target.structuralPhaseCounts, source.structuralPhaseCounts);
         mergeCounts(target.signalSourceCounts, source.signalSourceCounts);
         mergeCounts(target.structuralScoreAdjustmentCounts, source.structuralScoreAdjustmentCounts);
+        mergeCounts(target.trendCompressionPhaseCounts, source.trendCompressionPhaseCounts);
+        mergeCounts(target.trendCompressionDirectionCounts, source.trendCompressionDirectionCounts);
+        mergeCounts(target.trendLifecyclePhaseCounts,source.trendLifecyclePhaseCounts);
+        mergeCounts(target.trendLifecycleReasonCounts,source.trendLifecycleReasonCounts);
+        mergeCounts(target.ethBullTrendPhaseCounts,source.ethBullTrendPhaseCounts);
+        mergeCounts(target.ethBullTrendReasonCounts,source.ethBullTrendReasonCounts);
+        mergeCounts(target.solBullTrendPhaseCounts,source.solBullTrendPhaseCounts);
+        mergeCounts(target.solBullTrendReasonCounts,source.solBullTrendReasonCounts);
+        mergeCounts(target.ethBearTrendPhaseCounts,source.ethBearTrendPhaseCounts);
+        mergeCounts(target.ethBearTrendReasonCounts,source.ethBearTrendReasonCounts);
     }
 
     private void mergeCounts(Map<String, Integer> target, Map<String, Integer> source) {
@@ -249,6 +283,9 @@ public class BacktestService {
                 param.tradeNotional.doubleValue());
         BinanceBacktestMarketGuard.GuardContext guard = marketGuard.prepareContext(param.symbol, param.beginDate, param.endDate);
         strategyService.resetAll(param.symbol);
+        if(symbolStrategyProfiles.isStrategyEnabled(param.symbol,param.text,"ethStructuralBullTrend")
+                ||symbolStrategyProfiles.isStrategyEnabled(param.symbol,param.text,"ethStructuralBearTrend"))
+            prepareEthMultiTimeframe(param);
         return new DeterministicSession(param, duration, series, result, equity, guard,
                 deterministicPipeline.newState());
     }
@@ -272,14 +309,16 @@ public class BacktestService {
                 }
             }
             DeterministicPipelineResult pipelineResult = deterministicPipeline.onClosedBar(
-                    session.routerState, session.param.symbol, session.param.text, session.series, ohlc);
+                    session.routerState, session.param.symbol, session.param.text, session.series, ohlc,
+                    session.position==null?null:session.position.strategyName);
             StrategyRoutingDecision decision = pipelineResult.routingDecision;
             session.decisions.add(decision);
             recordRouting(session.stats, pipelineResult);
             if (session.position != null) {
                 PositionExitDecision exit = positionExitService.evaluate(session.position,
                         new StrategyPositionExitContext(session.series,
-                                pipelineResult.context.regime, pipelineResult.structuralTrend));
+                                pipelineResult.context.regime, pipelineResult.structuralTrend,
+                                pipelineResult.trendLifecycle,session.param.symbol,session.param.text));
                 if (exit.exit) {
                     TradeRecord invalidated = tradeService.closePosition(session.position,
                             bar.getClosePrice().doubleValue(), bar.getEndTime().toString(),
@@ -307,8 +346,14 @@ public class BacktestService {
                 session.position = tradeService.openPosition(signal, index, bar, session.param);
                 session.position.strategyName = executionStrategy;
                 session.position.regime = executionRegime(pipelineResult);
+                decorateTrendPosition(session.position,executionStrategy,session.param.symbol,session.param.text,pipelineResult.trendLifecycle,signal,session.series);
+                strategyService.onTradeOpened(executionStrategy,session.param.symbol,session.param.text,index);
                 increment(session.stats.strategyTradeCounts, executionStrategy);
             } else if (tradeService.isOpposite(session.position.side, signal.side)) {
+                if(lifecyclePositionOwnership.blocksForeignReversal(session.position,executionStrategy)){
+                    incrementReject(session.result,LifecycleTrendPositionOwnershipPolicy.REJECTION_REASON);
+                    continue;
+                }
                 String rejection = tradeService.validateOpenSignal(signal, session.param);
                 if (rejection != null) {
                     incrementReject(session.result, rejection);
@@ -319,6 +364,8 @@ public class BacktestService {
                 session.position = tradeService.openPosition(signal, index, bar, session.param);
                 session.position.strategyName = executionStrategy;
                 session.position.regime = executionRegime(pipelineResult);
+                decorateTrendPosition(session.position,executionStrategy,session.param.symbol,session.param.text,pipelineResult.trendLifecycle,signal,session.series);
+                strategyService.onTradeOpened(executionStrategy,session.param.symbol,session.param.text,index);
                 increment(session.stats.strategyTradeCounts, executionStrategy);
             }
         }
@@ -351,6 +398,28 @@ public class BacktestService {
         String adjustment = decision.structuralScoreAdjustment > 0 ? "BONUS"
                 : decision.structuralScoreAdjustment < 0 ? "PENALTY" : "NEUTRAL";
         increment(stats.structuralScoreAdjustmentCounts, adjustment);
+        if (result.context != null && result.context.trendCompression != null) {
+            increment(stats.trendCompressionPhaseCounts,
+                    result.context.trendCompression.phase);
+            increment(stats.trendCompressionDirectionCounts,
+                    result.context.trendCompression.direction);
+        }
+        if(result.trendLifecycle!=null){
+            increment(stats.trendLifecyclePhaseCounts,result.trendLifecycle.phase);
+            increment(stats.trendLifecycleReasonCounts,result.trendLifecycle.reason);
+        }
+        if(result.ethBullTrend!=null){
+            increment(stats.ethBullTrendPhaseCounts,result.ethBullTrend.phase);
+            increment(stats.ethBullTrendReasonCounts,result.ethBullTrend.reason);
+        }
+        if(result.solBullTrend!=null){
+            increment(stats.solBullTrendPhaseCounts,result.solBullTrend.phase);
+            increment(stats.solBullTrendReasonCounts,result.solBullTrend.reason);
+        }
+        if(result.ethBearTrend!=null){
+            increment(stats.ethBearTrendPhaseCounts,result.ethBearTrend.phase);
+            increment(stats.ethBearTrendReasonCounts,result.ethBearTrend.reason);
+        }
     }
 
     private BacktestResult finishDeterministic(DeterministicSession session) {
@@ -406,6 +475,8 @@ public class BacktestService {
         Duration duration = supportService.resolveDuration(param.text);
         BarSeries replaySeries = new BaseBarSeries(param.symbol + "-" + param.text + "-" + normalizedStrategy);
         strategyService.getStrategy(normalizedStrategy).resetSession(param.symbol);
+        if("ethStructuralBullTrend".equalsIgnoreCase(normalizedStrategy)
+                ||"ethStructuralBearTrend".equalsIgnoreCase(normalizedStrategy))prepareEthMultiTimeframe(param);
 
         BacktestResult result = initResult(normalizedStrategy, param);
         EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue(),
@@ -437,9 +508,18 @@ public class BacktestService {
             BacktestRegime currentRegime = regimeService.identify(session.replaySeries);
             StructuralTrendSnapshot structural = structuralTrendService.update(
                     session.structuralTrendState, session.replaySeries);
+            TrendLifecycleSnapshot lifecycle=trendLifecycleService.update(
+                    session.param.symbol,session.param.text,session.replaySeries,structural,currentRegime);
+            ethBullTrendService.update(session.param.symbol,session.param.text,
+                    session.replaySeries,structural,currentRegime);
+            solBullTrendService.update(session.param.symbol,session.param.text,
+                    session.replaySeries,structural,currentRegime);
+            ethBearTrendService.update(session.param.symbol,session.param.text,
+                    session.replaySeries,structural,currentRegime);
             if (session.position != null) {
                 PositionExitDecision exit = positionExitService.evaluate(session.position,
-                        new StrategyPositionExitContext(session.replaySeries, currentRegime, structural));
+                        new StrategyPositionExitContext(session.replaySeries,currentRegime,structural,
+                                lifecycle,session.param.symbol,session.param.text));
                 if (exit.exit) {
                     TradeRecord invalidated = tradeService.closePosition(session.position,
                             bar.getClosePrice().doubleValue(), bar.getEndTime().toString(), exit.reason,
@@ -472,6 +552,9 @@ public class BacktestService {
                 }
                 session.position = tradeService.openPosition(signal, session.replaySeries.getEndIndex(), bar, session.param);
                 session.position.strategyName = session.normalizedStrategy;
+                decorateTrendPosition(session.position,session.normalizedStrategy,session.param.symbol,session.param.text,lifecycle,signal,session.replaySeries);
+                strategyService.onTradeOpened(session.normalizedStrategy,session.param.symbol,
+                        session.param.text,session.replaySeries.getEndIndex());
                 continue;
             }
 
@@ -488,8 +571,40 @@ public class BacktestService {
                         session.param.symbol, session.replaySeries.getEndIndex());
                 session.position = tradeService.openPosition(signal, session.replaySeries.getEndIndex(), bar, session.param);
                 session.position.strategyName = session.normalizedStrategy;
+                decorateTrendPosition(session.position,session.normalizedStrategy,session.param.symbol,session.param.text,lifecycle,signal,session.replaySeries);
+                strategyService.onTradeOpened(session.normalizedStrategy,session.param.symbol,
+                        session.param.text,session.replaySeries.getEndIndex());
             }
         }
+    }
+
+    private void decorateTrendPosition(Position position,String strategy,String symbol,String timeframe,
+                                       TrendLifecycleSnapshot lifecycle,Signal signal,BarSeries series){
+        if(position==null)return;
+        if("binanceTrend".equalsIgnoreCase(strategy)&&lifecycle!=null)
+            position.entryLifecyclePhase=lifecycle.phase;
+        else if("ethStructuralBullTrend".equalsIgnoreCase(strategy)){
+            position.entryLifecyclePhase="TRIGGERED";
+            position.ethSoftStopPrice=ethBullTrendService.currentSoftStop(symbol,timeframe);
+        }
+        else if("solMomentumBullTrend".equalsIgnoreCase(strategy))
+            position.entryLifecyclePhase="TRIGGERED";
+        else if("ethStructuralBearTrend".equalsIgnoreCase(strategy)){
+            position.entryLifecyclePhase="TRIGGERED";
+            position.ethBearSoftStopPrice=ethBearTrendService.currentSoftStop(symbol,timeframe);
+        }
+        else return;
+        position.trendTriggerType=signal==null?null:signal.remark;
+        position.entryAtr=series==null?Double.NaN:BinanceStrategyMath.atr(
+                series,series.getEndIndex(),14);
+    }
+
+    private void prepareEthMultiTimeframe(BacktestParam param){
+        if(param==null||!"ETHUSDT".equalsIgnoreCase(param.symbol)||!"15M".equalsIgnoreCase(param.text))return;
+        List<TTbookOhlc> oneHour=queryService.queryLocalOhlc(param.symbol,"1h",param.beginDate,param.endDate);
+        List<TTbookOhlc> fourHour=queryService.queryLocalOhlc(param.symbol,"4h",param.beginDate,param.endDate);
+        ethMultiTimeframeContextService.prepare(param.symbol,oneHour,fourHour);
+        ethBearMultiTimeframeContextService.prepare(param.symbol,oneHour,fourHour);
     }
 
     private BacktestResult finishSession(SingleStrategySession session) {

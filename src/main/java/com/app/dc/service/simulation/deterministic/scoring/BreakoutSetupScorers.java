@@ -10,19 +10,33 @@ abstract class BreakoutScorer extends AbstractSetupScorer {
 
 @Service class BreakoutRetestContinuationSetupScorer extends BreakoutScorer {
     public String strategyName(){return "breakoutRetestContinuation";}
-    public StrategySetupScore score(StrategyEvaluationContext x){return result(.65*breakout(x)+.35*pullback(x.technical),"突破回踩延续");}
+    public StrategySetupScore score(StrategyEvaluationContext x){
+        return result(.65*breakout(x)+.35*pullback(x.technical),
+                "BREAKOUT_RETEST_CONTINUATION");
+    }
 }
 @Service class CompressionBreakSetupScorer extends BreakoutScorer {
     public String strategyName(){return "compressionBreak";}
-    public StrategySetupScore score(StrategyEvaluationContext x){return result(.55*compression(x.technical)+.45*breakout(x),"压缩后突破");}
+    public StrategySetupScore score(StrategyEvaluationContext x){
+        if(x.trendCompression!=null&&x.trendCompression.triggered)
+            return result(1,"TREND_COMPRESSION_EXPANSION");
+        return result(.55*compression(x.technical)+.45*breakout(x),
+                "COMPRESSION_BREAKOUT");
+    }
 }
 @Service class BreakoutRetestContinuationTrendSetupScorer extends BreakoutScorer {
     public String strategyName(){return "breakoutRetestContinuationTrend";}
-    public StrategySetupScore score(StrategyEvaluationContext x){return result(.45*breakout(x)+.3*pullback(x.technical)+.25*trendAlignment(x),"顺势突破回踩");}
+    public StrategySetupScore score(StrategyEvaluationContext x){
+        return result(.45*breakout(x)+.3*pullback(x.technical)+.25*trendAlignment(x),
+                "TREND_ALIGNED_BREAKOUT_RETEST");
+    }
 }
 @Service class SmallRangeBreakoutSetupScorer extends BreakoutScorer {
     public String strategyName(){return "smallRangeBreakout";}
-    public StrategySetupScore score(StrategyEvaluationContext x){return result(.65*compression(x.technical)+.35*breakout(x),"小区间突破");}
+    public StrategySetupScore score(StrategyEvaluationContext x){
+        return result(.65*compression(x.technical)+.35*breakout(x),
+                "SMALL_RANGE_BREAKOUT");
+    }
 }
 
 public final class BreakoutSetupScorers { private BreakoutSetupScorers(){} }

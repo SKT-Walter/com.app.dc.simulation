@@ -16,14 +16,33 @@ public class DeterministicStrategyRouter {
     @Value("${backtest.routing.switchMargin:5}") private double switchMargin;
     @Value("${backtest.routing.retentionScoreDelta:10}") private double retentionScoreDelta;
     @Value("${backtest.routing.lowScoreConfirmationBars:3}") private int lowScoreConfirmationBars;
+    @Value("${backtest.routing.breakoutConfirmationBars:1}") private int breakoutConfirmationBars = 1;
 
     public StrategyRoutingState newState() { return new StrategyRoutingState(); }
 
     public StrategyRoutingDecision route(StrategyRoutingState state, StrategyEvaluationContext context,
                                          CandidateSelectionResult selection,
                                          List<DeterministicScoreCard> scores) {
+        return route(state,context,selection,scores,null);
+    }
+
+    public StrategyRoutingDecision route(StrategyRoutingState state, StrategyEvaluationContext context,
+                                         CandidateSelectionResult selection,
+                                         List<DeterministicScoreCard> scores,
+                                         String priorityStrategy) {
         StrategyRoutingDecision decision = base(state, context, selection, scores);
         int barIndex = context.barIndex;
+        DeterministicScoreCard priority=find(scores,priorityStrategy);
+        if(priority!=null){
+            decision.challengerStrategyName=priority.strategyName;
+            decision.challengerScore=priority.score;
+            if(!priority.strategyName.equalsIgnoreCase(state.activeStrategy))
+                state.activate(priority.strategyName,priority.score,barIndex,minimumHoldBars);
+            decision.strategyName=state.activeStrategy;
+            decision.activeScore=state.activeScore;
+            decision.reason="LIFECYCLE_TRIGGER_PRIORITY";
+            return decision;
+        }
         DeterministicScoreCard active = find(scores, state.activeStrategy);
         boolean hardInvalid = state.activeStrategy != null && active == null;
         if (hardInvalid) {
@@ -51,7 +70,7 @@ public class DeterministicStrategyRouter {
             decision.challengerStrategyName = winner.strategyName;
             decision.challengerScore = winner.score;
             decision.pendingCount = state.pendingCount;
-            if (state.pendingCount < Math.max(1, confirmationBars)) {
+            if (state.pendingCount < requiredConfirmation(winner)) {
                 decision.reason = hardInvalid ? "HARD_INVALID_AWAITING_CONFIRMATION" : "AWAITING_ACTIVATION";
                 return decision;
             }
@@ -77,7 +96,7 @@ public class DeterministicStrategyRouter {
             decision.challengerScore = replacementReady ? winner.score : 0;
             decision.pendingCount = state.pendingCount;
             if (state.lowScoreCount >= Math.max(1, lowScoreConfirmationBars)) {
-                if (replacementReady && state.pendingCount >= Math.max(1, confirmationBars)) {
+                if (replacementReady && state.pendingCount >= requiredConfirmation(winner)) {
                     state.activate(winner.strategyName, winner.score, barIndex, minimumHoldBars);
                     decision.strategyName = state.activeStrategy;
                     decision.activeScore = state.activeScore;
@@ -116,7 +135,7 @@ public class DeterministicStrategyRouter {
         }
         confirm(state, winner.strategyName);
         decision.pendingCount = state.pendingCount;
-        if (state.pendingCount < Math.max(1, confirmationBars)) {
+        if (state.pendingCount < requiredConfirmation(winner)) {
             decision.reason = "AWAITING_SWITCH";
             return decision;
         }
@@ -171,5 +190,10 @@ public class DeterministicStrategyRouter {
         for (DeterministicScoreCard score : scores)
             if (strategy.equalsIgnoreCase(score.strategyName)) return score;
         return null;
+    }
+
+    private int requiredConfirmation(DeterministicScoreCard card) {
+        return Math.max(1, card != null && "BREAKOUT".equalsIgnoreCase(card.family)
+                ? breakoutConfirmationBars : confirmationBars);
     }
 }

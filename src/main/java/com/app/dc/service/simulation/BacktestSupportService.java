@@ -35,6 +35,15 @@ public class BacktestSupportService {
         if ("trend".equalsIgnoreCase(value)) {
             return "binanceTrend";
         }
+        if ("ethbull".equalsIgnoreCase(value)||"eth_structural_bull".equalsIgnoreCase(value)) {
+            return "ethStructuralBullTrend";
+        }
+        if ("ethbear".equalsIgnoreCase(value)||"eth_structural_bear".equalsIgnoreCase(value)) {
+            return "ethStructuralBearTrend";
+        }
+        if ("solbull".equalsIgnoreCase(value)||"sol_momentum_bull".equalsIgnoreCase(value)) {
+            return "solMomentumBullTrend";
+        }
         if ("breakoutretestcontinuationtrend".equalsIgnoreCase(value)
                 || "breakout_retest_continuation_trend".equalsIgnoreCase(value)
                 || "breakoutretestcontinuationsignal".equalsIgnoreCase(value)

@@ -43,7 +43,7 @@ public class BacktestQueryService {
 
     public List<TTbookOhlc> queryOhlc(String symbol, String text, String beginDate, String endDate) {
         validateRange(beginDate, endDate);
-        List<Path> localFiles = resolveLocalDataFiles(symbol, beginDate, endDate);
+        List<Path> localFiles = resolveLocalDataFiles(symbol, text, beginDate, endDate);
         if (!localFiles.isEmpty()) {
             List<TTbookOhlc> rows = queryLocalFiles(localFiles, symbol, text, beginDate, endDate);
             if (rows.isEmpty())
@@ -65,7 +65,7 @@ public class BacktestQueryService {
     public void forEachOhlcChunk(String symbol, String text, String beginDate, String endDate, int chunkDays, OhlcChunkConsumer consumer) throws Exception {
         if (consumer == null) throw new IllegalArgumentException("ohlc chunk consumer must not be null");
         validateRange(beginDate, endDate);
-        List<Path> localFiles = resolveLocalDataFiles(symbol, beginDate, endDate);
+        List<Path> localFiles = resolveLocalDataFiles(symbol, text, beginDate, endDate);
         if (!localFiles.isEmpty()) {
             List<TTbookOhlc> rows = queryLocalFiles(localFiles, symbol, text, beginDate, endDate);
             if (rows.isEmpty())
@@ -105,8 +105,13 @@ public class BacktestQueryService {
      * never mixed in one replay.
      */
     public List<Path> resolveLocalDataFiles(String symbol, String beginDate, String endDate) {
+        return resolveLocalDataFiles(symbol,"15m",beginDate,endDate);
+    }
+
+    public List<Path> resolveLocalDataFiles(String symbol,String text,String beginDate,String endDate) {
+        boolean primary="15m".equalsIgnoreCase(StringUtils.trimToEmpty(text));
         Path legacy = resolveLocalDataFile(symbol);
-        if (Files.isRegularFile(legacy)) return Collections.singletonList(legacy);
+        if (primary&&Files.isRegularFile(legacy)) return Collections.singletonList(legacy);
         if (StringUtils.isBlank(beginDate) || StringUtils.isBlank(endDate))
             return Collections.emptyList();
 
@@ -115,7 +120,8 @@ public class BacktestQueryService {
         List<Path> expected = new ArrayList<Path>();
         int existing = 0;
         for (int year = begin.getYear(); year <= end.getYear(); year++) {
-            Path annual = Paths.get(localDataDir, key(symbol) + "_" + year + ".json")
+            String suffix=primary?"_"+year:"_"+StringUtils.lowerCase(text.trim())+"_"+year;
+            Path annual = Paths.get(localDataDir, key(symbol) + suffix + ".json")
                     .toAbsolutePath().normalize();
             expected.add(annual);
             if (Files.isRegularFile(annual)) existing++;
@@ -127,6 +133,16 @@ public class BacktestQueryService {
             throw new IllegalStateException("annual local market data is incomplete; missing files: " + missing);
         }
         return expected;
+    }
+
+    /** Loads an auxiliary local timeframe without changing the primary replay source. */
+    public List<TTbookOhlc> queryLocalOhlc(String symbol,String text,String beginDate,String endDate) {
+        validateRange(beginDate,endDate);
+        List<Path> files=resolveLocalDataFiles(symbol,text,beginDate,endDate);
+        if(files.isEmpty())throw new IllegalStateException("local auxiliary market data not found: "+symbol+" "+text);
+        List<TTbookOhlc> rows=queryLocalFiles(files,symbol,text,beginDate,endDate);
+        if(rows.isEmpty())throw new IllegalStateException("local auxiliary market data has no matching closed bars: "+files);
+        return rows;
     }
 
     private List<TTbookOhlc> queryLocalFiles(List<Path> paths, String symbol, String text,

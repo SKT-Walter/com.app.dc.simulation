@@ -32,9 +32,23 @@ public class CandidateRuleChain {
                 || !finitePositive(t.close) || t.high < t.low) return "INVALID_OHLC";
         if (context.regime == null || !context.regime.tradeable) return "NO_TRADE_REGIME";
         if (!meta.enabled) return "STRATEGY_DISABLED";
+        if ("ethStructuralBullTrend".equalsIgnoreCase(meta.strategyName)
+                &&!("ETHUSDT".equalsIgnoreCase(context.symbol)&&"15M".equalsIgnoreCase(context.timeframe)))
+            return "SYMBOL_NOT_SUPPORTED";
+        if ("ethStructuralBearTrend".equalsIgnoreCase(meta.strategyName)
+                &&!("ETHUSDT".equalsIgnoreCase(context.symbol)&&"15M".equalsIgnoreCase(context.timeframe)))
+            return "SYMBOL_NOT_SUPPORTED";
+        if ("solMomentumBullTrend".equalsIgnoreCase(meta.strategyName)
+                &&!("SOLUSDT".equalsIgnoreCase(context.symbol)&&"15M".equalsIgnoreCase(context.timeframe)))
+            return "SYMBOL_NOT_SUPPORTED";
         if (!strategyProfiles.isStrategyEnabled(context.symbol, context.timeframe,
                 meta.strategyName)) return "SYMBOL_STRATEGY_DISABLED";
-        if (!supportsRegime(meta, context.regime.code())) return "UNSUPPORTED_REGIME";
+        if("binanceTrend".equalsIgnoreCase(meta.strategyName)
+                &&"UP".equals(context.regime.trend)
+                &&!strategyProfiles.binanceTrendBuyEnabled(context.symbol,context.timeframe))
+            return "SYMBOL_SIDE_BLOCKED";
+        boolean lifecycleTrend=lifecycleTrend(context,meta)||bullTrend(context,meta)||bearTrend(context,meta);
+        if (!supportsRegime(meta, context.regime.code())&&!lifecycleTrend) return "UNSUPPORTED_REGIME";
         if ("orderBookImbalanceReversion".equalsIgnoreCase(meta.strategyName))
             return "MISSING_ORDER_BOOK_FEATURE";
         if (meta.requiredFeatures != null) {
@@ -44,9 +58,14 @@ public class CandidateRuleChain {
                         || !Double.isFinite(context.regime.features.get(feature)))
                     return "MISSING_REQUIRED_FEATURE:" + feature;
         }
-        if ("BREAKOUT".equalsIgnoreCase(meta.family) && !context.regime.breakoutExpansion)
+        boolean compressionTriggered = context.trendCompression != null
+                && context.trendCompression.triggered
+                && "compressionBreak".equalsIgnoreCase(meta.strategyName);
+        if ("BREAKOUT".equalsIgnoreCase(meta.family)
+                && !context.regime.breakoutExpansion && !compressionTriggered)
             return "BREAKOUT_EXPANSION_REQUIRED";
-        if ("TREND".equalsIgnoreCase(meta.family) && "NONE".equals(context.regime.trend))
+        if ("TREND".equalsIgnoreCase(meta.family) && "NONE".equals(context.regime.trend)
+                &&!lifecycleTrend)
             return "DIRECTION_INCOMPATIBLE";
         if ("MEAN_REVERSION".equalsIgnoreCase(meta.family) && !"NONE".equals(context.regime.trend))
             return "DIRECTION_INCOMPATIBLE";
@@ -59,6 +78,32 @@ public class CandidateRuleChain {
         for (String value : meta.supportedRegimes)
             if ("*".equals(value) || regime.equalsIgnoreCase(value)) return true;
         return false;
+    }
+
+    private boolean lifecycleTrend(StrategyEvaluationContext context,DynamicStrategyMeta meta){
+        if(!"binanceTrend".equalsIgnoreCase(meta.strategyName)
+                ||!strategyProfiles.binanceTrendSettings(context.symbol,context.timeframe).lifecycleEnabled
+                ||context.trendLifecycle==null)return false;
+        String phase=context.trendLifecycle.phase;
+        return !com.app.dc.service.simulation.strategy.trend.TrendLifecycleSnapshot.WARMUP.equals(phase)
+                &&!com.app.dc.service.simulation.strategy.trend.TrendLifecycleSnapshot.NEUTRAL.equals(phase)
+                &&!com.app.dc.service.simulation.strategy.trend.TrendLifecycleSnapshot.INVALIDATED.equals(phase);
+    }
+
+    private boolean bullTrend(StrategyEvaluationContext context,DynamicStrategyMeta meta){
+        com.app.dc.service.simulation.strategy.trend.bull.BullTrendSnapshot snapshot;
+        if("ethStructuralBullTrend".equalsIgnoreCase(meta.strategyName))snapshot=context.ethBullTrend;
+        else if("solMomentumBullTrend".equalsIgnoreCase(meta.strategyName))snapshot=context.solBullTrend;
+        else return false;
+        return snapshot!=null&&snapshot.activeCandidate()
+                &&context.structuralTrend!=null&&context.structuralTrend.ready
+                &&context.structuralTrend.isBull();
+    }
+
+    private boolean bearTrend(StrategyEvaluationContext context,DynamicStrategyMeta meta){
+        if(!"ethStructuralBearTrend".equalsIgnoreCase(meta.strategyName))return false;
+        com.app.dc.service.simulation.strategy.trend.bear.BearTrendSnapshot snapshot=context.ethBearTrend;
+        return snapshot!=null&&snapshot.activeCandidate();
     }
 
     private boolean finitePositive(double value) { return Double.isFinite(value) && value > 0; }

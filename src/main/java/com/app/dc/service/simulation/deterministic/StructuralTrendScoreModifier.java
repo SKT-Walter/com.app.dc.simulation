@@ -75,7 +75,9 @@ public class StructuralTrendScoreModifier {
             return null;
         String family = meta.family == null ? "" : meta.family;
         if ("TREND".equalsIgnoreCase(family)) {
-            if ("emaPullbackBuy".equalsIgnoreCase(meta.strategyName)) return BUY;
+            if ("emaPullbackBuy".equalsIgnoreCase(meta.strategyName)
+                    || "ethStructuralBullTrend".equalsIgnoreCase(meta.strategyName)
+                    || "solMomentumBullTrend".equalsIgnoreCase(meta.strategyName)) return BUY;
             if ("UP".equals(context.regime.trend)) return BUY;
             if ("DOWN".equals(context.regime.trend)) return SELL;
             return null;

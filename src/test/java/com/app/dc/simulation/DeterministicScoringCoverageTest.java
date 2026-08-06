@@ -52,7 +52,7 @@ public class DeterministicScoringCoverageTest {
                 Assert.assertTrue(meta.strategyName, Double.isFinite(card.score));
                 Assert.assertTrue(meta.strategyName, card.score >= 0 && card.score <= 100);
             }
-            Assert.assertEquals(22, enabled);
+            Assert.assertEquals(18, enabled);
 
             BacktestRegime range = rangeRegime();
             CandidateSelectionResult ethCandidates = candidateRules.select(contexts.create(
@@ -63,6 +63,12 @@ public class DeterministicScoringCoverageTest {
                     "SOLUSDT", "15M", series, new TTbookOhlc(), range));
             Assert.assertTrue(solCandidates.candidates.stream()
                     .anyMatch(meta -> "binanceRange".equals(meta.strategyName)));
+            CandidateSelectionResult btcCandidates = candidateRules.select(contexts.create(
+                    "BTCUSDT", "15M", series, new TTbookOhlc(), regime));
+            Assert.assertEquals("SYMBOL_NOT_SUPPORTED",
+                    btcCandidates.rejectedStrategies.get("ethStructuralBullTrend"));
+            Assert.assertEquals("SYMBOL_NOT_SUPPORTED",
+                    btcCandidates.rejectedStrategies.get("solMomentumBullTrend"));
         } finally {
             spring.close();
         }

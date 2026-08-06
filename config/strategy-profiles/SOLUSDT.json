@@ -5,7 +5,11 @@
   "enabled": true,
   "strategies": {
     "binanceTrend": {
-      "takeProfitPct": 10
+      "takeProfitPct": 10,
+      "binanceTrendBuyEnabled": true
+    },
+    "solMomentumBullTrend": {
+      "enabled": false
     },
     "binanceRange": {
       "enabled": true

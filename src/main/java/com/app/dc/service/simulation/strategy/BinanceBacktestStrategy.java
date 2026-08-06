@@ -30,6 +30,10 @@ public interface BinanceBacktestStrategy {
     default void onTradeClosed(String symbol, int exitBarIndex, TradeRecord trade) {
     }
 
+    /** Confirms that an emitted signal passed all gates and became a real position. */
+    default void onTradeOpened(String symbol,String timeframe,int entryBarIndex) {
+    }
+
     default Map<String, Integer> snapshotRejectStats(String symbol) {
         return Collections.emptyMap();
     }

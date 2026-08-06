@@ -30,6 +30,8 @@ public class BinanceRangeBacktestStrategy implements BinanceBacktestStrategy {
             new ConcurrentHashMap<String, Map<String, Integer>>();
     @Autowired(required = false)
     private SymbolStrategyProfileService strategyProfiles;
+    @Autowired(required = false)
+    private BinanceRangeStateMachine stateMachine;
 
     @Override
     public String getName() {
@@ -46,11 +48,31 @@ public class BinanceRangeBacktestStrategy implements BinanceBacktestStrategy {
             return signal;
         }
 
-        double minimumTriggerRangeAtr = strategyProfiles == null ? 0.0
-                : strategyProfiles.minimumTriggerRangeAtr(
-                        symbol, text, getName());
-        BinanceRangeSetupAnalyzer.Snapshot setup = BinanceRangeSetupAnalyzer.analyze(
-                series, minimumTriggerRangeAtr);
+        BinanceRangeStateSnapshot setup;
+        if (stateMachine != null) {
+            setup = stateMachine.evaluate(symbol, text, series);
+        } else {
+            double minimumTriggerRangeAtr = strategyProfiles == null ? 0.0
+                    : strategyProfiles.minimumTriggerRangeAtr(
+                            symbol, text, getName());
+            double minimumBuyRecoveryBodyAtr = strategyProfiles == null ? 0.0
+                    : strategyProfiles.minimumBuyRecoveryBodyAtr(
+                            symbol, text, getName());
+            double minimumBuyCloseLocation = strategyProfiles == null ? .65
+                    : strategyProfiles.minimumBuyCloseLocation(
+                            symbol, text, getName());
+            BinanceRangeSetupAnalyzer.Snapshot legacy =
+                    BinanceRangeSetupAnalyzer.analyze(series,
+                            minimumTriggerRangeAtr,
+                            minimumBuyRecoveryBodyAtr,
+                            minimumBuyCloseLocation);
+            setup = new BinanceRangeStateSnapshot("LEGACY", legacy.side,
+                    legacy.readiness, legacy.reason, legacy.high, legacy.low,
+                    legacy.stopPrice, legacy.takePrice, legacy.rewardRisk,
+                    legacy.triggerRangeAtr, legacy.bodyAtr,
+                    legacy.closeLocation, Double.NaN,
+                    legacy.stable ? .5 : 0);
+        }
         if (!setup.actionable()) {
             reject(symbol, setup.reason);
             return signal;
@@ -60,6 +82,8 @@ public class BinanceRangeBacktestStrategy implements BinanceBacktestStrategy {
         else return signal;
         signal.stopPrice = BinanceStrategyMath.scale(setup.stopPrice);
         signal.takerPrice = BinanceStrategyMath.scale(setup.takePrice);
+        if (stateMachine != null)
+            stateMachine.consume(symbol, text, series.getEndIndex());
         return signal;
     }
 
@@ -74,6 +98,7 @@ public class BinanceRangeBacktestStrategy implements BinanceBacktestStrategy {
     public void resetSession(String symbol) {
         cooldownUntilIndex.remove(symbol);
         rejectStats.remove(symbol);
+        if (stateMachine != null) stateMachine.reset(symbol);
     }
 
     @Override

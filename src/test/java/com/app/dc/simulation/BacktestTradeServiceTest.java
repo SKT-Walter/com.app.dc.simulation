@@ -8,6 +8,9 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.ZonedDateTime;
+import org.ta4j.core.BaseBar;
 
 public class BacktestTradeServiceTest {
 
@@ -48,6 +51,15 @@ public class BacktestTradeServiceTest {
                 service.validateOpenSignal(signal(Side.BUY, "100", "0", "110"), param));
         Assert.assertEquals(BacktestTradeService.INVALID_TAKE_PRICE,
                 service.validateOpenSignal(signal(Side.BUY, "100", "90", "0"), param));
+    }
+
+    @Test public void bullTrendRemarkSuppressesFallbackTakeProfit(){
+        BacktestParam param=param("6","10");Signal signal=signal(Side.BUY,"100","98",null);
+        signal.remark="NO_FIXED_TAKE_PROFIT|ETH_PULLBACK_RECOVERY";
+        com.app.dc.service.simulation.BacktestModels.Position position=service.openPosition(signal,0,
+                new BaseBar(Duration.ofMinutes(15),ZonedDateTime.now(),new BigDecimal("99"),
+                        new BigDecimal("101"),new BigDecimal("98"),new BigDecimal("100"),BigDecimal.ONE),param);
+        Assert.assertNull(position.takePrice);Assert.assertEquals(98d,position.stopPrice,.000001);
     }
 
     private BacktestParam param(String stop, String take) {

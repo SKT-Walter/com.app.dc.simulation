@@ -53,6 +53,11 @@ public class BacktestStrategyService {
         if (strategy != null) strategy.onTradeClosed(symbol, exitBarIndex, trade);
     }
 
+    public void onTradeOpened(String strategyName,String symbol,String timeframe,int entryBarIndex){
+        BinanceBacktestStrategy strategy=strategyMap.get(strategyName);
+        if(strategy!=null)strategy.onTradeOpened(symbol,timeframe,entryBarIndex);
+    }
+
     public Map<String, Integer> snapshotAllRejectStats(String symbol) {
         Map<String, Integer> result = new java.util.LinkedHashMap<String, Integer>();
         for (BinanceBacktestStrategy strategy : strategyMap.values()) {

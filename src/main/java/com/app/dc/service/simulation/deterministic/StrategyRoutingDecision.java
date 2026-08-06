@@ -24,6 +24,8 @@ public final class StrategyRoutingDecision {
     public String signalSource;
     public double structuralScoreAdjustment;
     public String structuralScoreReason;
+    public String trendCompressionPhase;
+    public String trendCompressionDirection;
     public final List<DeterministicScoreCard> scoreCards = new ArrayList<DeterministicScoreCard>();
     public final Map<String, String> candidateRejections = new LinkedHashMap<String, String>();
 }

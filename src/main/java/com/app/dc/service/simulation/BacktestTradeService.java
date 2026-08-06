@@ -35,7 +35,7 @@ public class BacktestTradeService {
         Double resolvedStop = resolveRiskPrice(signal.stopPrice, signal.side, entryPrice,
                 param.fallbackStopLossPct.doubleValue(), true);
         Double resolvedTake = resolveRiskPrice(signal.takerPrice, signal.side, entryPrice,
-                param.fallbackTakeProfitPct.doubleValue(), false);
+                fallbackTakeProfitPct(signal,param), false);
 
         if (!Double.isFinite(entryPrice) || entryPrice <= 0.0) {
             return INVALID_ENTRY_PRICE;
@@ -64,7 +64,11 @@ public class BacktestTradeService {
         position.stopPrice = resolveRiskPrice(signal.stopPrice, signal.side, position.entryPrice,
                 param.fallbackStopLossPct.doubleValue(), true);
         position.takePrice = resolveRiskPrice(signal.takerPrice, signal.side, position.entryPrice,
-                param.fallbackTakeProfitPct.doubleValue(), false);
+                fallbackTakeProfitPct(signal,param), false);
+        position.initialRiskPriceDistance=position.stopPrice==null?Double.NaN
+                :Math.abs(position.entryPrice-position.stopPrice);
+        position.highestSinceEntry=position.entryPrice;
+        position.lowestSinceEntry=position.entryPrice;
         position.maxHoldBars = param.maxHoldBars == null ? 0 : param.maxHoldBars;
         return position;
     }
@@ -72,6 +76,16 @@ public class BacktestTradeService {
     public TradeRecord tryCloseByRisk(Position position, Bar currentBar, int currentIndex, double feeRatePct) {
         double high = currentBar.getHighPrice().doubleValue();
         double low = currentBar.getLowPrice().doubleValue();
+        position.highestSinceEntry=Double.isFinite(position.highestSinceEntry)
+                ?Math.max(position.highestSinceEntry,high):high;
+        position.lowestSinceEntry=Double.isFinite(position.lowestSinceEntry)
+                ?Math.min(position.lowestSinceEntry,low):low;
+        double favorable=position.side==Side.BUY?(high-position.entryPrice)/position.entryPrice
+                :(position.entryPrice-low)/position.entryPrice;
+        double adverse=position.side==Side.BUY?(position.entryPrice-low)/position.entryPrice
+                :(high-position.entryPrice)/position.entryPrice;
+        position.maxFavorableExcursionPct=Math.max(position.maxFavorableExcursionPct,favorable);
+        position.maxAdverseExcursionPct=Math.max(position.maxAdverseExcursionPct,adverse);
         position.currentHoldBars++;
 
         if (position.side == Side.BUY) {
@@ -83,7 +97,7 @@ public class BacktestTradeService {
             }
             if (hitStop) {
                 return closePosition(position, position.stopPrice, currentBar.getEndTime().toString(),
-                        "stop_loss", currentIndex, feeRatePct);
+                        position.stopExitReason==null?"stop_loss":position.stopExitReason, currentIndex, feeRatePct);
             }
             if (hitTake) {
                 return closePosition(position, position.takePrice, currentBar.getEndTime().toString(),
@@ -98,7 +112,7 @@ public class BacktestTradeService {
             }
             if (hitStop) {
                 return closePosition(position, position.stopPrice, currentBar.getEndTime().toString(),
-                        "stop_loss", currentIndex, feeRatePct);
+                        position.stopExitReason==null?"stop_loss":position.stopExitReason, currentIndex, feeRatePct);
             }
             if (hitTake) {
                 return closePosition(position, position.takePrice, currentBar.getEndTime().toString(),
@@ -128,6 +142,14 @@ public class BacktestTradeService {
         record.strategyName = position.strategyName;
         record.regime = position.regime;
         record.returnPct = scale(calcReturnPct(position.side, position.entryPrice, exitPrice, feeRatePct));
+        record.maxFavorableExcursionPct=scale(position.maxFavorableExcursionPct);
+        record.maxAdverseExcursionPct=scale(position.maxAdverseExcursionPct);
+        double captured=record.returnPct.doubleValue();
+        record.profitCaptureRatio=scale(position.maxFavorableExcursionPct>0
+                ?captured/position.maxFavorableExcursionPct:0);
+        record.entryLifecyclePhase=position.entryLifecyclePhase;
+        record.trendTriggerType=position.trendTriggerType;
+        record.exitLifecyclePhase=position.exitLifecyclePhase;
         return record;
     }
 
@@ -150,6 +172,13 @@ public class BacktestTradeService {
             return stopLoss ? entryPrice * (1.0 - ratio) : entryPrice * (1.0 + ratio);
         }
         return stopLoss ? entryPrice * (1.0 + ratio) : entryPrice * (1.0 - ratio);
+    }
+
+    private double fallbackTakeProfitPct(Signal signal,BacktestParam param){
+        if(signal!=null&&signal.remark!=null
+                &&(signal.remark.startsWith("CONTINUATION_BREAKOUT")
+                ||signal.remark.startsWith("NO_FIXED_TAKE_PROFIT")))return 0;
+        return param.fallbackTakeProfitPct.doubleValue();
     }
 
     public double calcReturnPct(Side side, double entryPrice, double exitPrice, double feeRatePct) {

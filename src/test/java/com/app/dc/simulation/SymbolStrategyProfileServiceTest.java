@@ -1,6 +1,8 @@
 package com.app.dc.simulation;
 
 import com.app.dc.service.simulation.strategy.profile.SymbolStrategyProfileService;
+import com.app.dc.service.simulation.strategy.range.BinanceRangeSettings;
+import com.app.dc.service.simulation.strategy.trend.BinanceTrendSettings;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -17,19 +19,51 @@ public class SymbolStrategyProfileServiceTest {
         Assert.assertEquals("2026-07-v1", service.profileVersion("ETHUSDT", "15m"));
         Assert.assertEquals(10.0,
                 service.takeProfitPct("ETHUSDT", "15m", "binanceTrend"), 0.000001);
+        BinanceTrendSettings ethTrend =
+                service.binanceTrendSettings("ETHUSDT", "15m");
+        Assert.assertFalse(ethTrend.lifecycleEnabled);
+        Assert.assertFalse(service.binanceTrendBuyEnabled("ETHUSDT","15m"));
+        Assert.assertTrue(service.isStrategyEnabled("ETHUSDT","15m","ethStructuralBullTrend"));
         Assert.assertTrue(service.isStrategyEnabled(
                 "ETHUSDT", "15m", "binanceRange"));
         Assert.assertEquals(0.7, service.minimumTriggerRangeAtr(
                 "ETHUSDT", "15m", "binanceRange"), 0.000001);
+        Assert.assertEquals(0.10, service.minimumBuyRecoveryBodyAtr(
+                "ETHUSDT", "15m", "binanceRange"), 0.000001);
+        Assert.assertEquals(0.65, service.minimumBuyCloseLocation(
+                "ETHUSDT", "15m", "binanceRange"), 0.000001);
+        BinanceRangeSettings ethRange = service.binanceRangeSettings(
+                "ETHUSDT", "15m", "binanceRange");
+        Assert.assertFalse(ethRange.stateMachineEnabled);
+        Assert.assertEquals(1.25, ethRange.minimumRewardRisk, 0.000001);
+        Assert.assertTrue(service.isStrategyEnabled(
+                "ETHUSDT", "15m", "atrChannelBiasReversion"));
+        Assert.assertFalse(service.isStrategyEnabled(
+                "ETHUSDT", "15m", "compressionBreak"));
 
         Assert.assertEquals(10.0,
                 service.takeProfitPct("SOLUSDT", "15M", "binanceTrend"), 0.000001);
+        Assert.assertFalse(service.binanceTrendSettings(
+                "SOLUSDT", "15M").lifecycleEnabled);
+        Assert.assertTrue(service.binanceTrendBuyEnabled("SOLUSDT","15M"));
+        Assert.assertFalse(service.isStrategyEnabled("SOLUSDT","15M","solMomentumBullTrend"));
         Assert.assertTrue(service.isStrategyEnabled(
                 "SOLUSDT", "15M", "binanceRange"));
         Assert.assertEquals(0.0, service.minimumTriggerRangeAtr(
                 "SOLUSDT", "15M", "binanceRange"), 0.000001);
+        Assert.assertEquals(0.0, service.minimumBuyRecoveryBodyAtr(
+                "SOLUSDT", "15M", "binanceRange"), 0.000001);
+        Assert.assertEquals(0.65, service.minimumBuyCloseLocation(
+                "SOLUSDT", "15M", "binanceRange"), 0.000001);
+        Assert.assertFalse(service.binanceRangeSettings(
+                "SOLUSDT", "15M", "binanceRange").stateMachineEnabled);
+        Assert.assertTrue(service.isStrategyEnabled(
+                "SOLUSDT", "15M", "atrChannelBiasReversion"));
+        Assert.assertTrue(service.isStrategyEnabled(
+                "SOLUSDT", "15M", "compressionBreak"));
 
         Assert.assertNull(service.takeProfitPct("BTCUSDT", "15M", "binanceTrend"));
+        Assert.assertTrue(service.binanceTrendBuyEnabled("BTCUSDT","15M"));
         Assert.assertTrue(service.isStrategyEnabled(
                 "BTCUSDT", "15M", "binanceRange"));
     }

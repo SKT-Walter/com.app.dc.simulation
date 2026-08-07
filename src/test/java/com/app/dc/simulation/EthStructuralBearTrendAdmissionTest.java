@@ -72,6 +72,41 @@ public class EthStructuralBearTrendAdmissionTest {
         Assert.assertTrue("April failed-high path rejected by: "+reasons,action);
     }
 
+    @Test public void actualMarch2024DistributionProducesEarlyAWaveShort() throws Exception {
+        BacktestQueryService query=new BacktestQueryService();set(query,"localDataDir","./config/data");
+        List<TTbookOhlc> m15=query.queryLocalOhlc("ETHUSDT","15m","2024-01-01","2024-03-31");
+        List<TTbookOhlc> h1=query.queryLocalOhlc("ETHUSDT","1h","2024-01-01","2024-03-31");
+        List<TTbookOhlc> h4=query.queryLocalOhlc("ETHUSDT","4h","2024-01-01","2024-03-31");
+        List<TTbookOhlc> d1=query.queryLocalOhlc("ETHUSDT","1d","2024-01-01","2024-03-31");
+        EthDailyBearContextService daily=new EthDailyBearContextService();
+        EthBearMultiTimeframeContextService mtf=new EthBearMultiTimeframeContextService();
+        set(mtf,"dailyContext",daily);mtf.prepare("ETHUSDT",d1,h1,h4);
+        EthStructuralBearTrendService service=new EthStructuralBearTrendService();set(service,"multiTimeframe",mtf);
+        BacktestRegimeService regimes=new BacktestRegimeService();set(regimes,"minimumBars",60);
+        set(regimes,"adxThreshold",25d);set(regimes,"slopeThreshold",.0015d);set(regimes,"minimumConfidence",.55d);
+        BarSeries actual=new BaseBarSeries("actual-march-2024-distribution");
+        DateTimeFormatter f=DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+        ZonedDateTime earliest=ZonedDateTime.of(2024,3,16,0,0,0,0,ZoneId.of("Asia/Shanghai"));
+        ZonedDateTime latest=ZonedDateTime.of(2024,3,20,23,59,0,0,ZoneId.of("Asia/Shanghai"));
+        ZonedDateTime triggeredAt=null;
+        for(TTbookOhlc row:m15){
+            ZonedDateTime t=LocalDateTime.parse(row.starttime,f).atZone(ZoneId.of("Asia/Shanghai"));
+            actual.addBar(new BaseBar(Duration.ofMinutes(15),t,row.open,row.high,row.low,row.close,row.volume));
+            EthBearMultiTimeframeSnapshot mtfSnapshot=mtf.update("ETHUSDT",t.toInstant().toEpochMilli());
+            BearTrendSnapshot snapshot=service.update("ETHUSDT","15M",actual,regimes.identify(actual),mtfSnapshot);
+            if(!t.isBefore(earliest)&&snapshot.actionable){
+                Assert.assertEquals("DISTRIBUTION_A_WAVE_BREAKDOWN",snapshot.triggerType);
+                Assert.assertTrue("direct A-wave trigger requires falling 1H EMA20",
+                        mtfSnapshot.oneHourEma20Slope<0);
+                Assert.assertTrue("direct A-wave trigger requires price below 1H EMA20",
+                        mtfSnapshot.oneHourClose<mtfSnapshot.oneHourEma20);
+                Assert.assertTrue(Double.isFinite(snapshot.stopPrice));triggeredAt=t;break;
+            }
+        }
+        Assert.assertNotNull("multi-day distribution should trigger the A-wave lifecycle",triggeredAt);
+        Assert.assertFalse("A-wave trigger arrived too late: "+triggeredAt,triggeredAt.isAfter(latest));
+    }
+
     private void set(Object target,String name,Object value)throws Exception{Field f=target.getClass().getDeclaredField(name);f.setAccessible(true);f.set(target,value);}
 
     private EthBearMultiTimeframeSnapshot context(String trend,boolean confirmed,double support){

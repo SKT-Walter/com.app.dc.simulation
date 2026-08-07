@@ -7,13 +7,19 @@ public final class BearTrendSnapshot {
             INVALIDATED="INVALIDATED",COOLDOWN="COOLDOWN";
     public final String strategyName,phase,reason,triggerType;
     public final double readiness,stopPrice;
-    public final boolean actionable;
+    public final boolean actionable,campaignActive;
     public final int barIndex;
     public BearTrendSnapshot(String strategyName,String phase,String reason,double readiness,
                              boolean actionable,double stopPrice,String triggerType,int barIndex){
+        this(strategyName,phase,reason,readiness,actionable,stopPrice,triggerType,barIndex,false);
+    }
+    public BearTrendSnapshot(String strategyName,String phase,String reason,double readiness,
+                             boolean actionable,double stopPrice,String triggerType,int barIndex,
+                             boolean campaignActive){
         this.strategyName=strategyName;this.phase=phase;this.reason=reason;
         this.readiness=Math.max(0,Math.min(1,Double.isFinite(readiness)?readiness:0));
-        this.actionable=actionable;this.stopPrice=stopPrice;this.triggerType=triggerType;this.barIndex=barIndex;
+        this.actionable=actionable;this.stopPrice=stopPrice;this.triggerType=triggerType;
+        this.barIndex=barIndex;this.campaignActive=campaignActive;
     }
     public static BearTrendSnapshot none(String name){return new BearTrendSnapshot(name,WARMUP,
             "BEAR_TREND_WARMUP",0,false,Double.NaN,null,-1);}

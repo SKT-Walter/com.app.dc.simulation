@@ -22,12 +22,29 @@ public class EthDailyBearContextService {
         long cutoff=current15Open+M15;while(s.available+1<s.bars.size()&&s.bars.get(s.available+1).time+D1<=cutoff)s.available++;
         if(s.available==s.lastEvaluated)return s.snapshot;s.lastEvaluated=s.available;
         EthDailyBearContextSnapshot raw=classify(s.bars,s.available);
-        if("ETH_DAILY_FAILED_HIGH_REVERSAL".equals(raw.reason))s.failedHighRiskUntil=s.available+10;
-        if(s.available<=s.failedHighRiskUntil
-                &&EthDailyBearContextSnapshot.BULL_WEAKENING.equals(raw.state))
-            s.snapshot=new EthDailyBearContextSnapshot(EthDailyBearContextSnapshot.BEAR_RISK,.76,
-                    raw.close,raw.ema20,raw.ema60,raw.atr,raw.barIndex,"ETH_DAILY_FAILED_HIGH_RISK_ACTIVE");
-        else{s.snapshot=raw;if(EthDailyBearContextSnapshot.BULL.equals(raw.state))s.failedHighRiskUntil=-1;}
+        if(s.available>s.failedHighRiskUntil&&"ETH_DAILY_FAILED_HIGH_REVERSAL".equals(raw.reason)){
+            s.failedHighRiskUntil=s.available+10;s.riskState=EthDailyBearContextSnapshot.BEAR_RISK;
+        }
+        if(s.available>s.failedHighRiskUntil&&"ETH_DAILY_DISTRIBUTION_REVERSAL".equals(raw.reason)){
+            // Distribution tops normally need several daily bars before the first A-wave expands.
+            s.failedHighRiskUntil=s.available+15;s.riskState=EthDailyBearContextSnapshot.DISTRIBUTION_RISK;
+        }
+        boolean riskMemoryActive=s.available<=s.failedHighRiskUntil;
+        boolean ordinaryBullRebound=EthDailyBearContextSnapshot.BULL_WEAKENING.equals(raw.state)
+                ||EthDailyBearContextSnapshot.BULL.equals(raw.state);
+        boolean invalidatedByNewHigh=false;
+        if(riskMemoryActive&&s.available>0){
+            DBar current=s.bars.get(s.available);double prior20High=highest(s.bars,s.available-1,20);
+            invalidatedByNewHigh=raw.atr>0&&current.close>prior20High+.25*raw.atr;
+        }
+        if(riskMemoryActive&&ordinaryBullRebound&&!invalidatedByNewHigh)
+            s.snapshot=new EthDailyBearContextSnapshot(s.riskState,.76,
+                    raw.close,raw.ema20,raw.ema60,raw.atr,raw.barIndex,
+                    EthDailyBearContextSnapshot.DISTRIBUTION_RISK.equals(s.riskState)
+                            ?"ETH_DAILY_DISTRIBUTION_RISK_ACTIVE":"ETH_DAILY_FAILED_HIGH_RISK_ACTIVE");
+        else{s.snapshot=raw;if(invalidatedByNewHigh||EthDailyBearContextSnapshot.BULL.equals(raw.state)){
+            s.failedHighRiskUntil=-1;s.riskState=EthDailyBearContextSnapshot.BEAR_RISK;
+        }}
         return s.snapshot;
     }
     public EthDailyBearContextSnapshot current(String symbol){Session s=sessions.get(key(symbol));return s==null?EthDailyBearContextSnapshot.warmup():s.snapshot;}
@@ -43,11 +60,27 @@ public class EthDailyBearContextService {
         boolean failedHighReversal=b.close<b.open&&a>0&&(b.open-b.close)/a>=1.00
                 &&closeLocation<=.25&&recent20High-b.high<=.75*a
                 &&b.close<x.get(end-1).close;
+        double recent5High=highest(x,end-1,5);
+        double minimumPrior3Close=Math.min(x.get(end-1).close,
+                Math.min(x.get(end-2).close,x.get(end-3).close));
+        int bearishBars=0;for(int i=end-2;i<=end;i++)if(x.get(i).close<x.get(i).open)bearishBars++;
+        double advanceLow=lowest(x,end-6,20);
+        boolean majorBullAdvance=e20>e60&&e20>p20&&e60>p60
+                &&recent5High-advanceLow>=4.5*a
+                &&recent5High-e20>=1.5*a;
+        boolean distributionReversal=b.close<b.open&&a>0
+                &&recent20High-recent5High<=.35*a
+                &&recent5High-b.close>=1.30*a
+                &&x.get(end-2).close>x.get(end-1).close&&x.get(end-1).close>b.close
+                &&bearishBars>=2&&b.close<minimumPrior3Close&&majorBullAdvance;
         // A failed high is the exception that invalidates an otherwise still
         // bullish moving-average state, so it must be evaluated first.
         if(failedHighReversal)
             return snap(EthDailyBearContextSnapshot.BEAR_RISK,.78,b,e20,e60,a,end,
                     "ETH_DAILY_FAILED_HIGH_REVERSAL");
+        if(distributionReversal)
+            return snap(EthDailyBearContextSnapshot.DISTRIBUTION_RISK,.76,b,e20,e60,a,end,
+                    "ETH_DAILY_DISTRIBUTION_REVERSAL");
         if(b.close>e20&&e20>e60&&e20>p20&&e60>p60&&rising)
             return snap(EthDailyBearContextSnapshot.BULL,.9,b,e20,e60,a,end,"ETH_DAILY_BULL_CONFIRMED");
         if(e20<e60&&e60<p60&&b.close<e20&&falling)
@@ -74,6 +107,6 @@ public class EthDailyBearContextService {
     private double highest(List<DBar>x,int end,int n){double v=Double.NEGATIVE_INFINITY;for(int i=Math.max(0,end-n+1);i<=end;i++)v=Math.max(v,x.get(i).high);return v;}
     private double lowest(List<DBar>x,int end,int n){double v=Double.POSITIVE_INFINITY;for(int i=Math.max(0,end-n+1);i<=end;i++)v=Math.min(v,x.get(i).low);return v;}
     private String key(String s){return s==null?"":s.toUpperCase(Locale.ROOT);}
-    private static final class Session{final List<DBar>bars;int available=-1,lastEvaluated=-2,failedHighRiskUntil=-1;EthDailyBearContextSnapshot snapshot=EthDailyBearContextSnapshot.warmup();Session(List<DBar>x){bars=x;}}
+    private static final class Session{final List<DBar>bars;int available=-1,lastEvaluated=-2,failedHighRiskUntil=-1;String riskState=EthDailyBearContextSnapshot.BEAR_RISK;EthDailyBearContextSnapshot snapshot=EthDailyBearContextSnapshot.warmup();Session(List<DBar>x){bars=x;}}
     private static final class DBar{final long time;final double open,high,low,close;DBar(long t,double o,double h,double l,double c){time=t;open=o;high=h;low=l;close=c;}}
 }

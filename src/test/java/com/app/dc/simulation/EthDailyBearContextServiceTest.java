@@ -67,6 +67,25 @@ public class EthDailyBearContextServiceTest {
         Assert.assertTrue("failed daily high should open an early 4H campaign",found);
     }
 
+    @Test public void actualMarch2024MultiDayDistributionCreatesBearRisk() throws Exception {
+        BacktestQueryService query=query();
+        List<TTbookOhlc> rows=query.queryLocalOhlc("ETHUSDT","1d","2024-01-01","2024-12-31");
+        EthDailyBearContextService service=new EthDailyBearContextService();service.prepare("ETHUSDT",rows);
+        TTbookOhlc target=null;for(TTbookOhlc row:rows)if(row.starttime.startsWith("2024-03-15"))target=row;
+        Assert.assertNotNull(target);
+        EthDailyBearContextSnapshot snapshot=service.update("ETHUSDT",
+                time(target)+24*60*60*1000L-15*60*1000L);
+        Assert.assertEquals(EthDailyBearContextSnapshot.DISTRIBUTION_RISK,snapshot.state);
+        Assert.assertEquals("ETH_DAILY_DISTRIBUTION_REVERSAL",snapshot.reason);
+        Assert.assertTrue(snapshot.allowsNormalShort());
+        TTbookOhlc rebound=null;for(TTbookOhlc row:rows)if(row.starttime.startsWith("2024-03-17"))rebound=row;
+        Assert.assertNotNull(rebound);
+        EthDailyBearContextSnapshot remembered=service.update("ETHUSDT",
+                time(rebound)+24*60*60*1000L-15*60*1000L);
+        Assert.assertEquals("ordinary rebound must not cancel the A-wave risk window",
+                EthDailyBearContextSnapshot.DISTRIBUTION_RISK,remembered.state);
+    }
+
     private BacktestQueryService query() throws Exception {BacktestQueryService query=new BacktestQueryService();
         Field dir=BacktestQueryService.class.getDeclaredField("localDataDir");dir.setAccessible(true);dir.set(query,"./config/data");return query;}
 

@@ -30,10 +30,16 @@ public class EthBearMultiTimeframeContextService {
         updateBearCampaign(s,four,daily);
         // The direct breakdown path is a one-time campaign opener.  Later
         // structural lows must go through the 1H pullback/re-entry lifecycle.
-        if((!campaignWasActive&&s.bearCampaignActive)||four.fastBreakdown){
+        boolean distribution=daily!=null&&EthDailyBearContextSnapshot.DISTRIBUTION_RISK.equals(daily.state);
+        if((!campaignWasActive&&s.bearCampaignActive)||(four.fastBreakdown&&!distribution)){
             s.fastBreakdownUntil4h=Math.max(s.fastBreakdownUntil4h,s.available4h+2);
             s.lastFastBreakdown4h=s.available4h;
         }
+        // A distribution hypothesis may reserve execution only for its first
+        // 4H break.  If no structural short actually consumes that window, it
+        // must not silently own later routing for days or weeks.
+        if(s.distributionCampaign&&!s.campaignOpened&&s.available4h>s.fastBreakdownUntil4h)
+            s.endCampaign();
         int next=available(s.oneHour,H1,cutoff,s.available1h);while(s.available1h<next){s.available1h++;advance(s,s.available1h,four,daily);}
         s.snapshot=snapshot(s,four,daily);return s.snapshot;
     }
@@ -42,7 +48,7 @@ public class EthBearMultiTimeframeContextService {
         // Fast 4H campaign openers use a synthetic negative setup id; they own
         // the same RUNNING lifecycle even though they did not originate from
         // the 1H pullback state's setup id.
-        if(s!=null&&(s.setupId==setup||setup<0)){s.phase=EthBearMultiTimeframeSnapshot.RUNNING;s.snapshot=snapshot(s,context4h(s.fourHour,s.available4h,dailyContext==null?EthDailyBearContextSnapshot.warmup():dailyContext.current(symbol)),dailyContext==null?EthDailyBearContextSnapshot.warmup():dailyContext.current(symbol));}}
+        if(s!=null&&(s.setupId==setup||setup<0)){if(setup<0&&s.distributionCampaign)s.campaignOpened=true;s.phase=EthBearMultiTimeframeSnapshot.RUNNING;s.snapshot=snapshot(s,context4h(s.fourHour,s.available4h,dailyContext==null?EthDailyBearContextSnapshot.warmup():dailyContext.current(symbol)),dailyContext==null?EthDailyBearContextSnapshot.warmup():dailyContext.current(symbol));}}
     public void tradeClosed(String symbol){tradeClosed(symbol,false);}
     public void tradeClosed(String symbol,boolean profitProtected){Session s=sessions.get(key(symbol));if(s!=null){s.observing();s.reentryMode=profitProtected;s.cooldownUntil=s.available1h+(profitProtected?12:24);s.phase=EthBearMultiTimeframeSnapshot.COOLDOWN;}}
     public void reset(String symbol){sessions.remove(key(symbol));if(dailyContext!=null)dailyContext.reset(symbol);}
@@ -61,6 +67,11 @@ public class EthBearMultiTimeframeContextService {
         s.oneHourStrongMomentum=bear(b)&&b.close<previous.low&&b.close<e20
                 &&s.lastEma20Slope<0&&bodyAtr(b,atr)>=.6&&volumeRatio(s.oneHour,end,20)>=1.0
                 &&closeLocation(b)<=.30;
+        // Before its first real trade, a distribution campaign is allowed to
+        // feed only the bounded direct A-wave trigger.  It must not manufacture
+        // ordinary 1H continuation setups merely because the hypothesis exists.
+        if(s.distributionCampaign&&!s.campaignOpened){s.observing();
+            s.reason="ETH_BEAR_DISTRIBUTION_WAITING_DIRECT_BREAK";return;}
         if(s.reentryMode){
             s.reentryBars++;s.reentryHigh=Double.isFinite(s.reentryHigh)?Math.max(s.reentryHigh,b.high):b.high;
             if(s.reentryBars>24){s.observing();s.reason="ETH_BEAR_REENTRY_EXPIRED";return;}
@@ -144,8 +155,10 @@ public class EthBearMultiTimeframeContextService {
         // EMA60. Treat only a decisive, large 4H structural breakdown as early
         // confirmation; ordinary TRANSITION_DOWN remains observation-only.
         boolean dailyRisk=daily!=null&&(EthDailyBearContextSnapshot.BEAR_RISK.equals(daily.state)
+                ||EthDailyBearContextSnapshot.DISTRIBUTION_RISK.equals(daily.state)
                 ||EthDailyBearContextSnapshot.BEAR.equals(daily.state));
-        boolean failedDailyHigh=daily!=null&&EthDailyBearContextSnapshot.BEAR_RISK.equals(daily.state)
+        boolean failedDailyHigh=daily!=null&&(EthDailyBearContextSnapshot.BEAR_RISK.equals(daily.state)
+                ||EthDailyBearContextSnapshot.DISTRIBUTION_RISK.equals(daily.state))
                 &&daily.confidence>=.75;
         double prior24Low=lowest(x,end-1,24);
         boolean earlyBreakdown=dailyRisk&&(e20<past20||failedDailyHigh)&&b.close<e20&&b.close<prior24Low
@@ -162,11 +175,16 @@ public class EthBearMultiTimeframeContextService {
                 nearestSupportBelow(x,end,b.close));
     }
     private void updateBearCampaign(Session s,FourContext four,EthDailyBearContextSnapshot daily){
+        boolean distribution=daily!=null&&EthDailyBearContextSnapshot.DISTRIBUTION_RISK.equals(daily.state);
+        if(!distribution)s.distributionHandled=false;
         if(daily!=null&&EthDailyBearContextSnapshot.BULL.equals(daily.state)){
             s.endCampaign();return;
         }
         if(four.fastBreakdown||EthBearMultiTimeframeSnapshot.BEAR.equals(four.trend)){
-            if(!s.bearCampaignActive){s.campaignStartClose=four.close;s.campaignLow=four.close;}
+            if(!s.bearCampaignActive&&distribution&&s.distributionHandled)return;
+            if(!s.bearCampaignActive){s.campaignStartClose=four.close;s.campaignLow=four.close;
+                s.distributionCampaign=distribution;s.distributionHandled=distribution;
+                s.campaignOpened=false;}
             s.bearCampaignActive=true;s.campaignBullBars=0;
             if(Double.isFinite(four.close))s.campaignLow=Math.min(s.campaignLow,four.close);return;
         }
@@ -175,9 +193,10 @@ public class EthBearMultiTimeframeContextService {
                 &&Double.isFinite(four.close)&&Double.isFinite(four.e20)&&Double.isFinite(four.e60)
                 &&four.close>four.e60&&four.e20>four.e60;
         s.campaignBullBars=confirmedBull?s.campaignBullBars+1:0;
-        // A primary ETH decline can contain week-long 4H rebounds.  The daily
-        // layer owns campaign termination; 4H BULL is only a pullback context.
-        if(s.campaignBullBars>=24&&!EthBearMultiTimeframeSnapshot.RUNNING.equals(s.phase))s.endCampaign();
+        // Preserve execution ownership across an ordinary multi-day rebound,
+        // then release it if 4H stays fully bullish and no lifecycle position is running.
+        if(s.campaignBullBars>=24&&!EthBearMultiTimeframeSnapshot.RUNNING.equals(s.phase))
+            s.endCampaign();
     }
     private List<HBar> convert(List<TTbookOhlc> rows){List<HBar>o=new ArrayList<HBar>();if(rows!=null)for(TTbookOhlc r:rows){if(r==null)continue;long t=LocalDateTime.parse(r.starttime,TIME).atZone(BEIJING).toInstant().toEpochMilli();o.add(new HBar(t,r.open.doubleValue(),r.high.doubleValue(),r.low.doubleValue(),r.close.doubleValue(),r.volume.doubleValue()));}Collections.sort(o,new Comparator<HBar>(){public int compare(HBar a,HBar b){return Long.compare(a.time,b.time);}});return o;}
     private int available(List<HBar>x,long d,long cutoff,int current){int i=Math.max(-1,current);while(i+1<x.size()&&x.get(i+1).time+d<=cutoff)i++;return i;}
@@ -198,5 +217,5 @@ public class EthBearMultiTimeframeContextService {
     private double bodyAtr(HBar b,double a){return a<=0?0:Math.abs(b.close-b.open)/a;}private double closeLocation(HBar b){return b.high<=b.low?.5:(b.close-b.low)/(b.high-b.low);}private boolean bear(HBar b){return b.close<b.open;}private boolean finite(double v){return Double.isFinite(v);}private String key(String s){return s==null?"":s.toUpperCase(Locale.ROOT);}
     private static final class HBar{final long time;final double open,high,low,close,volume;HBar(long t,double o,double h,double l,double c,double v){time=t;open=o;high=h;low=l;close=c;volume=v;}}
     private static final class FourContext{final String trend;final double confidence;final int index;final double close,e20,e60,atr,supportBelow;final boolean fastBreakdown;FourContext(String t,double c,int i,double close,double e20,double e60,double atr){this(t,c,i,close,e20,e60,atr,Double.NaN,false);}FourContext(String t,double c,int i,double close,double e20,double e60,double atr,double support){this(t,c,i,close,e20,e60,atr,support,false);}FourContext(String t,double c,int i,double close,double e20,double e60,double atr,double support,boolean fast){trend=t;confidence=c;index=i;this.close=close;this.e20=e20;this.e60=e60;this.atr=atr;supportBelow=support;fastBreakdown=fast;}boolean allowsShort(){return EthBearMultiTimeframeSnapshot.BEAR.equals(trend);}}
-    private static final class Session{final List<HBar>oneHour,fourHour;int available1h=-1,available4h=-1,pullbackBars,armedUntil=-1,cooldownUntil=-1,fastBreakdownUntil4h=-1,lastFastBreakdown4h=-1000,reentryBars,campaignBullBars;long setupId;boolean continuationConfirmed,oneHourStrongMomentum,reentryMode,reentryArmed,bearCampaignActive;double reentryHigh=Double.NaN,impulseOrigin=Double.NaN,impulseLow=Double.NaN,pullbackHigh=Double.NaN,lastAtr=Double.NaN,lastClose=Double.NaN,lastEma20=Double.NaN,lastEma20Slope=Double.NaN,lastEma60=Double.NaN,campaignStartClose=Double.NaN,campaignLow=Double.NaN;String phase=EthBearMultiTimeframeSnapshot.WARMUP,reason="ETH_BEAR_MTF_WARMUP";EthBearMultiTimeframeSnapshot snapshot=EthBearMultiTimeframeSnapshot.warmup();Session(List<HBar>a,List<HBar>b){oneHour=a;fourHour=b;}void observing(){phase=EthBearMultiTimeframeSnapshot.OBSERVING;pullbackBars=reentryBars=0;armedUntil=-1;continuationConfirmed=reentryMode=reentryArmed=false;reentryHigh=Double.NaN;impulseOrigin=impulseLow=pullbackHigh=Double.NaN;}double campaignDrawdownPct(){return Double.isFinite(campaignStartClose)&&campaignStartClose>0&&Double.isFinite(campaignLow)?Math.max(0,(campaignStartClose-campaignLow)/campaignStartClose):0;}void endCampaign(){bearCampaignActive=false;campaignBullBars=0;campaignStartClose=campaignLow=Double.NaN;}}
+    private static final class Session{final List<HBar>oneHour,fourHour;int available1h=-1,available4h=-1,pullbackBars,armedUntil=-1,cooldownUntil=-1,fastBreakdownUntil4h=-1,lastFastBreakdown4h=-1000,reentryBars,campaignBullBars;long setupId;boolean continuationConfirmed,oneHourStrongMomentum,reentryMode,reentryArmed,bearCampaignActive,distributionCampaign,distributionHandled,campaignOpened;double reentryHigh=Double.NaN,impulseOrigin=Double.NaN,impulseLow=Double.NaN,pullbackHigh=Double.NaN,lastAtr=Double.NaN,lastClose=Double.NaN,lastEma20=Double.NaN,lastEma20Slope=Double.NaN,lastEma60=Double.NaN,campaignStartClose=Double.NaN,campaignLow=Double.NaN;String phase=EthBearMultiTimeframeSnapshot.WARMUP,reason="ETH_BEAR_MTF_WARMUP";EthBearMultiTimeframeSnapshot snapshot=EthBearMultiTimeframeSnapshot.warmup();Session(List<HBar>a,List<HBar>b){oneHour=a;fourHour=b;}void observing(){phase=EthBearMultiTimeframeSnapshot.OBSERVING;pullbackBars=reentryBars=0;armedUntil=-1;continuationConfirmed=reentryMode=reentryArmed=false;reentryHigh=Double.NaN;impulseOrigin=impulseLow=pullbackHigh=Double.NaN;}double campaignDrawdownPct(){return Double.isFinite(campaignStartClose)&&campaignStartClose>0&&Double.isFinite(campaignLow)?Math.max(0,(campaignStartClose-campaignLow)/campaignStartClose):0;}void endCampaign(){bearCampaignActive=distributionCampaign=campaignOpened=false;campaignBullBars=0;campaignStartClose=campaignLow=Double.NaN;}}
 }

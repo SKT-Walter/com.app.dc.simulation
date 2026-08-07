@@ -30,6 +30,7 @@ public class EthStructuralBearTrendService {
         if(!supports(symbol,timeframe)||series==null||series.getBarCount()<60)return BearTrendSnapshot.none(STRATEGY);
         String key=key(symbol,timeframe);EthStructuralBearTrendState s=states.get(key);if(s==null){s=new EthStructuralBearTrendState();states.put(key,s);}
         int end=series.getEndIndex();if(s.lastIndex>end){s=new EthStructuralBearTrendState();states.put(key,s);}if(s.lastIndex==end)return s.snapshot;s.lastIndex=end;
+        s.campaignActive=context!=null&&context.bearCampaignActive;
         double atr=BearTrendMath.atr(series,end,14);if(!Double.isFinite(atr)||atr<=0)return cache(s,end,BearTrendSnapshot.INVALIDATED,"ETH_BEAR_INVALID_ATR",0,false,Double.NaN,null);
         if(end<=s.cooldownUntil)return cache(s,end,BearTrendSnapshot.COOLDOWN,"ETH_BEAR_TRADE_COOLDOWN",0,false,Double.NaN,null);
         if(BearTrendSnapshot.RUNNING.equals(s.phase))return cache(s,end,s.phase,"ETH_BEAR_POSITION_RUNNING",.9,false,s.stopPrice,s.triggerType);
@@ -52,15 +53,20 @@ public class EthStructuralBearTrendService {
         double volume=BearTrendMath.volumeRatio(x,end,20),location=BearTrendMath.closeLocation(x,end);
         if(context.campaignDrawdownPct>.22)return cache(s,end,BearTrendSnapshot.ARMED,
                 "ETH_BEAR_CAMPAIGN_EXHAUSTION_REJECTED",.70,false,Double.NaN,null);
+        boolean distributionCampaign=EthDailyBearContextSnapshot.DISTRIBUTION_RISK.equals(context.dailyState);
         boolean establishedCampaign=EthDailyBearContextSnapshot.BEAR.equals(context.dailyState)
                 ||EthDailyBearContextSnapshot.BEAR_RISK.equals(context.dailyState);
         boolean regimeOk=regime!=null&&("DOWN".equals(regime.trend)
                 ||(establishedCampaign&&"NONE".equals(regime.trend)));
+        double executionLow=distributionCampaign?prior20:(establishedCampaign?prior8:prior20);
+        double minimumBody=distributionCampaign?.40:(establishedCampaign?.25:.60);
+        double minimumVolume=distributionCampaign?.90:(establishedCampaign?.75:1.20);
+        double maximumCloseLocation=distributionCampaign?.30:(establishedCampaign?.40:.25);
+        boolean oneHourTurnedDown=!distributionCampaign||(context.oneHourEma20Slope<0
+                &&context.oneHourClose<context.oneHourEma20);
         boolean executionBar=BearTrendMath.bear(x,end)&&close<BearTrendMath.close(x,end-1)
-                &&close<(establishedCampaign?prior8:prior20)
-                &&body>=(establishedCampaign?.25:.60)&&body<=1.8
-                &&volume>=(establishedCampaign?.75:1.20)
-                &&location<=(establishedCampaign?.40:.25);
+                &&close<executionLow&&body>=minimumBody&&body<=1.8
+                &&volume>=minimumVolume&&location<=maximumCloseLocation&&oneHourTurnedDown;
         double stableAtr=Double.isFinite(previousAtr)&&previousAtr>0?previousAtr:atr;
         double extension=(ema20-close)/stableAtr,recentDecline=(BearTrendMath.highest(x,end-1,12)-close)/stableAtr;
         double oneHourExtension=Double.isFinite(context.oneHourAtr)&&context.oneHourAtr>0
@@ -69,13 +75,13 @@ public class EthStructuralBearTrendService {
                 ?(context.fourHourEma20-context.fourHourClose)/context.fourHourAtr:0;
         boolean failedHighCampaign=EthDailyBearContextSnapshot.BEAR_RISK.equals(context.dailyState)
                 &&context.dailyConfidence>=.75;
-        double maxRecentDecline=failedHighCampaign?8.0:5.0;
-        double maxOneHourExtension=failedHighCampaign?3.0:1.75;
-        double maxFourHourExtension=failedHighCampaign?4.0:2.25;
+        double maxRecentDecline=(failedHighCampaign||distributionCampaign)?8.0:5.0;
+        double maxOneHourExtension=failedHighCampaign?3.0:distributionCampaign?2.25:1.75;
+        double maxFourHourExtension=failedHighCampaign?4.0:distributionCampaign?3.0:2.25;
         if(recentDecline>maxRecentDecline||oneHourExtension>maxOneHourExtension
                 ||fourHourExtension>maxFourHourExtension)return cache(s,end,BearTrendSnapshot.ARMED,
                 "ETH_FAST_BEAR_EXHAUSTION_REJECTED",.85,false,Double.NaN,null);
-        if(!regimeOk||!executionBar||extension>3.0)return cache(s,end,BearTrendSnapshot.ARMED,
+        if(!regimeOk||!executionBar||extension>(distributionCampaign?2.5:3.0))return cache(s,end,BearTrendSnapshot.ARMED,
                 "ETH_FAST_BEAR_WAITING_MOMENTUM",.85,false,Double.NaN,null);
         double structuralStop=Math.max(BearTrendMath.highest(x,end,3),ema20)+.5*atr;
         double distance=structuralStop-close;if(distance>4*atr)return cache(s,end,BearTrendSnapshot.INVALIDATED,
@@ -87,7 +93,7 @@ public class EthStructuralBearTrendService {
                 ?context.oneHourEma20+context.oneHourAtr:Double.NaN;
         double fourHourProtection=(confirmedDailyBear||failedHighEntry)&&Double.isFinite(context.fourHourEma20)
                 &&Double.isFinite(context.fourHourAtr)?context.fourHourEma20+context.fourHourAtr:Double.NaN;
-        double riskLimit=(confirmedDailyBear||failedHighEntry)?.11:.06;
+        double riskLimit=distributionCampaign?.05:(confirmedDailyBear||failedHighEntry)?.11:.06;
         s.softStopPrice=Math.max(structuralStop,close+2*atr);
         if(Double.isFinite(oneHourProtection))s.softStopPrice=Math.max(s.softStopPrice,oneHourProtection);
         if(Double.isFinite(fourHourProtection))s.softStopPrice=Math.max(s.softStopPrice,fourHourProtection);
@@ -105,7 +111,8 @@ public class EthStructuralBearTrendService {
                 return cache(s,end,BearTrendSnapshot.ARMED,"ETH_FAST_BEAR_INSUFFICIENT_DOWNSIDE_ROOM",.85,false,Double.NaN,null);
         }
         s.phase=BearTrendSnapshot.TRIGGERED;s.triggerUntil=end+TRIGGER_VALIDITY;
-        s.triggerType=failedHighEntry?"FAILED_HIGH_BEAR_BREAKDOWN":"FAST_BEAR_BREAKDOWN";s.consumed=false;
+        s.triggerType=distributionCampaign?"DISTRIBUTION_A_WAVE_BREAKDOWN":
+                failedHighEntry?"FAILED_HIGH_BEAR_BREAKDOWN":"FAST_BEAR_BREAKDOWN";s.consumed=false;
         return cache(s,end,s.phase,"ETH_FAST_BEAR_BREAKDOWN_TRIGGERED",1,true,s.stopPrice,s.triggerType);
     }
     private BearTrendSnapshot trigger(EthStructuralBearTrendState s,BarSeries x,int end,double atr,BacktestRegime regime,EthBearMultiTimeframeSnapshot context){
@@ -146,10 +153,10 @@ public class EthStructuralBearTrendService {
     }
     public BearTrendSnapshot current(String symbol,String timeframe){EthStructuralBearTrendState s=states.get(key(symbol,timeframe));return s==null?BearTrendSnapshot.none(STRATEGY):s.snapshot;}
     public double currentSoftStop(String symbol,String timeframe){EthStructuralBearTrendState s=states.get(key(symbol,timeframe));return s==null?Double.NaN:s.softStopPrice;}
-    public void consume(String symbol,String timeframe,int bar){EthStructuralBearTrendState s=states.get(key(symbol,timeframe));if(s!=null&&s.lastIndex==bar&&BearTrendSnapshot.TRIGGERED.equals(s.phase)){s.consumed=true;s.phase=BearTrendSnapshot.RUNNING;if(multiTimeframe!=null)multiTimeframe.consume(symbol,s.setupId);s.snapshot=new BearTrendSnapshot(STRATEGY,s.phase,"ETH_BEAR_SIGNAL_CONSUMED",.9,false,s.stopPrice,s.triggerType,bar);}}
+    public void consume(String symbol,String timeframe,int bar){EthStructuralBearTrendState s=states.get(key(symbol,timeframe));if(s!=null&&s.lastIndex==bar&&BearTrendSnapshot.TRIGGERED.equals(s.phase)){s.consumed=true;s.phase=BearTrendSnapshot.RUNNING;if(multiTimeframe!=null)multiTimeframe.consume(symbol,s.setupId);s.snapshot=new BearTrendSnapshot(STRATEGY,s.phase,"ETH_BEAR_SIGNAL_CONSUMED",.9,false,s.stopPrice,s.triggerType,bar,s.campaignActive);}}
     public void tradeClosed(String symbol,int exit,TradeRecord trade){boolean reentry=profitProtected(trade);for(Map.Entry<String,EthStructuralBearTrendState>e:states.entrySet())if(e.getKey().startsWith(symbol.toUpperCase()+"|")){EthStructuralBearTrendState s=e.getValue();s.observing();s.cooldownUntil=exit+(reentry?48:COOLDOWN_BARS);}if(multiTimeframe!=null)multiTimeframe.tradeClosed(symbol,reentry);}
     public void reset(String symbol){String p=symbol==null?"":symbol.toUpperCase()+"|";states.keySet().removeIf(k->k.startsWith(p));if(multiTimeframe!=null)multiTimeframe.reset(symbol);}
-    private BearTrendSnapshot cache(EthStructuralBearTrendState s,int end,String phase,String reason,double ready,boolean action,double stop,String trigger){s.phase=phase;s.snapshot=new BearTrendSnapshot(STRATEGY,phase,reason,ready,action,stop,trigger,end);return s.snapshot;}
+    private BearTrendSnapshot cache(EthStructuralBearTrendState s,int end,String phase,String reason,double ready,boolean action,double stop,String trigger){s.phase=phase;s.snapshot=new BearTrendSnapshot(STRATEGY,phase,reason,ready,action,stop,trigger,end,s.campaignActive);return s.snapshot;}
     private boolean profitProtected(TradeRecord trade){if(trade==null)return false;if(trade.pnl!=null&&trade.pnl.signum()>0)return true;
         if(trade.exitReason==null)return false;String r=trade.exitReason.toLowerCase();return r.contains("mfe_capture")||r.contains("staged_profit_lock")||r.contains("chandelier");}
     private boolean supports(String s,String t){return "ETHUSDT".equalsIgnoreCase(s)&&"15M".equalsIgnoreCase(t);}private String key(String s,String t){return (s==null?"":s.toUpperCase())+"|"+(t==null?"":t.toUpperCase());}

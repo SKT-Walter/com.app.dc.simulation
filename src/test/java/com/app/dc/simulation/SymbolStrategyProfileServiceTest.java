@@ -35,8 +35,13 @@ public class SymbolStrategyProfileServiceTest {
                 "ETHUSDT", "15m", "binanceRange"), 0.000001);
         BinanceRangeSettings ethRange = service.binanceRangeSettings(
                 "ETHUSDT", "15m", "binanceRange");
-        Assert.assertFalse(ethRange.stateMachineEnabled);
-        Assert.assertEquals(1.25, ethRange.minimumRewardRisk, 0.000001);
+        Assert.assertTrue(ethRange.stateMachineEnabled);
+        Assert.assertFalse(service.isStrategyEnabled("ETHUSDT", "15m", "bollingerMeanReversion"));
+        Assert.assertFalse(service.isSideEnabled(
+                "ETHUSDT", "15m", "donchianReversion", "BUY"));
+        Assert.assertTrue(service.isSideEnabled(
+                "ETHUSDT", "15m", "donchianReversion", "SELL"));
+        Assert.assertEquals(1.40, ethRange.minimumRewardRisk, 0.000001);
         Assert.assertFalse(service.isStrategyEnabled(
                 "ETHUSDT", "15m", "atrChannelBiasReversion"));
         Assert.assertFalse(service.isStrategyEnabled(

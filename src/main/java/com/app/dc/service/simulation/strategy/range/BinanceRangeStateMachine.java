@@ -101,7 +101,7 @@ public class BinanceRangeStateMachine {
                 return cache(state, confirmReclaimImmediately(
                         state, currentBox, bar, end, settings));
             return cache(state, BinanceRangeStateSnapshot.hold(
-                    state.phase, .82, lower ? "RANGE_LOWER_EDGE_TOUCHED"
+                    state.phase, .72, lower ? "RANGE_LOWER_EDGE_TOUCHED"
                             : "RANGE_UPPER_EDGE_TOUCHED", currentBox, bar));
         }
         return cache(state, BinanceRangeStateSnapshot.hold(
@@ -137,7 +137,7 @@ public class BinanceRangeStateMachine {
         if (end - state.touchIndex > settings.touchValidityBars)
             return invalidate(state, currentBox, bar, "RANGE_TOUCH_EXPIRED");
         if (!recovered(state, setupBox, bar, settings))
-            return BinanceRangeStateSnapshot.hold("TOUCHED", .82,
+            return BinanceRangeStateSnapshot.hold("TOUCHED", .72,
                     "RANGE_WAITING_FOR_RECLAIM", setupBox, bar);
         state.phase = "RECLAIMED";
         state.reclaimedIndex = end;
@@ -146,7 +146,7 @@ public class BinanceRangeStateMachine {
         if (!settings.nextBarConfirmationRequired)
             return confirmReclaimImmediately(
                     state, setupBox, bar, end, settings);
-        return BinanceRangeStateSnapshot.hold("RECLAIMED", .92,
+        return BinanceRangeStateSnapshot.hold("RECLAIMED", .88,
                 "RANGE_EDGE_RECLAIMED", setupBox, bar);
     }
 
@@ -366,7 +366,7 @@ public class BinanceRangeStateMachine {
     }
 
     private double stableReadiness(ReferenceBox box) {
-        return .70 + .10 * box.quality;
+        return .45 + .10 * box.quality;
     }
 
     private int minimumBars(BinanceRangeSettings settings) {

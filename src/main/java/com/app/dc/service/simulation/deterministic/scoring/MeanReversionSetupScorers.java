@@ -5,8 +5,6 @@ import com.app.dc.service.simulation.deterministic.StrategySetupScore;
 import com.app.dc.service.simulation.deterministic.TechnicalSnapshot;
 import com.app.dc.service.simulation.strategy.range.BinanceRangeStateMachine;
 import com.app.dc.service.simulation.strategy.range.BinanceRangeStateSnapshot;
-import com.app.dc.service.simulation.strategy.range.BinanceRangeSetupAnalyzer;
-import com.app.dc.service.simulation.strategy.profile.SymbolStrategyProfileService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -16,21 +14,11 @@ abstract class MeanReversionScorer extends AbstractSetupScorer {
 
 @Service class BinanceRangeSetupScorer extends MeanReversionScorer {
     @Autowired private BinanceRangeStateMachine stateMachine;
-    @Autowired private SymbolStrategyProfileService strategyProfiles;
     public String strategyName(){return "binanceRange";}
     public StrategySetupScore score(StrategyEvaluationContext x){
         BinanceRangeStateSnapshot setup=stateMachine.evaluate(
                 x.symbol,x.timeframe,x.series);
-        BinanceRangeSetupAnalyzer.Snapshot preparation=
-                BinanceRangeSetupAnalyzer.analyze(x.series,
-                        strategyProfiles.minimumTriggerRangeAtr(
-                                x.symbol,x.timeframe,strategyName()),
-                        strategyProfiles.minimumBuyRecoveryBodyAtr(
-                                x.symbol,x.timeframe,strategyName()),
-                        strategyProfiles.minimumBuyCloseLocation(
-                                x.symbol,x.timeframe,strategyName()));
-        double readiness=Math.max(preparation.readiness,setup.readiness);
-        return result(readiness,"LEGACY_PREPARATION|"+setup.reason);
+        return result(setup.readiness,"RANGE_STATE|"+setup.phase+"|"+setup.reason);
     }
 }
 @Service class BinanceRangeMacdSetupScorer extends MeanReversionScorer {

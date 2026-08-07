@@ -45,6 +45,18 @@ public class SymbolStrategyProfileService {
         return override == null || override.enabled == null || override.enabled;
     }
 
+    public boolean isSideEnabled(String symbol, String timeframe,
+                                 String strategyName, String side) {
+        SymbolStrategyProfile.StrategyOverride override =
+                findOverride(symbol, timeframe, strategyName);
+        if (override == null || side == null) return true;
+        if ("BUY".equalsIgnoreCase(side))
+            return override.buyEnabled == null || override.buyEnabled;
+        if ("SELL".equalsIgnoreCase(side))
+            return override.sellEnabled == null || override.sellEnabled;
+        return true;
+    }
+
     public Double takeProfitPct(String symbol, String timeframe, String strategyName) {
         SymbolStrategyProfile.StrategyOverride override =
                 findOverride(symbol, timeframe, strategyName);

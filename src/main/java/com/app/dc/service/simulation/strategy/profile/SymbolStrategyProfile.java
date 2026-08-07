@@ -14,6 +14,8 @@ public class SymbolStrategyProfile {
 
     public static class StrategyOverride {
         public Boolean enabled;
+        public Boolean buyEnabled;
+        public Boolean sellEnabled;
         public Double takeProfitPct;
         public Boolean binanceTrendBuyEnabled;
         public Boolean trendLifecycleEnabled;

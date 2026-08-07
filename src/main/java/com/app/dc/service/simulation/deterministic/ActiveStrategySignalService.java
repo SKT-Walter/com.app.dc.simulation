@@ -34,6 +34,9 @@ public class ActiveStrategySignalService {
         if("binanceTrend".equalsIgnoreCase(decision.strategyName)&&signal!=null
                 &&signal.side==Side.BUY&&!strategyProfiles.binanceTrendBuyEnabled(
                         context.symbol,context.timeframe))signal.side=Side.NONE;
+        if(signal!=null&&signal.side!=null&&signal.side!=Side.NONE
+                &&!strategyProfiles.isSideEnabled(context.symbol,context.timeframe,
+                decision.strategyName,signal.side.name()))signal.side=Side.NONE;
         return signal;
     }
 }

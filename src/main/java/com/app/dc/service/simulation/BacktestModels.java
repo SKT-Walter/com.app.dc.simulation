@@ -142,8 +142,10 @@ public final class BacktestModels {
         public int ethBearFourHourBullBars;
         public int ethBearLastOneHourIndex = -1;
         public int ethBearSoftInvalidationBars;
-        public double ethBearSoftStopPrice = Double.NaN;
-    }
+          public double ethBearSoftStopPrice = Double.NaN;
+          public double channelBreakoutLevel = Double.NaN;
+          public int channelInvalidationBars;
+      }
 
     public static class EquityContext {
         public double equity;

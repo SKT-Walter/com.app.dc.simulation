@@ -7,6 +7,7 @@ import com.app.dc.service.simulation.deterministic.CandidateRuleChain;
 import com.app.dc.service.simulation.deterministic.CandidateSelectionResult;
 import com.app.dc.service.simulation.deterministic.MarketContextFactory;
 import com.app.dc.service.simulation.deterministic.StrategyEvaluationContext;
+import com.app.dc.service.simulation.deterministic.StructuralTrendSnapshot;
 import com.app.dc.service.simulation.dynamic.BacktestRegime;
 import com.app.dc.service.simulation.dynamic.DynamicStrategyCatalog;
 import com.app.dc.service.simulation.dynamic.DynamicStrategyMeta;
@@ -69,6 +70,17 @@ public class DeterministicScoringCoverageTest {
                     btcCandidates.rejectedStrategies.get("ethStructuralBullTrend"));
             Assert.assertEquals("SYMBOL_NOT_SUPPORTED",
                     btcCandidates.rejectedStrategies.get("solMomentumBullTrend"));
+
+            StructuralTrendSnapshot bear = new StructuralTrendSnapshot(
+                    StructuralTrendSnapshot.BEAR, StructuralTrendSnapshot.BEAR,
+                    "ESTABLISHED", .90, 20, 0, true);
+            CandidateSelectionResult ethBearCandidates = candidateRules.select(contexts.create(
+                    "ETHUSDT", "15M", series, new TTbookOhlc(), regime, bear));
+            Assert.assertEquals("STRUCTURAL_DIRECTION_CONFLICT",
+                    ethBearCandidates.rejectedStrategies.get("emaPullbackBuy"));
+            CandidateSelectionResult solBearCandidates = candidateRules.select(contexts.create(
+                    "SOLUSDT", "15M", series, new TTbookOhlc(), regime, bear));
+            Assert.assertNull(solBearCandidates.rejectedStrategies.get("emaPullbackBuy"));
         } finally {
             spring.close();
         }

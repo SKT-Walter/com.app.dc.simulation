@@ -5,6 +5,7 @@
   "enabled": true,
   "strategies": {
     "binanceTrend": {
+      "enabled": true,
       "takeProfitPct": 10,
       "binanceTrendBuyEnabled": false,
       "trendLifecycleEnabled": false,
@@ -32,6 +33,9 @@
     },
     "ethStructuralBearTrend": {
       "enabled": true
+    },
+    "atrChannelBiasReversion": {
+      "enabled": false
     },
     "binanceRange": {
       "enabled": true,

@@ -43,6 +43,23 @@ public class CandidateRuleChain {
             return "SYMBOL_NOT_SUPPORTED";
         if (!strategyProfiles.isStrategyEnabled(context.symbol, context.timeframe,
                 meta.strategyName)) return "SYMBOL_STRATEGY_DISABLED";
+        if ("emaPullbackBuy".equalsIgnoreCase(meta.strategyName)
+                && "ETHUSDT".equalsIgnoreCase(context.symbol)
+                && context.structuralTrend != null && context.structuralTrend.ready
+                && context.structuralTrend.isBear())
+            return "STRUCTURAL_DIRECTION_CONFLICT";
+        if ("binanceChannel".equalsIgnoreCase(meta.strategyName)
+                && "ETHUSDT".equalsIgnoreCase(context.symbol)) {
+            if (!"15M".equalsIgnoreCase(context.timeframe)) return "SYMBOL_NOT_SUPPORTED";
+            if (!"UP".equals(context.regime.trend)
+                    || !"HIGH".equals(context.regime.volatility))
+                return "SYMBOL_REGIME_BLOCKED";
+            if (context.structuralTrend != null && context.structuralTrend.ready
+                    && context.structuralTrend.isBear())
+                return "STRUCTURAL_DIRECTION_CONFLICT";
+            if (!(t.ema20 > t.ema60) || !(t.emaSlowSlope > 0) || t.adx < 25)
+                return "CHANNEL_TREND_QUALITY_REJECTED";
+        }
         if("binanceTrend".equalsIgnoreCase(meta.strategyName)
                 &&"UP".equals(context.regime.trend)
                 &&!strategyProfiles.binanceTrendBuyEnabled(context.symbol,context.timeframe))

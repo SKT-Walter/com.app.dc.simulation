@@ -23,6 +23,7 @@ public class SymbolStrategyProfileServiceTest {
                 service.binanceTrendSettings("ETHUSDT", "15m");
         Assert.assertFalse(ethTrend.lifecycleEnabled);
         Assert.assertFalse(service.binanceTrendBuyEnabled("ETHUSDT","15m"));
+        Assert.assertTrue(service.isStrategyEnabled("ETHUSDT","15m","binanceTrend"));
         Assert.assertTrue(service.isStrategyEnabled("ETHUSDT","15m","ethStructuralBullTrend"));
         Assert.assertTrue(service.isStrategyEnabled(
                 "ETHUSDT", "15m", "binanceRange"));
@@ -36,7 +37,7 @@ public class SymbolStrategyProfileServiceTest {
                 "ETHUSDT", "15m", "binanceRange");
         Assert.assertFalse(ethRange.stateMachineEnabled);
         Assert.assertEquals(1.25, ethRange.minimumRewardRisk, 0.000001);
-        Assert.assertTrue(service.isStrategyEnabled(
+        Assert.assertFalse(service.isStrategyEnabled(
                 "ETHUSDT", "15m", "atrChannelBiasReversion"));
         Assert.assertFalse(service.isStrategyEnabled(
                 "ETHUSDT", "15m", "compressionBreak"));

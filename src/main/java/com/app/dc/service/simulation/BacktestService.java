@@ -642,6 +642,13 @@ public class BacktestService {
             position.regime=position.regime==null||position.regime.length()==0?context:position.regime+"|"+context;
             position.ethBearSoftStopPrice=ethBearTrendService.currentSoftStop(symbol,timeframe);
         }
+        else if("binanceChannel".equalsIgnoreCase(strategy)
+                &&"ETHUSDT".equalsIgnoreCase(symbol)&&"15M".equalsIgnoreCase(timeframe)){
+            position.entryLifecyclePhase="ETH_CHANNEL_BREAKOUT";
+            int end=series==null?-1:series.getEndIndex();
+            if(end>series.getBeginIndex())position.channelBreakoutLevel=
+                    BinanceStrategyMath.highestHigh(series,end-1,20);
+        }
         else return;
         position.trendTriggerType=signal==null?null:signal.remark;
         position.entryAtr=series==null?Double.NaN:BinanceStrategyMath.atr(

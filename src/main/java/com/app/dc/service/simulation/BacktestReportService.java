@@ -416,6 +416,10 @@ public class BacktestReportService {
             case "eth_4h_bear_reversal_exit": return "ETH四小时趋势反转退出";
             case "eth_1h_soft_invalidation_exit": return "ETH一小时软失效确认退出";
             case "eth_breakeven_protection_exit": return "ETH趋势保本退出";
+            case "channel_slow_structure_reversed": return "通道突破慢结构反转退出";
+            case "channel_breakout_failed": return "通道突破失败退出";
+            case "channel_breakeven_trailing_exit": return "通道突破保本跟踪退出";
+            case "channel_mature_trailing_exit": return "通道突破成熟跟踪退出";
             default: return s(reason);
         }
     }
@@ -426,6 +430,9 @@ public class BacktestReportService {
             case "SYMBOL_STRATEGY_DISABLED": return "该品种已禁用此策略";
             case "SYMBOL_NOT_SUPPORTED": return "策略不支持该品种或周期";
             case "SYMBOL_SIDE_BLOCKED": return "该品种已关闭此交易方向";
+            case "SYMBOL_REGIME_BLOCKED": return "该品种当前Regime不允许此策略";
+            case "CHANNEL_TREND_QUALITY_REJECTED": return "通道突破趋势质量不足";
+            case "STRUCTURAL_DIRECTION_CONFLICT": return "慢结构方向冲突";
             case "LIFECYCLE_TREND_POSITION_OWNED": return "生命周期趋势持仓由开仓策略管理，拒绝外部反手";
             case "not_enough_bars": return "K线数量不足";
             case "invalid_atr": return "ATR无效";

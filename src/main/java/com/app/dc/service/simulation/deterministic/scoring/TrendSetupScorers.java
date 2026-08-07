@@ -13,7 +13,16 @@ import org.springframework.stereotype.Service;
 
 abstract class TrendScorer extends AbstractSetupScorer { public String family(){return "TREND";} }
 @Service class BinanceChannelSetupScorer extends TrendScorer {
- public String strategyName(){return "binanceChannel";} public StrategySetupScore score(StrategyEvaluationContext x){return result(.55*trendAlignment(x)+.45*breakout(x),"趋势通道突破准备");}}
+ public String strategyName(){return "binanceChannel";} public StrategySetupScore score(StrategyEvaluationContext x){
+  if(!"ETHUSDT".equalsIgnoreCase(x.symbol))return result(.55*trendAlignment(x)+.45*breakout(x),"趋势通道突破准备");
+  TechnicalSnapshot t=x.technical;double atr=Math.max(t.atr,1e-9);
+  double breakoutAtr=Math.max(0,(t.close-t.previousHigh)/atr);
+  double bodyQuality=breakoutAtr<=0?n(t.bodyAtr,.15,.50):t.bodyAtr<=.70?n(t.bodyAtr,.35,.70):c(1-(t.bodyAtr-.70)/.50);
+  double extensionQuality=breakoutAtr<=1?1:c(1-(breakoutAtr-1)/.50);
+  double readiness=.25*trendAlignment(x)+.20*n(breakoutAtr,.05,.60)
+    +.15*bodyQuality+.15*n(t.volumeRatio,.80,1.50)+.10*n(t.closeLocation,.55,.80)
+    +.10*n(t.adx,20,40)+.05*extensionQuality;
+  return result(readiness,"ETH高波动通道突破质量");}}
 @Service class BinanceTrendSetupScorer extends TrendScorer {
  @Autowired private SymbolStrategyProfileService profiles;
  public String strategyName(){return "binanceTrend";}

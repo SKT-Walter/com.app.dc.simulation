@@ -1204,7 +1204,11 @@ public class BacktestReportService {
         int trades = 0;
         BigDecimal pnl = BigDecimal.ZERO;
         BigDecimal fees = BigDecimal.ZERO;
-        String status = "INSUFFICIENT_DATA";
+        boolean anyMetrics = false;
+        boolean allQualified = true;
+        boolean anyInsufficient = false;
+        boolean anyQualificationFailed = false;
+        boolean anyError = false;
         List<BacktestResult> results = response == null || response.results == null
                 ? Collections.<BacktestResult>emptyList() : response.results;
         for (BacktestResult result : results) {
@@ -1212,6 +1216,7 @@ public class BacktestReportService {
             if (metrics == null) {
                 continue;
             }
+            anyMetrics = true;
             Map<String, Object> row = sceneShadowMap(metrics);
             row.put("symbol", s(result.symbol));
             rows.add(row);
@@ -1224,11 +1229,20 @@ public class BacktestReportService {
             pnl = pnl.add(nz(metrics.totalPnl));
             fees = fees.add(nz(metrics.totalFee));
             if ("ERROR".equals(metrics.status)) {
-                status = "ERROR";
-            } else if (!"ERROR".equals(status) && "OBSERVATION_ONLY".equals(metrics.status)) {
-                status = "OBSERVATION_ONLY";
+                anyError = true;
+            } else if ("QUALIFICATION_FAILED".equals(metrics.status)) {
+                anyQualificationFailed = true;
+                allQualified = false;
+            } else if (!"QUALIFIED".equals(metrics.status)) {
+                anyInsufficient = true;
+                allQualified = false;
             }
         }
+        String status = anyError ? "ERROR"
+                : !anyMetrics ? "INSUFFICIENT_DATA"
+                : anyQualificationFailed ? "QUALIFICATION_FAILED"
+                : anyInsufficient ? "INSUFFICIENT_DATA"
+                : allQualified ? "QUALIFIED" : "INSUFFICIENT_DATA";
         summary.put("status", status);
         summary.put("rows", rows);
         summary.put("sceneRecordCount", sceneRecords);
@@ -1250,6 +1264,8 @@ public class BacktestReportService {
         row.put("mode", s(metrics.mode));
         row.put("status", s(metrics.status));
         row.put("message", translateSceneShadowMessage(metrics));
+        row.put("qualificationPass", Boolean.TRUE.equals(metrics.qualificationPass));
+        row.put("qualificationReason", s(metrics.qualificationReason));
         row.put("strategyScene", s(metrics.strategyScene));
         row.put("dataBegin", s(metrics.dataBegin));
         row.put("dataEnd", s(metrics.dataEnd));
@@ -1271,8 +1287,11 @@ public class BacktestReportService {
         if (metrics == null) {
             return "";
         }
-        if ("OBSERVATION_ONLY".equals(metrics.status)) {
-            return "\u573a\u666f\u5185\u6837\u672c\u53ef\u4f9b\u89c2\u5bdf\uff0c\u6682\u4e0d\u5f71\u54cd\u81ea\u52a8\u53d1\u5e03\u3002";
+        if ("QUALIFIED".equals(metrics.status)) {
+            return "\u573a\u666f\u56de\u6d4b\u901a\u8fc7\uff0c\u5019\u9009\u7b56\u7565\u53ef\u8fdb\u5165\u53d1\u5e03\u8d44\u683c\u6bd4\u8f83\u3002";
+        }
+        if ("QUALIFICATION_FAILED".equals(metrics.status)) {
+            return "\u573a\u666f\u56de\u6d4b\u672c\u8eab\u4e0d\u6ee1\u8db3\u53d1\u5e03\u95e8\u69db\uff0c\u5019\u9009\u7b56\u7565\u4e0d\u53ef\u81ea\u52a8\u53d1\u5e03\u3002";
         }
         if ("NOT_APPLICABLE".equals(metrics.status)) {
             return "\u8be5\u573a\u666f\u7684\u5386\u53f2\u6837\u672c\u5c1a\u672a\u8fbe\u5230\u53ef\u9a8c\u8bc1\u6761\u4ef6\u3002";
@@ -2573,12 +2592,13 @@ public class BacktestReportService {
             return "";
         }
         String status = s(sceneShadow.get("status"));
-        String statusText = "OBSERVATION_ONLY".equals(status)
-                ? "\u5df2\u6709\u521d\u6b65\u6837\u672c" : "\u6837\u672c\u79ef\u7d2f\u4e2d";
+        String statusText = "QUALIFIED".equals(status)
+                ? "\u573a\u666f\u8d44\u683c\u901a\u8fc7" : "QUALIFICATION_FAILED".equals(status)
+                ? "\u573a\u666f\u8d44\u683c\u672a\u901a\u8fc7" : "\u573a\u666f\u8bc1\u636e\u79ef\u7d2f\u4e2d";
         String body = new StringBuilder("<div class=\"grid\">")
                 .append(statusCard("\u573a\u666f\u5185\u8868\u73b0", statusText,
-                        "\u53ea\u7edf\u8ba1\u5e02\u573a\u573a\u666f\u4e0e\u7b56\u7565\u5339\u914d\u7684\u65f6\u6bb5\uff0c\u5f53\u524d\u4e0d\u5f71\u54cd\u53d1\u5e03\u3002",
-                        "OBSERVATION_ONLY".equals(status) ? "pass" : "warn"))
+                        "\u53ea\u7edf\u8ba1\u5e02\u573a\u573a\u666f\u4e0e\u7b56\u7565\u5339\u914d\u7684\u65f6\u6bb5\uff0c\u7ed3\u679c\u4f1a\u53c2\u4e0e\u53d1\u5e03\u8d44\u683c\u5224\u65ad\u3002",
+                        "QUALIFIED".equals(status) ? "pass" : "warn"))
                 .append(metric("\u573a\u666f\u8bb0\u5f55", sceneShadow.get("sceneRecordCount")))
                 .append(metric("\u5339\u914d\u65f6\u6bb5\u4ea4\u6613", sceneShadow.get("tradeCount")))
                 .append(metric("\u573a\u666f\u5185\u6536\u76ca USDT", sceneShadow.get("totalPnl")))

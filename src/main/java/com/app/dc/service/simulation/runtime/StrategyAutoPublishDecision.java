@@ -15,6 +15,14 @@ public class StrategyAutoPublishDecision {
     public Double currentForwardScore;
     public Double currentValidatePrimaryScore;
     public Double currentFeeAdjustedValidatePnl;
+    public Boolean sceneQualificationPass;
+    public String sceneQualificationReason;
+    public Integer sceneRecordCount;
+    public Integer sceneMatchedBarCount;
+    public Integer sceneTradeCount;
+    public Double scenePnl;
+    public Double sceneProfitFactor;
+    public Double sceneMaxDrawdownPct;
     public Double baselineTotalPnl;
     public Double baselineValidatePnl;
     public Double baselineForwardPnl;
@@ -46,5 +54,7 @@ public class StrategyAutoPublishDecision {
         public Double validateProfitFactor;
         public Integer oosPass;
         public Integer overfitPass;
+        public Boolean sceneQualificationPass;
+        public String sceneQualificationReason;
     }
 }

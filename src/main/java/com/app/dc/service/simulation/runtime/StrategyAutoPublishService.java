@@ -4,6 +4,7 @@ import com.app.common.utils.IdUtil;
 import com.app.dc.po.backtest.BacktestParam;
 import com.app.dc.signal.StrategyParametersSupport;
 import com.app.dc.service.simulation.BacktestModels;
+import com.app.dc.service.simulation.scene.SceneQualificationPolicy;
 import com.gateway.connector.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -46,6 +47,21 @@ public class StrategyAutoPublishService {
     @Value("${strategy.auto.publish.minValidateProfitFactor:1.20}")
     private double minValidateProfitFactor;
 
+    @Value("${strategy.auto.publish.scene.enabled:true}")
+    private boolean sceneQualificationEnabled;
+
+    @Value("${strategy.auto.publish.scene.minSceneRecords:30}")
+    private int sceneMinRecords;
+
+    @Value("${strategy.auto.publish.scene.minTrades:5}")
+    private int sceneMinTrades;
+
+    @Value("${strategy.auto.publish.scene.minProfitFactor:1.05}")
+    private double sceneMinProfitFactor;
+
+    @Value("${strategy.auto.publish.scene.maxDrawdownPct:0.25}")
+    private double sceneMaxDrawdownPct;
+
     @Value("${strategy.auto.publish.lossAwareBaselineReplace.enabled:true}")
     private boolean lossAwareBaselineReplaceEnabled;
 
@@ -87,6 +103,14 @@ public class StrategyAutoPublishService {
             decision.currentForwardScore = current.forwardScore;
             decision.currentValidatePrimaryScore = current.validatePrimaryScore;
             decision.currentFeeAdjustedValidatePnl = current.feeAdjustedValidatePnl;
+            decision.sceneQualificationPass = current.sceneQualificationPass;
+            decision.sceneQualificationReason = current.sceneQualificationReason;
+            decision.sceneRecordCount = current.sceneRecordCount;
+            decision.sceneMatchedBarCount = current.sceneMatchedBarCount;
+            decision.sceneTradeCount = current.sceneTradeCount;
+            decision.scenePnl = current.scenePnl;
+            decision.sceneProfitFactor = current.sceneProfitFactor;
+            decision.sceneMaxDrawdownPct = current.sceneMaxDrawdownPct;
 
             String globalBlock = validateGlobalPreconditions(current, candidate);
             if (StringUtils.isNotBlank(globalBlock)) {
@@ -246,6 +270,8 @@ public class StrategyAutoPublishService {
         decision.validateProfitFactor = current.validateProfitFactor;
         decision.oosPass = current.oosPass;
         decision.overfitPass = current.overfitPass;
+        decision.sceneQualificationPass = current.sceneQualificationPass;
+        decision.sceneQualificationReason = current.sceneQualificationReason;
 
         String gateReason = validatePublishThresholds(current);
         if (StringUtils.isNotBlank(gateReason)) {
@@ -420,6 +446,14 @@ public class StrategyAutoPublishService {
         payload.put("minForwardContribution", current.minForwardContribution);
         payload.put("overfitPass", current.overfitPass);
         payload.put("overfitReason", current.overfitReason);
+        payload.put("sceneQualificationPass", current.sceneQualificationPass);
+        payload.put("sceneQualificationReason", current.sceneQualificationReason);
+        payload.put("sceneRecordCount", current.sceneRecordCount);
+        payload.put("sceneMatchedBarCount", current.sceneMatchedBarCount);
+        payload.put("sceneTradeCount", current.sceneTradeCount);
+        payload.put("scenePnl", current.scenePnl);
+        payload.put("sceneProfitFactor", current.sceneProfitFactor);
+        payload.put("sceneMaxDrawdownPct", current.sceneMaxDrawdownPct);
         if (active != null) {
             payload.put("replacedVersion", active.strategyVersion);
         }
@@ -518,7 +552,64 @@ public class StrategyAutoPublishService {
         summary.overfitPass = overfitPass ? 1 : 0;
         summary.overfitReason = overfitReason;
         summary.resultCount = count;
+        summarizeSceneQualification(summary, results);
         return summary;
+    }
+
+    private void summarizeSceneQualification(StrategyBacktestSummary summary,
+                                             List<BacktestModels.BacktestResult> results) {
+        if (results == null || results.isEmpty()) {
+            summary.sceneQualificationPass = false;
+            summary.sceneQualificationReason = "scene replay result missing";
+            summary.sceneRecordCount = 0;
+            summary.sceneMatchedBarCount = 0;
+            summary.sceneTradeCount = 0;
+            summary.scenePnl = 0D;
+            summary.sceneProfitFactor = 0D;
+            summary.sceneMaxDrawdownPct = 0D;
+            return;
+        }
+        boolean passed = true;
+        int minRecords = Integer.MAX_VALUE;
+        int minMatchedBars = Integer.MAX_VALUE;
+        int minTrades = Integer.MAX_VALUE;
+        double pnl = 0D;
+        double minProfitFactor = Double.MAX_VALUE;
+        double maxDrawdown = 0D;
+        String reason = "";
+        for (BacktestModels.BacktestResult result : results) {
+            BacktestModels.SceneShadowMetrics metrics = result == null ? null : result.sceneShadow;
+            if (metrics == null) {
+                passed = false;
+                if (StringUtils.isBlank(reason)) {
+                    reason = "scene replay result missing";
+                }
+                continue;
+            }
+            SceneQualificationPolicy.Decision decision = SceneQualificationPolicy.evaluate(
+                    metrics, sceneMinRecords, sceneMinTrades, sceneMinProfitFactor, sceneMaxDrawdownPct);
+            if (!decision.passed) {
+                passed = false;
+                if (StringUtils.isBlank(reason)) {
+                    reason = decision.reason;
+                }
+            }
+            minRecords = Math.min(minRecords, intValue(metrics.sceneRecordCount));
+            minMatchedBars = Math.min(minMatchedBars, intValue(metrics.matchedBarCount));
+            minTrades = Math.min(minTrades, intValue(metrics.tradeCount));
+            pnl += toDouble(metrics.totalPnl);
+            minProfitFactor = Math.min(minProfitFactor, toDouble(metrics.profitFactor));
+            maxDrawdown = Math.max(maxDrawdown, toDouble(metrics.maxDrawdownPct));
+        }
+        summary.sceneQualificationPass = passed;
+        summary.sceneQualificationReason = StringUtils.isBlank(reason)
+                ? "scene qualification passed" : reason;
+        summary.sceneRecordCount = minRecords == Integer.MAX_VALUE ? 0 : minRecords;
+        summary.sceneMatchedBarCount = minMatchedBars == Integer.MAX_VALUE ? 0 : minMatchedBars;
+        summary.sceneTradeCount = minTrades == Integer.MAX_VALUE ? 0 : minTrades;
+        summary.scenePnl = pnl;
+        summary.sceneProfitFactor = minProfitFactor == Double.MAX_VALUE ? 0D : minProfitFactor;
+        summary.sceneMaxDrawdownPct = maxDrawdown;
     }
 
     private StrategyBacktestSummary summarizeCurrent(StrategyBacktestTaskRow task,
@@ -761,6 +852,31 @@ public class StrategyAutoPublishService {
     }
 
     private String validatePublishThresholds(StrategyBacktestSummary current) {
+        if (sceneQualificationEnabled) {
+            if (!Boolean.TRUE.equals(current.sceneQualificationPass)) {
+                return StringUtils.isBlank(current.sceneQualificationReason)
+                        ? "scene qualification not passed"
+                        : current.sceneQualificationReason;
+            }
+            if (current.sceneRecordCount == null || current.sceneRecordCount < Math.max(1, sceneMinRecords)) {
+                return "scene history records below threshold";
+            }
+            if (current.sceneMatchedBarCount == null || current.sceneMatchedBarCount <= 0) {
+                return "no K-line interval matched the strategy scene";
+            }
+            if (current.sceneTradeCount == null || current.sceneTradeCount < Math.max(1, sceneMinTrades)) {
+                return "scene-matched trades below threshold";
+            }
+            if (!gt(current.scenePnl, 0D)) {
+                return "scene fee-adjusted pnl <= 0";
+            }
+            if (!gte(current.sceneProfitFactor, sceneMinProfitFactor)) {
+                return "scene profit factor below threshold";
+            }
+            if (!lte(current.sceneMaxDrawdownPct, sceneMaxDrawdownPct)) {
+                return "scene drawdown above threshold";
+            }
+        }
         if (!isTrue(current.overfitPass)) {
             return StringUtils.isBlank(current.overfitReason)
                     ? "overfit gate not passed"

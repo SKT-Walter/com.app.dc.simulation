@@ -34,4 +34,12 @@ public class StrategyBacktestSummary {
     public Integer overfitPass;
     public String overfitReason;
     public Integer resultCount;
+    public Boolean sceneQualificationPass;
+    public String sceneQualificationReason;
+    public Integer sceneRecordCount;
+    public Integer sceneMatchedBarCount;
+    public Integer sceneTradeCount;
+    public Double scenePnl;
+    public Double sceneProfitFactor;
+    public Double sceneMaxDrawdownPct;
 }

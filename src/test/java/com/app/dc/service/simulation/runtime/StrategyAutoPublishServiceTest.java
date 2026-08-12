@@ -176,6 +176,24 @@ public class StrategyAutoPublishServiceTest {
     }
 
     @Test
+    public void maybePublishShouldRejectFailedSceneQualification() throws Exception {
+        StrategyAutoPublishService service = new StrategyAutoPublishService();
+        StubAutoPublishDao dao = new StubAutoPublishDao();
+        wirePublishConfig(service, dao);
+        BacktestModels.BacktestResponse response = response("BTCUSDT");
+        response.results.get(0).sceneShadow.status = "QUALIFICATION_FAILED";
+        response.results.get(0).sceneShadow.qualificationPass = false;
+        response.results.get(0).sceneShadow.qualificationReason = "scene fee-adjusted pnl <= 0";
+        response.results.get(0).sceneShadow.totalPnl = BigDecimal.valueOf(-1D);
+
+        StrategyAutoPublishDecision decision = service.maybePublish(task("bt_scene_failed"), candidate("v13"), response);
+
+        Assert.assertFalse(decision.published);
+        Assert.assertEquals("scene fee-adjusted pnl <= 0", decision.reason);
+        Assert.assertEquals(0, dao.insertedRegistryRows.size());
+    }
+
+    @Test
     public void maybePublishShouldNotCompareNewExecutionModelAgainstLegacyInflatedBaseline() throws Exception {
         StrategyAutoPublishService service = new StrategyAutoPublishService();
         StubAutoPublishDao dao = new StubAutoPublishDao();
@@ -197,6 +215,11 @@ public class StrategyAutoPublishServiceTest {
         setField(service, "minValidateTrades", 20);
         setField(service, "maxValidateDrawdownPct", 0.15d);
         setField(service, "minValidateProfitFactor", 1.20d);
+        setField(service, "sceneQualificationEnabled", true);
+        setField(service, "sceneMinRecords", 30);
+        setField(service, "sceneMinTrades", 5);
+        setField(service, "sceneMinProfitFactor", 1.05d);
+        setField(service, "sceneMaxDrawdownPct", 0.25d);
         setField(service, "lossAwareBaselineReplaceEnabled", true);
         setField(service, "lossAwareBaselineReplaceTodayPnlThreshold", 3.0d);
         setField(service, "strategyAutoPublishDao", dao);
@@ -245,6 +268,7 @@ public class StrategyAutoPublishServiceTest {
         result.tradeCount = 25;
         result.maxDrawdownPct = BigDecimal.valueOf(0.12d);
         result.profitFactor = BigDecimal.valueOf(1.6d);
+        result.sceneShadow = sceneMetrics();
 
         BacktestModels.BacktestResponse response = new BacktestModels.BacktestResponse();
         response.strategyName = "live_acc3";
@@ -268,6 +292,21 @@ public class StrategyAutoPublishServiceTest {
         response.overfitPass = 1;
         response.results = Collections.singletonList(result);
         return response;
+    }
+
+    private static BacktestModels.SceneShadowMetrics sceneMetrics() {
+        BacktestModels.SceneShadowMetrics metrics = new BacktestModels.SceneShadowMetrics();
+        metrics.mode = "SCENE_GATED_QUALIFICATION";
+        metrics.status = "QUALIFIED";
+        metrics.qualificationPass = true;
+        metrics.qualificationReason = "scene qualification passed";
+        metrics.sceneRecordCount = 120;
+        metrics.matchedBarCount = 500;
+        metrics.tradeCount = 25;
+        metrics.totalPnl = BigDecimal.valueOf(100D);
+        metrics.profitFactor = BigDecimal.valueOf(1.50D);
+        metrics.maxDrawdownPct = BigDecimal.valueOf(0.10D);
+        return metrics;
     }
 
     private static StrategyLiveRegistryPublishRow active(String strategyName, String strategyVersion, String symbolScope) {

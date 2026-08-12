@@ -34,18 +34,18 @@ public class BacktestReportPresentationTest {
     }
 
     @Test
-    public void sceneEvidenceIsClearlyMarkedAsObservationOnly() throws Exception {
+    public void sceneQualificationIsClearlyShownInReport() throws Exception {
         BacktestReportService service = new BacktestReportService();
         Map<String, Object> row = new LinkedHashMap<String, Object>();
         row.put("symbol", "BTCUSDT");
         row.put("strategyScene", "trend");
-        row.put("message", "\u573a\u666f\u5185\u6837\u672c\u53ef\u4f9b\u89c2\u5bdf");
+        row.put("message", "\u573a\u666f\u56de\u6d4b\u901a\u8fc7");
         row.put("tradeCount", 7);
         row.put("totalPnl", new BigDecimal("5.2"));
         row.put("maxDrawdownPct", new BigDecimal("0.03"));
         row.put("blockedSignalCount", 4);
         Map<String, Object> scene = new LinkedHashMap<String, Object>();
-        scene.put("status", "OBSERVATION_ONLY");
+        scene.put("status", "QUALIFIED");
         scene.put("rows", Arrays.asList(row));
         scene.put("sceneRecordCount", 20);
         scene.put("tradeCount", 7);
@@ -55,8 +55,8 @@ public class BacktestReportPresentationTest {
 
         String html = invoke(service, "renderSceneShadowSection", scene);
 
-        Assert.assertTrue(html.contains("\u573a\u666f\u5185\u8868\u73b0\uff08\u89c2\u5bdf\uff09"));
-        Assert.assertTrue(html.contains("\u5f53\u524d\u4e0d\u5f71\u54cd\u53d1\u5e03"));
+        Assert.assertTrue(html.contains("\u573a\u666f\u5185\u8868\u73b0"));
+        Assert.assertTrue(html.contains("\u573a\u666f\u8d44\u683c\u901a\u8fc7"));
         Assert.assertTrue(html.contains("BTCUSDT"));
     }
 

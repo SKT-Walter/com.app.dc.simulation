@@ -49,11 +49,17 @@ public class SceneGatedShadowBacktestService {
     @Value("${strategy.backtest.sceneShadow.warmupDays:7}")
     private int warmupDays;
 
-    @Value("${strategy.backtest.sceneShadow.minSceneRecords:6}")
+    @Value("${strategy.backtest.sceneShadow.minSceneRecords:30}")
     private int minSceneRecords;
 
     @Value("${strategy.backtest.sceneShadow.minTrades:5}")
     private int minTrades;
+
+    @Value("${strategy.backtest.sceneShadow.minProfitFactor:1.05}")
+    private double minProfitFactor;
+
+    @Value("${strategy.backtest.sceneShadow.maxDrawdownPct:0.25}")
+    private double maxDrawdownPct;
 
     public void enrich(BacktestModels.BacktestResponse response,
                        StrategyCandidateRow candidate,
@@ -136,19 +142,14 @@ public class SceneGatedShadowBacktestService {
         metrics.maxDrawdownPct = nz(shadow.maxDrawdownPct);
         metrics.profitFactor = nz(shadow.profitFactor);
         metrics.winRate = nz(shadow.winRate);
-        if (metrics.sceneRecordCount < Math.max(1, minSceneRecords)) {
-            metrics.status = "INSUFFICIENT_DATA";
-            metrics.message = "Scene history is too short for a stable conclusion";
-        } else if (metrics.matchedBarCount <= 0) {
-            metrics.status = "INSUFFICIENT_DATA";
-            metrics.message = "No K-line interval matched the strategy scene";
-        } else if (metrics.tradeCount < Math.max(1, minTrades)) {
-            metrics.status = "INSUFFICIENT_DATA";
-            metrics.message = "Scene-matched trades are too few; keep observing";
-        } else {
-            metrics.status = "OBSERVATION_ONLY";
-            metrics.message = "Scene-conditioned result is for observation and does not affect live publishing";
-        }
+        SceneQualificationPolicy.Decision decision = SceneQualificationPolicy.evaluate(
+                metrics, minSceneRecords, minTrades, minProfitFactor, maxDrawdownPct);
+        metrics.qualificationPass = decision.passed;
+        metrics.qualificationReason = decision.reason;
+        metrics.status = decision.passed
+                ? "QUALIFIED"
+                : (decision.sufficient ? "QUALIFICATION_FAILED" : "INSUFFICIENT_DATA");
+        metrics.message = decision.reason;
         return metrics;
     }
 

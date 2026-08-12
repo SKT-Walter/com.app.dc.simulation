@@ -326,6 +326,14 @@ public class StrategyBacktestPullJob {
             taskResult.put("currentForwardScore", publishDecision.currentForwardScore);
             taskResult.put("baselineTotalPnl", publishDecision.baselineTotalPnl);
             taskResult.put("baselineForwardScore", publishDecision.baselineForwardScore);
+            taskResult.put("sceneQualificationPass", publishDecision.sceneQualificationPass);
+            taskResult.put("sceneQualificationReason", publishDecision.sceneQualificationReason);
+            taskResult.put("sceneRecordCount", publishDecision.sceneRecordCount);
+            taskResult.put("sceneMatchedBarCount", publishDecision.sceneMatchedBarCount);
+            taskResult.put("sceneTradeCount", publishDecision.sceneTradeCount);
+            taskResult.put("scenePnl", publishDecision.scenePnl);
+            taskResult.put("sceneProfitFactor", publishDecision.sceneProfitFactor);
+            taskResult.put("sceneMaxDrawdownPct", publishDecision.sceneMaxDrawdownPct);
             taskDao.markSuccess(task.id, buildSuccessPayload(task, resolvedParamHolder[0], taskResult),
                     publishDecision != null && publishDecision.published);
             log.info("StrategyBacktestPullJob task state persistence finished, task:{}, generationTaskId:{}, candidateId:{}, strategy:{}@{}, thread:{}",

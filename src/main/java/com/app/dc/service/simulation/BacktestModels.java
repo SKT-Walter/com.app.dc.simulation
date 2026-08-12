@@ -149,13 +149,15 @@ public final class BacktestModels {
     }
 
     /**
-     * Scene-conditioned replay is observation evidence only. It must not change the
-     * full-period OOS gate until the historical scene sample is mature.
+     * Scene-conditioned replay is a formal qualification gate for candidates.
+     * Live recheck tasks still remain validation-only and never publish.
      */
     public static class SceneShadowMetrics {
-        public String mode = "SCENE_GATED_SHADOW";
+        public String mode = "SCENE_GATED_QUALIFICATION";
         public String status = "INSUFFICIENT_DATA";
         public String message = "";
+        public Boolean qualificationPass = false;
+        public String qualificationReason = "";
         public String strategyScene = "";
         public String dataBegin = "";
         public String dataEnd = "";

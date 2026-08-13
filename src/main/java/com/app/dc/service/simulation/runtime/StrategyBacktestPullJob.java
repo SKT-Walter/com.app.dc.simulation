@@ -614,6 +614,9 @@ public class StrategyBacktestPullJob {
         if (isBlank(param.strategyPayload)) {
             param.strategyPayload = candidate.payload;
         }
+        if (isBlank(param.symbol) && !isBlank(param.symbols)) {
+            param.symbol = firstSymbol(param.symbols);
+        }
         if (isBlank(param.symbol) && isBlank(param.symbols)) {
             param.symbol = defaultSymbol(candidate.scene);
             param.symbols = param.symbol;
@@ -896,6 +899,14 @@ public class StrategyBacktestPullJob {
             return "SOLUSDT";
         }
         return "ETHUSDT";
+    }
+
+    private String firstSymbol(String symbols) {
+        if (isBlank(symbols)) {
+            return "";
+        }
+        String[] tokens = symbols.trim().split("[,|;\\s]+");
+        return tokens.length == 0 ? "" : tokens[0].trim().toUpperCase(java.util.Locale.ENGLISH);
     }
 
     private String defaultText(String scene) {

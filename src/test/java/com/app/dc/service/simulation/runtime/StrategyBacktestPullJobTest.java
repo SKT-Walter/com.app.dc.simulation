@@ -154,6 +154,42 @@ public class StrategyBacktestPullJobTest {
         Assert.assertEquals("BTCUSDT", resolved.symbol);
     }
 
+    @Test
+    public void buildParamShouldDeriveSingularSymbolFromCandidateScope() throws Exception {
+        StrategyBacktestPullJob job = new StrategyBacktestPullJob();
+        StrategyBacktestTaskRow task = new StrategyBacktestTaskRow();
+        task.id = "bt_gap_fill";
+        task.fitWindowDays = 90;
+        task.validateWindowDays = 30;
+        task.forwardWindowDays = 14;
+
+        BacktestParam nested = new BacktestParam();
+        nested.strategyName = "wb15_range_r001";
+        nested.strategyVersion = "v1";
+        nested.symbols = "BNBUSDT";
+        nested.text = "15m";
+        nested.beginDate = "2026-01-01";
+        nested.endDate = "2026-07-01";
+        StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
+        envelope.backtestParam = nested;
+        task.payload = JsonUtils.Serializer(envelope);
+
+        StrategyCandidateRow candidate = new StrategyCandidateRow();
+        candidate.strategyName = nested.strategyName;
+        candidate.strategyVersion = nested.strategyVersion;
+        candidate.runtimeType = "JAR";
+        candidate.scene = "range";
+        candidate.payload = "{}";
+
+        Method method = StrategyBacktestPullJob.class.getDeclaredMethod(
+                "buildParam", StrategyBacktestTaskRow.class, StrategyCandidateRow.class);
+        method.setAccessible(true);
+        BacktestParam resolved = (BacktestParam) method.invoke(job, task, candidate);
+
+        Assert.assertEquals("BNBUSDT", resolved.symbol);
+        Assert.assertEquals("BNBUSDT", resolved.symbols);
+    }
+
     private static String repeat(String value, int count) {
         StringBuilder builder = new StringBuilder(Math.max(0, count));
         while (builder.length() < count) {

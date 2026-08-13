@@ -34,6 +34,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
@@ -687,6 +688,9 @@ public class BacktestService {
     public BacktestParam normalizeParam(BacktestParam param) {
         BacktestParam req = param == null ? new BacktestParam() : param;
         if (req.symbol == null || req.symbol.trim().isEmpty()) {
+            req.symbol = firstSymbol(req.symbols);
+        }
+        if (req.symbol == null || req.symbol.trim().isEmpty()) {
             req.symbol = "ETHUSDT";
         }
         if (req.symbols == null || req.symbols.trim().isEmpty()) {
@@ -726,6 +730,14 @@ public class BacktestService {
             req.runtimeType = "JAR";
         }
         return req;
+    }
+
+    static String firstSymbol(String symbols) {
+        if (symbols == null || symbols.trim().isEmpty()) {
+            return "";
+        }
+        String[] tokens = symbols.trim().split("[,|;\\s]+");
+        return tokens.length == 0 ? "" : tokens[0].trim().toUpperCase(Locale.ENGLISH);
     }
 
     private String defaultSupportedText() {

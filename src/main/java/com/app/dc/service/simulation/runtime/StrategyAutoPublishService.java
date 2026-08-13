@@ -112,6 +112,12 @@ public class StrategyAutoPublishService {
             decision.sceneProfitFactor = current.sceneProfitFactor;
             decision.sceneMaxDrawdownPct = current.sceneMaxDrawdownPct;
 
+            String scopeBlock = validateExecutionSymbolScope(task, response);
+            if (StringUtils.isNotBlank(scopeBlock)) {
+                decision.reason = scopeBlock;
+                return decision;
+            }
+
             String globalBlock = validateGlobalPreconditions(current, candidate);
             if (StringUtils.isNotBlank(globalBlock)) {
                 decision.reason = globalBlock;
@@ -1050,6 +1056,29 @@ public class StrategyAutoPublishService {
             log.warn("parseTaskPayload error, task:{}", task.id, e);
             return null;
         }
+    }
+
+    private String validateExecutionSymbolScope(StrategyBacktestTaskRow task,
+                                                BacktestModels.BacktestResponse response) {
+        BacktestParam param = parseTaskPayload(task);
+        if (param == null) {
+            return "backtest task symbol scope missing";
+        }
+        String expected = resolveSymbolScope(param);
+        String actual = "";
+        if (response != null && response.symbols != null && !response.symbols.isEmpty()) {
+            actual = normalizeSymbolScope(StringUtils.join(response.symbols, ","));
+        }
+        if (StringUtils.isBlank(actual) && response != null) {
+            actual = normalizeSymbolScope(response.symbol);
+        }
+        if (StringUtils.isBlank(actual)) {
+            return "backtest result symbol scope missing";
+        }
+        if (!StringUtils.equalsIgnoreCase(expected, actual)) {
+            return "backtest result symbol scope mismatch: expected " + expected + ", actual " + actual;
+        }
+        return "";
     }
 
     private boolean isNonPublishingValidationTask(StrategyBacktestTaskRow task) {

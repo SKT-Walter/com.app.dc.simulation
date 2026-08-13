@@ -15,6 +15,26 @@ import java.util.List;
 public class StrategyAutoPublishServiceTest {
 
     @Test
+    public void maybePublishShouldRejectExecutionAgainstDifferentSymbol() throws Exception {
+        StrategyAutoPublishService service = new StrategyAutoPublishService();
+        StubAutoPublishDao dao = new StubAutoPublishDao();
+        wirePublishConfig(service, dao);
+        StrategyBacktestTaskRow task = task("bt_scope_mismatch");
+        task.payload = "{\"backtestParam\":{\"strategyName\":\"live_acc3\",\"strategyVersion\":\"v13\"," 
+                + "\"symbol\":\"ETHUSDT\",\"symbols\":\"BNBUSDT\",\"text\":\"15m\"}}";
+
+        StrategyAutoPublishDecision decision = service.maybePublish(
+                task, candidate("v13"), response("ETHUSDT"));
+
+        Assert.assertFalse(decision.published);
+        Assert.assertEquals(
+                "backtest result symbol scope mismatch: expected BNBUSDT, actual ETHUSDT",
+                decision.reason);
+        Assert.assertEquals(0, dao.insertedRegistryRows.size());
+        Assert.assertEquals(0, dao.insertedReleaseEvents.size());
+    }
+
+    @Test
     public void maybePublishShouldNeverPublishLiveRecheckTask() throws Exception {
         StrategyAutoPublishService service = new StrategyAutoPublishService();
         StubAutoPublishDao dao = new StubAutoPublishDao();

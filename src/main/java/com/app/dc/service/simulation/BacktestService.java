@@ -687,15 +687,7 @@ public class BacktestService {
 
     public BacktestParam normalizeParam(BacktestParam param) {
         BacktestParam req = param == null ? new BacktestParam() : param;
-        if (req.symbol == null || req.symbol.trim().isEmpty()) {
-            req.symbol = firstSymbol(req.symbols);
-        }
-        if (req.symbol == null || req.symbol.trim().isEmpty()) {
-            req.symbol = "ETHUSDT";
-        }
-        if (req.symbols == null || req.symbols.trim().isEmpty()) {
-            req.symbols = req.symbol;
-        }
+        normalizeSymbolScope(req);
         if (req.text == null || req.text.trim().isEmpty()) {
             req.text = defaultSupportedText();
         }
@@ -730,6 +722,18 @@ public class BacktestService {
             req.runtimeType = "JAR";
         }
         return req;
+    }
+
+    static void normalizeSymbolScope(BacktestParam req) {
+        if (req.symbols != null && !req.symbols.trim().isEmpty()) {
+            req.symbol = firstSymbol(req.symbols);
+        }
+        if (req.symbol == null || req.symbol.trim().isEmpty()) {
+            req.symbol = "ETHUSDT";
+        }
+        if (req.symbols == null || req.symbols.trim().isEmpty()) {
+            req.symbols = req.symbol;
+        }
     }
 
     static String firstSymbol(String symbols) {

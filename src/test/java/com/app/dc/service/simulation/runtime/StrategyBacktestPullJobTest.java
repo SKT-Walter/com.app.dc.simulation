@@ -166,6 +166,7 @@ public class StrategyBacktestPullJobTest {
         BacktestParam nested = new BacktestParam();
         nested.strategyName = "wb15_range_r001";
         nested.strategyVersion = "v1";
+        nested.symbol = "ETHUSDT";
         nested.symbols = "BNBUSDT";
         nested.text = "15m";
         nested.beginDate = "2026-01-01";

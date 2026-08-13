@@ -614,7 +614,7 @@ public class StrategyBacktestPullJob {
         if (isBlank(param.strategyPayload)) {
             param.strategyPayload = candidate.payload;
         }
-        if (isBlank(param.symbol) && !isBlank(param.symbols)) {
+        if (!isBlank(param.symbols)) {
             param.symbol = firstSymbol(param.symbols);
         }
         if (isBlank(param.symbol) && isBlank(param.symbols)) {

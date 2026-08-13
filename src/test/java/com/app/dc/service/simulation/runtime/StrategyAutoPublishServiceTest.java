@@ -20,7 +20,7 @@ public class StrategyAutoPublishServiceTest {
         StubAutoPublishDao dao = new StubAutoPublishDao();
         wirePublishConfig(service, dao);
         StrategyBacktestTaskRow task = task("bt_scope_mismatch");
-        task.payload = "{\"backtestParam\":{\"strategyName\":\"live_acc3\",\"strategyVersion\":\"v13\"," 
+        task.payload = "{\"backtestParam\":{\"strategyName\":\"live_acc3\",\"strategyVersion\":\"v13\","
                 + "\"symbol\":\"ETHUSDT\",\"symbols\":\"BNBUSDT\",\"text\":\"15m\"}}";
 
         StrategyAutoPublishDecision decision = service.maybePublish(

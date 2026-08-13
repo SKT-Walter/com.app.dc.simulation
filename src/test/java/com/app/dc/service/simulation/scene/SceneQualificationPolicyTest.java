@@ -37,6 +37,17 @@ public class SceneQualificationPolicyTest {
         Assert.assertFalse(decision.sufficient);
     }
 
+    @Test
+    public void shouldAcceptSceneConditionedWalkForwardEvidence() {
+        BacktestModels.SceneShadowMetrics metrics = metrics();
+        metrics.mode = BacktestModels.SCENE_CONDITIONED_WINDOW_MODE;
+
+        SceneQualificationPolicy.Decision decision = SceneQualificationPolicy.evaluate(metrics, 30, 5, 1.05, 0.25);
+
+        Assert.assertTrue(decision.passed);
+        Assert.assertTrue(decision.sufficient);
+    }
+
     private static BacktestModels.SceneShadowMetrics metrics() {
         BacktestModels.SceneShadowMetrics metrics = new BacktestModels.SceneShadowMetrics();
         metrics.mode = "SCENE_GATED_QUALIFICATION";

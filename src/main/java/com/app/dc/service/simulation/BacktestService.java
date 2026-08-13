@@ -10,6 +10,7 @@ import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import com.app.dc.service.simulation.runtime.StrategyBacktestTaskDao;
 import com.app.dc.service.simulation.runtime.StrategyCandidateRow;
 import com.app.dc.service.simulation.runtime.SliceOptimizedWalkForwardRunner;
+import com.app.dc.service.simulation.scene.DeepSeekSceneTimelineService;
 import com.gateway.connector.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,6 +62,9 @@ public class BacktestService {
 
     @Autowired
     private SliceOptimizedWalkForwardRunner sliceOptimizedWalkForwardRunner;
+
+    @Autowired
+    private DeepSeekSceneTimelineService sceneTimelineService;
 
     @Autowired
     private BacktestOptimizationService backtestOptimizationService;
@@ -372,7 +376,7 @@ public class BacktestService {
         response.baselineVersion = req.baselineVersion;
         response.runtimeType = candidate.runtimeType;
         response.scene = candidate.scene;
-        response.windowMode = "WALK_FORWARD";
+        response.windowMode = BacktestModels.SCENE_CONDITIONED_WINDOW_MODE;
         response.fitWindowDays = windowConfig.fitWindowDays;
         response.validateWindowDays = windowConfig.validateWindowDays;
         response.forwardWindowDays = windowConfig.forwardWindowDays;
@@ -577,9 +581,15 @@ public class BacktestService {
         List<TTbookOhlc> ohlcList = loadOhlc(req, symbol, ohlcCache);
         BacktestParam symbolParam = copyParamForSymbol(req, symbol);
         applyTrialParamOverrides(symbolParam, trialParams);
-        BacktestResult result = sliceOptimizedWalkForwardRunner.run(candidate, symbolParam, ohlcList, plan,
+        DeepSeekSceneTimelineService.Timeline timeline = sceneTimelineService.load(
+                symbol, symbolParam.beginDate, symbolParam.endDate);
+        if (timeline.hasError()) {
+            throw new IllegalStateException("scene timeline query failed: " + timeline.error());
+        }
+        BacktestResult result = sliceOptimizedWalkForwardRunner.runSceneConditioned(
+                candidate, symbolParam, ohlcList, plan,
                 windowConfig.fitWindowDays, windowConfig.validateWindowDays,
-                windowConfig.forwardWindowDays, windowConfig.minSliceCount, trialBudget);
+                windowConfig.forwardWindowDays, windowConfig.minSliceCount, trialBudget, timeline);
         result.symbolCount = 1;
         result.fitWindowDays = windowConfig.fitWindowDays;
         result.validateWindowDays = windowConfig.validateWindowDays;

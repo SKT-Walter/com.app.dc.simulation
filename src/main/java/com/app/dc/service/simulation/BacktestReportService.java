@@ -519,7 +519,7 @@ public class BacktestReportService {
             nextSteps.add("\u4e0d\u4e0a\u5b9e\u76d8\uff0c\u5c06\u672a\u901a\u8fc7\u539f\u56e0\u56de\u704c\u5230\u4e0b\u4e00\u8f6e\u7b56\u7565\u6539\u8fdb\u3002");
         }
         if (sceneShadow != null && nzInt(sceneShadow.get("sceneRecordCount")) > 0) {
-            nextSteps.add("\u573a\u666f\u5185\u56de\u6d4b\u5df2\u5f00\u59cb\u79ef\u7d2f\u8bc1\u636e\uff0c\u5f53\u524d\u4ec5\u4f9b\u89c2\u5bdf\uff0c\u4e0d\u6539\u53d8\u53d1\u5e03\u7ed3\u8bba\u3002");
+            nextSteps.add("\u573a\u666f\u5185\u62df\u5408\u3001\u9a8c\u8bc1\u548c\u524d\u77bb\u7ed3\u679c\u662f\u6b63\u5f0f\u53d1\u5e03\u8d44\u683c\u4f9d\u636e\u3002");
         }
         if (decision != null && decision.skippedSymbols != null && !decision.skippedSymbols.isEmpty()) {
             nextSteps.add("\u672c\u6b21\u672a\u53d1\u5e03\u54c1\u79cd\uff1a" + joinStrings(decision.skippedSymbols) + "\u3002");
@@ -1190,6 +1190,10 @@ public class BacktestReportService {
         summary.put("entryMakerFeeRatePct", scale(result.entryMakerFeeRatePct));
         summary.put("exitTakerFeeRatePct", scale(result.exitTakerFeeRatePct));
         summary.put("sceneShadow", sceneShadowMap(result.sceneShadow));
+        summary.put("fullPeriodSafetyPass", result.fullPeriodSafety != null
+                && Boolean.TRUE.equals(result.fullPeriodSafety.passed));
+        summary.put("fullPeriodSafetyReason", result.fullPeriodSafety == null
+                ? "" : s(result.fullPeriodSafety.reason));
         return summary;
     }
 
@@ -2573,10 +2577,10 @@ public class BacktestReportService {
                 .append(escape(s(userSummary.get("headline")))).append("</div>")
                 .append("<div class=\"muted\" style=\"margin-top:12px;line-height:1.7\">\u4e0b\u4e00\u6b65\uff1a")
                 .append(escape(s(userSummary.get("actionLabel")))).append("</div></div>")
-                .append(compactMetric("\u6263\u8d39\u540e\u9a8c\u8bc1\u6536\u76ca", userSummary.get("keyFeeAdjustedValidatePnl"), " USDT"))
-                .append(compactMetric("\u672a\u6765\u65f6\u6bb5\u6536\u76ca", userSummary.get("keyFeeAdjustedForwardPnl"), " USDT"))
+                .append(compactMetric("\u6263\u8d39\u540e\u573a\u666f\u9a8c\u8bc1\u6536\u76ca", userSummary.get("keyFeeAdjustedValidatePnl"), " USDT"))
+                .append(compactMetric("\u573a\u666f\u524d\u77bb\u6536\u76ca", userSummary.get("keyFeeAdjustedForwardPnl"), " USDT"))
                 .append(compactMetric("\u6700\u5927\u56de\u64a4", percentText(userSummary.get("keyDrawdown")), ""))
-                .append(compactMetric("\u9a8c\u8bc1\u4ea4\u6613", userSummary.get("keyTradeCount"), " \u7b14"))
+                .append(compactMetric("\u573a\u666f\u9a8c\u8bc1\u4ea4\u6613", userSummary.get("keyTradeCount"), " \u7b14"))
                 .append("</div>");
         html.append(renderPlainList("\u4e3a\u4ec0\u4e48\u662f\u8fd9\u4e2a\u7ed3\u8bba", (List<String>) userSummary.get("reasons")));
         html.append(renderPlainList("\u7cfb\u7edf\u63a5\u4e0b\u6765\u4f1a\u505a\u4ec0\u4e48", (List<String>) userSummary.get("nextSteps")));
@@ -2610,7 +2614,7 @@ public class BacktestReportService {
                         rows,
                         new String[]{"symbol", "strategyScene", "message", "tradeCount", "totalPnl", "maxDrawdownPct", "blockedSignalCount"}))
                 .toString();
-        return detailsBlock("\u573a\u666f\u5185\u8868\u73b0\uff08\u89c2\u5bdf\uff09", body, false);
+        return detailsBlock("\u573a\u666f\u56de\u6d4b\u8d44\u683c\uff08\u6b63\u5f0f\u51c6\u5165\uff09", body, false);
     }
 
     private String compactMetric(String label, Object value, String suffix) {
@@ -2861,6 +2865,10 @@ public class BacktestReportService {
 
     private boolean isPublishEligible(BacktestResponse response, StrategyCandidateRow candidate) {
         return response != null
+                && BacktestModels.SCENE_CONDITIONED_WINDOW_MODE.equalsIgnoreCase(s(response.windowMode))
+                && allResultsUseCurrentExecutionModel(response.results)
+                && allFullPeriodSafetyPassed(response.results)
+                && allSceneQualificationsPassed(response.results)
                 && hasOptimizationEvidence(response, candidate)
                 && response.overfitPass != null
                 && response.overfitPass.intValue() > 0
@@ -2888,6 +2896,18 @@ public class BacktestReportService {
         }
         if (response == null) {
             return "\u5c1a\u672a\u751f\u6210\u56de\u6d4b\u7ed3\u679c";
+        }
+        if (!BacktestModels.SCENE_CONDITIONED_WINDOW_MODE.equalsIgnoreCase(s(response.windowMode))) {
+            return "\u56de\u6d4b\u672a\u4f7f\u7528\u573a\u666f\u6761\u4ef6\u5316\u6eda\u52a8\u9a8c\u8bc1";
+        }
+        if (!allResultsUseCurrentExecutionModel(response.results)) {
+            return "\u56de\u6d4b\u6267\u884c\u6a21\u578b\u7248\u672c\u8fc7\u65e7";
+        }
+        if (!allFullPeriodSafetyPassed(response.results)) {
+            return "\u5b8c\u6574\u5468\u671f\u6267\u884c\u5b89\u5168\u68c0\u67e5\u672a\u901a\u8fc7";
+        }
+        if (!allSceneQualificationsPassed(response.results)) {
+            return "\u573a\u666f\u56de\u6d4b\u8d44\u683c\u672a\u901a\u8fc7";
         }
         if (!hasOptimizationEvidence(response, candidate)) {
             return "缺少优化证据";
@@ -2966,6 +2986,18 @@ public class BacktestReportService {
             rows.add("\u672a\u751f\u6210\u56de\u6d4b\u7ed3\u679c");
             return rows;
         }
+        if (!BacktestModels.SCENE_CONDITIONED_WINDOW_MODE.equalsIgnoreCase(s(response.windowMode))) {
+            rows.add("\u672a\u4f7f\u7528\u573a\u666f\u6761\u4ef6\u5316\u6eda\u52a8\u9a8c\u8bc1");
+        }
+        if (!allResultsUseCurrentExecutionModel(response.results)) {
+            rows.add("\u56de\u6d4b\u6267\u884c\u6a21\u578b\u7248\u672c\u8fc7\u65e7");
+        }
+        if (!allFullPeriodSafetyPassed(response.results)) {
+            rows.add("\u5b8c\u6574\u5468\u671f\u6267\u884c\u5b89\u5168\u68c0\u67e5\u672a\u901a\u8fc7");
+        }
+        if (!allSceneQualificationsPassed(response.results)) {
+            rows.add("\u573a\u666f\u56de\u6d4b\u8d44\u683c\u672a\u901a\u8fc7");
+        }
         if (!hasOptimizationEvidence(response, candidate)) {
             rows.add("缺少优化证据");
         }
@@ -3012,6 +3044,46 @@ public class BacktestReportService {
             return response.validatePrimaryScore;
         }
         return nz(response.validatePnl);
+    }
+
+    private boolean allResultsUseCurrentExecutionModel(List<BacktestResult> results) {
+        if (results == null || results.isEmpty()) {
+            return false;
+        }
+        for (BacktestResult result : results) {
+            if (result == null || !BacktestModels.EXECUTION_MODEL_VERSION.equals(result.executionModelVersion)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean allFullPeriodSafetyPassed(List<BacktestResult> results) {
+        if (results == null || results.isEmpty()) {
+            return false;
+        }
+        for (BacktestResult result : results) {
+            if (result == null || result.fullPeriodSafety == null
+                    || !Boolean.TRUE.equals(result.fullPeriodSafety.passed)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean allSceneQualificationsPassed(List<BacktestResult> results) {
+        if (results == null || results.isEmpty()) {
+            return false;
+        }
+        for (BacktestResult result : results) {
+            BacktestModels.SceneShadowMetrics metrics = result == null ? null : result.sceneShadow;
+            if (metrics == null
+                    || !BacktestModels.SCENE_CONDITIONED_WINDOW_MODE.equals(metrics.mode)
+                    || !Boolean.TRUE.equals(metrics.qualificationPass)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private BigDecimal preferredFeeAdjustedValidate(BacktestResponse response) {
@@ -3102,6 +3174,24 @@ public class BacktestReportService {
         }
         if ("window_mode is not WALK_FORWARD".equalsIgnoreCase(value)) {
             return "window_mode \u4e0d\u662f WALK_FORWARD";
+        }
+        if ("window_mode is not SCENE_CONDITIONED_WALK_FORWARD".equalsIgnoreCase(value)) {
+            return "\u56de\u6d4b\u672a\u4f7f\u7528\u573a\u666f\u6761\u4ef6\u5316\u6eda\u52a8\u9a8c\u8bc1";
+        }
+        if ("unsupported backtest execution model".equalsIgnoreCase(value)) {
+            return "\u56de\u6d4b\u6267\u884c\u6a21\u578b\u7248\u672c\u8fc7\u65e7";
+        }
+        if ("full-period safety evidence missing".equalsIgnoreCase(value)) {
+            return "\u7f3a\u5c11\u5b8c\u6574\u5468\u671f\u6267\u884c\u5b89\u5168\u8bc1\u636e";
+        }
+        if ("full-period safety check failed".equalsIgnoreCase(value)) {
+            return "\u5b8c\u6574\u5468\u671f\u6267\u884c\u5b89\u5168\u68c0\u67e5\u672a\u901a\u8fc7";
+        }
+        if ("full-period execution found signals without dynamic stop/take".equalsIgnoreCase(value)) {
+            return "\u5b8c\u6574\u5468\u671f\u6267\u884c\u53d1\u73b0\u7f3a\u5c11\u52a8\u6001\u6b62\u635f\u6b62\u76c8\u7684\u4fe1\u53f7";
+        }
+        if ("full-period execution produced no bars".equalsIgnoreCase(value)) {
+            return "\u5b8c\u6574\u5468\u671f\u6267\u884c\u6ca1\u6709\u53ef\u7528 K \u7ebf";
         }
         if ("slice_count < 3".equalsIgnoreCase(value)) {
             return "slice_count < 3";

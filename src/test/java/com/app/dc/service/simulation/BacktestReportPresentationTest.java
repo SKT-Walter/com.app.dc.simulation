@@ -28,7 +28,7 @@ public class BacktestReportPresentationTest {
         String html = invoke(service, "renderSimpleUserSummarySection", summary);
 
         Assert.assertTrue(html.contains("\u4e00\u5206\u949f\u770b\u61c2\u56de\u6d4b"));
-        Assert.assertTrue(html.contains("\u6263\u8d39\u540e\u9a8c\u8bc1\u6536\u76ca"));
+        Assert.assertTrue(html.contains("\u6263\u8d39\u540e\u573a\u666f\u9a8c\u8bc1\u6536\u76ca"));
         Assert.assertTrue(html.contains("8.10%"));
         Assert.assertFalse(html.contains("Validate \u4e3b\u5206"));
     }
@@ -57,11 +57,28 @@ public class BacktestReportPresentationTest {
 
         Assert.assertTrue(html.contains("\u573a\u666f\u5185\u8868\u73b0"));
         Assert.assertTrue(html.contains("\u573a\u666f\u8d44\u683c\u901a\u8fc7"));
+        Assert.assertTrue(html.contains("\u6b63\u5f0f\u51c6\u5165"));
         Assert.assertTrue(html.contains("BTCUSDT"));
+    }
+
+    @Test
+    public void newQualificationFailuresUsePlainChinese() throws Exception {
+        BacktestReportService service = new BacktestReportService();
+
+        Assert.assertEquals("\u56de\u6d4b\u672a\u4f7f\u7528\u573a\u666f\u6761\u4ef6\u5316\u6eda\u52a8\u9a8c\u8bc1",
+                translate(service, "window_mode is not SCENE_CONDITIONED_WALK_FORWARD"));
+        Assert.assertEquals("\u5b8c\u6574\u5468\u671f\u6267\u884c\u53d1\u73b0\u7f3a\u5c11\u52a8\u6001\u6b62\u635f\u6b62\u76c8\u7684\u4fe1\u53f7",
+                translate(service, "full-period execution found signals without dynamic stop/take"));
     }
 
     private String invoke(BacktestReportService service, String name, Map<String, Object> value) throws Exception {
         Method method = BacktestReportService.class.getDeclaredMethod(name, Map.class);
+        method.setAccessible(true);
+        return (String) method.invoke(service, value);
+    }
+
+    private String translate(BacktestReportService service, String value) throws Exception {
+        Method method = BacktestReportService.class.getDeclaredMethod("translateReason", String.class);
         method.setAccessible(true);
         return (String) method.invoke(service, value);
     }

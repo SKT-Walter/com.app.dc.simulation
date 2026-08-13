@@ -194,6 +194,39 @@ public class StrategyAutoPublishServiceTest {
     }
 
     @Test
+    public void maybePublishShouldRejectLegacyFullPeriodWindowEvidence() throws Exception {
+        StrategyAutoPublishService service = new StrategyAutoPublishService();
+        StubAutoPublishDao dao = new StubAutoPublishDao();
+        wirePublishConfig(service, dao);
+        BacktestModels.BacktestResponse response = response("BTCUSDT");
+        response.windowMode = "WALK_FORWARD";
+
+        StrategyAutoPublishDecision decision = service.maybePublish(
+                task("bt_legacy_window"), candidate("v13"), response);
+
+        Assert.assertFalse(decision.published);
+        Assert.assertEquals("window_mode is not SCENE_CONDITIONED_WALK_FORWARD", decision.reason);
+        Assert.assertEquals(0, dao.insertedRegistryRows.size());
+    }
+
+    @Test
+    public void maybePublishShouldRejectFailedFullPeriodSafetyCheck() throws Exception {
+        StrategyAutoPublishService service = new StrategyAutoPublishService();
+        StubAutoPublishDao dao = new StubAutoPublishDao();
+        wirePublishConfig(service, dao);
+        BacktestModels.BacktestResponse response = response("BTCUSDT");
+        response.results.get(0).fullPeriodSafety.passed = false;
+        response.results.get(0).fullPeriodSafety.reason = "full-period execution found signals without dynamic stop/take";
+
+        StrategyAutoPublishDecision decision = service.maybePublish(
+                task("bt_unsafe_execution"), candidate("v13"), response);
+
+        Assert.assertFalse(decision.published);
+        Assert.assertEquals("full-period execution found signals without dynamic stop/take", decision.reason);
+        Assert.assertEquals(0, dao.insertedRegistryRows.size());
+    }
+
+    @Test
     public void maybePublishShouldNotCompareNewExecutionModelAgainstLegacyInflatedBaseline() throws Exception {
         StrategyAutoPublishService service = new StrategyAutoPublishService();
         StubAutoPublishDao dao = new StubAutoPublishDao();
@@ -251,7 +284,7 @@ public class StrategyAutoPublishServiceTest {
         BacktestModels.BacktestResult result = new BacktestModels.BacktestResult();
         result.symbol = symbol;
         result.text = "15m";
-        result.windowMode = "WALK_FORWARD";
+        result.windowMode = BacktestModels.SCENE_CONDITIONED_WINDOW_MODE;
         result.sliceCount = 6;
         result.fitPnl = BigDecimal.valueOf(100);
         result.validatePnl = BigDecimal.valueOf(160);
@@ -269,6 +302,7 @@ public class StrategyAutoPublishServiceTest {
         result.maxDrawdownPct = BigDecimal.valueOf(0.12d);
         result.profitFactor = BigDecimal.valueOf(1.6d);
         result.sceneShadow = sceneMetrics();
+        result.fullPeriodSafety = safetyMetrics();
 
         BacktestModels.BacktestResponse response = new BacktestModels.BacktestResponse();
         response.strategyName = "live_acc3";
@@ -278,7 +312,7 @@ public class StrategyAutoPublishServiceTest {
         response.symbol = symbol;
         response.symbols = Collections.singletonList(symbol);
         response.text = "15m";
-        response.windowMode = "WALK_FORWARD";
+        response.windowMode = BacktestModels.SCENE_CONDITIONED_WINDOW_MODE;
         response.sliceCount = 6;
         response.trialCount = 1;
         response.bestRank = 1;
@@ -296,7 +330,7 @@ public class StrategyAutoPublishServiceTest {
 
     private static BacktestModels.SceneShadowMetrics sceneMetrics() {
         BacktestModels.SceneShadowMetrics metrics = new BacktestModels.SceneShadowMetrics();
-        metrics.mode = "SCENE_GATED_QUALIFICATION";
+        metrics.mode = BacktestModels.SCENE_CONDITIONED_WINDOW_MODE;
         metrics.status = "QUALIFIED";
         metrics.qualificationPass = true;
         metrics.qualificationReason = "scene qualification passed";
@@ -306,6 +340,15 @@ public class StrategyAutoPublishServiceTest {
         metrics.totalPnl = BigDecimal.valueOf(100D);
         metrics.profitFactor = BigDecimal.valueOf(1.50D);
         metrics.maxDrawdownPct = BigDecimal.valueOf(0.10D);
+        return metrics;
+    }
+
+    private static BacktestModels.FullPeriodSafetyMetrics safetyMetrics() {
+        BacktestModels.FullPeriodSafetyMetrics metrics = new BacktestModels.FullPeriodSafetyMetrics();
+        metrics.passed = true;
+        metrics.reason = "full-period execution completed";
+        metrics.totalBars = 1000;
+        metrics.tradeCount = 25;
         return metrics;
     }
 

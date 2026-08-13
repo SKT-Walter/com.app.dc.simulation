@@ -513,6 +513,8 @@ public class StrategyAutoPublishService {
         int count = 0;
         boolean overfitPass = true;
         String overfitReason = "";
+        boolean fullPeriodSafetyPass = true;
+        String fullPeriodSafetyReason = "";
         if (results != null) {
             for (BacktestModels.BacktestResult result : results) {
                 if (result == null) {
@@ -536,6 +538,14 @@ public class StrategyAutoPublishService {
                         overfitReason = result.overfitReason;
                     }
                 }
+                if (result.fullPeriodSafety == null || !Boolean.TRUE.equals(result.fullPeriodSafety.passed)) {
+                    fullPeriodSafetyPass = false;
+                    if (StringUtils.isBlank(fullPeriodSafetyReason)) {
+                        fullPeriodSafetyReason = result.fullPeriodSafety == null
+                                ? "full-period safety evidence missing"
+                                : blankTo(result.fullPeriodSafety.reason, "full-period safety check failed");
+                    }
+                }
                 count++;
             }
         }
@@ -551,6 +561,8 @@ public class StrategyAutoPublishService {
         summary.fragileBest = fragileBest;
         summary.overfitPass = overfitPass ? 1 : 0;
         summary.overfitReason = overfitReason;
+        summary.fullPeriodSafetyPass = fullPeriodSafetyPass;
+        summary.fullPeriodSafetyReason = fullPeriodSafetyReason;
         summary.resultCount = count;
         summarizeSceneQualification(summary, results);
         return summary;
@@ -839,8 +851,13 @@ public class StrategyAutoPublishService {
         if (!StringUtils.equals(current.executionModelVersion, BacktestModels.EXECUTION_MODEL_VERSION)) {
             return "unsupported backtest execution model";
         }
-        if (!StringUtils.equalsIgnoreCase(current.windowMode, "WALK_FORWARD")) {
-            return "window_mode is not WALK_FORWARD";
+        if (!StringUtils.equalsIgnoreCase(current.windowMode, BacktestModels.SCENE_CONDITIONED_WINDOW_MODE)) {
+            return "window_mode is not SCENE_CONDITIONED_WALK_FORWARD";
+        }
+        if (!Boolean.TRUE.equals(current.fullPeriodSafetyPass)) {
+            return StringUtils.isBlank(current.fullPeriodSafetyReason)
+                    ? "full-period safety check failed"
+                    : current.fullPeriodSafetyReason;
         }
         if (expectsOptimizationEvidence(candidate) && (current.trialCount == null || current.trialCount.intValue() <= 0)) {
             return "optimization evidence missing";

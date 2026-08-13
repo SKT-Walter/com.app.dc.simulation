@@ -72,7 +72,12 @@ public class SceneGatedShadowBacktestService {
                 continue;
             }
             try {
-                result.sceneShadow = runOne(candidate, baseParam, result);
+                if (BacktestModels.SCENE_CONDITIONED_WINDOW_MODE.equals(result.windowMode)
+                        && result.sceneShadow != null) {
+                    applyQualification(result.sceneShadow);
+                } else {
+                    result.sceneShadow = runOne(candidate, baseParam, result);
+                }
             } catch (Exception e) {
                 BacktestModels.SceneShadowMetrics metrics = baseMetrics(candidate.scene);
                 metrics.status = "ERROR";
@@ -82,6 +87,17 @@ public class SceneGatedShadowBacktestService {
                         candidate.strategyName, candidate.strategyVersion, result.symbol, e);
             }
         }
+    }
+
+    private void applyQualification(BacktestModels.SceneShadowMetrics metrics) {
+        SceneQualificationPolicy.Decision decision = SceneQualificationPolicy.evaluate(
+                metrics, minSceneRecords, minTrades, minProfitFactor, maxDrawdownPct);
+        metrics.qualificationPass = decision.passed;
+        metrics.qualificationReason = decision.reason;
+        metrics.status = decision.passed
+                ? "QUALIFIED"
+                : (decision.sufficient ? "QUALIFICATION_FAILED" : "INSUFFICIENT_DATA");
+        metrics.message = decision.reason;
     }
 
     private BacktestModels.SceneShadowMetrics runOne(StrategyCandidateRow candidate,

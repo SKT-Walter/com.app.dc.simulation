@@ -5,6 +5,7 @@ import com.app.dc.po.backtest.BacktestParam;
 import com.app.dc.service.simulation.BacktestModels;
 import com.app.dc.service.simulation.BacktestOptimizationService;
 import com.app.dc.service.simulation.BacktestSupportService;
+import com.app.dc.service.simulation.scene.DeepSeekSceneTimelineService;
 import com.gateway.connector.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,6 +50,37 @@ public class SliceOptimizedWalkForwardRunner {
                                              int forwardWindowDays,
                                              int minSliceCount,
                                              int trialBudget) throws Exception {
+        return run(candidate, rawParam, ohlcList, plan, fitWindowDays, validateWindowDays,
+                forwardWindowDays, minSliceCount, trialBudget, null);
+    }
+
+    public BacktestModels.BacktestResult runSceneConditioned(StrategyCandidateRow candidate,
+                                                              BacktestParam rawParam,
+                                                              List<TTbookOhlc> ohlcList,
+                                                              BacktestOptimizationService.OptimizationPlan plan,
+                                                              int fitWindowDays,
+                                                              int validateWindowDays,
+                                                              int forwardWindowDays,
+                                                              int minSliceCount,
+                                                              int trialBudget,
+                                                              DeepSeekSceneTimelineService.Timeline timeline) throws Exception {
+        if (timeline == null) {
+            throw new IllegalArgumentException("scene timeline is required");
+        }
+        return run(candidate, rawParam, ohlcList, plan, fitWindowDays, validateWindowDays,
+                forwardWindowDays, minSliceCount, trialBudget, timeline);
+    }
+
+    private BacktestModels.BacktestResult run(StrategyCandidateRow candidate,
+                                              BacktestParam rawParam,
+                                              List<TTbookOhlc> ohlcList,
+                                              BacktestOptimizationService.OptimizationPlan plan,
+                                              int fitWindowDays,
+                                              int validateWindowDays,
+                                              int forwardWindowDays,
+                                              int minSliceCount,
+                                              int trialBudget,
+                                              DeepSeekSceneTimelineService.Timeline timeline) throws Exception {
         BacktestParam param = rawParam == null ? new BacktestParam() : rawParam;
         List<TTbookOhlc> rows = ohlcList == null ? new ArrayList<TTbookOhlc>() : ohlcList;
         LocalDate beginDate = LocalDate.parse(param.beginDate);
@@ -72,6 +104,10 @@ public class SliceOptimizedWalkForwardRunner {
 
         BacktestModels.BacktestResult aggregate = initAggregate(candidate, param);
         aggregate.windowMode = WINDOW_MODE;
+        if (timeline != null) {
+            aggregate.windowMode = BacktestModels.SCENE_CONDITIONED_WINDOW_MODE;
+            aggregate.sceneShadow = initSceneMetrics(candidate, timeline);
+        }
         aggregate.fitWindowDays = fitWindowDays;
         aggregate.validateWindowDays = validateWindowDays;
         aggregate.forwardWindowDays = forwardWindowDays;
@@ -102,7 +138,8 @@ public class SliceOptimizedWalkForwardRunner {
             ensureNonEmpty("validate", validateRows, candidate, param, slice.validateBegin, slice.validateEnd);
             ensureNonEmpty("forward", forwardRows, candidate, param, slice.forwardBegin, slice.forwardEnd);
 
-            SliceSelection selection = selectBestParamForSlice(candidate, param, plan, fitRows, slice, i + 1, perSliceBudget, nextTrialNo);
+            SliceSelection selection = selectBestParamForSlice(candidate, param, plan, fitRows, slice,
+                    i + 1, perSliceBudget, nextTrialNo, timeline);
             nextTrialNo = selection.nextTrialNo;
             selectedParamSets.add(selection.paramSet);
             fragileCount += selection.fragileBest;
@@ -111,8 +148,10 @@ public class SliceOptimizedWalkForwardRunner {
             }
 
             BacktestModels.BacktestResult fitResult = selection.fitResult;
-            BacktestModels.BacktestResult validateResult = runWindow(candidate, param, selection.paramSet, validateRows, slice.validateBegin, slice.validateEnd);
-            BacktestModels.BacktestResult forwardResult = runWindow(candidate, param, selection.paramSet, forwardRows, slice.forwardBegin, slice.forwardEnd);
+            BacktestModels.BacktestResult validateResult = runWindow(candidate, param, selection.paramSet,
+                    validateRows, slice.validateBegin, slice.validateEnd, timeline);
+            BacktestModels.BacktestResult forwardResult = runWindow(candidate, param, selection.paramSet,
+                    forwardRows, slice.forwardBegin, slice.forwardEnd, timeline);
 
             fitPnl = fitPnl.add(nz(fitResult.totalPnl));
             validatePnl = validatePnl.add(nz(validateResult.totalPnl));
@@ -122,6 +161,7 @@ public class SliceOptimizedWalkForwardRunner {
             forwardScoreSum = forwardScoreSum.add(nz(forwardResult.totalReturnPct));
 
             mergeValidatePhase(aggregate, validateResult);
+            mergeSceneMetrics(aggregate.sceneShadow, validateResult.sceneShadow);
             aggregate.maxDrawdownPct = max(aggregate.maxDrawdownPct, validateResult.maxDrawdownPct);
             aggregate.totalBars += nzInt(validateResult.totalBars);
             aggregate.sliceResults.add(buildSlice(candidate, param, i + 1, slice, selection, fitResult, validateResult, forwardResult));
@@ -162,11 +202,16 @@ public class SliceOptimizedWalkForwardRunner {
         aggregate.oosPass = gate.oosPass ? 1 : 0;
         aggregate.overfitPass = gate.overfitPass ? 1 : 0;
         aggregate.overfitReason = gate.reason;
-        aggregate.bestParamSetJson = buildRepresentativeParamSetJson(selectedParamSets);
+        Map<String, Object> representativeParamSet = buildRepresentativeParamSet(selectedParamSets);
+        aggregate.bestParamSetJson = JsonUtils.Serializer(representativeParamSet);
         aggregate.stableParamRangeJson = buildStableParamSummaryJson(selectedParamSets);
         aggregate.neighborAvgPnl = BigDecimal.ZERO;
         aggregate.neighborWorstPnl = BigDecimal.ZERO;
         aggregate.trialCount = aggregate.optimizationTrials == null ? 0 : aggregate.optimizationTrials.size();
+        if (aggregate.sceneShadow != null) {
+            populateSceneFinancialMetrics(aggregate.sceneShadow, aggregate);
+            aggregate.fullPeriodSafety = runFullPeriodSafety(candidate, param, rows, representativeParamSet);
+        }
         return aggregate;
     }
 
@@ -177,7 +222,8 @@ public class SliceOptimizedWalkForwardRunner {
                                                    WindowSlice slice,
                                                    int sliceNo,
                                                    int sliceBudget,
-                                                   int startTrialNo) throws Exception {
+                                                   int startTrialNo,
+                                                   DeepSeekSceneTimelineService.Timeline timeline) throws Exception {
         SliceSelection selection = new SliceSelection();
         selection.nextTrialNo = startTrialNo;
         List<Map<String, Object>> coarseSets = plan == null || !plan.optimizationSupported
@@ -186,7 +232,8 @@ public class SliceOptimizedWalkForwardRunner {
         boolean fullGrid2d = isFullGrid2d(plan);
         int coarseBudget = fullGrid2d ? coarseSets.size() : Math.max(1, sliceBudget / 2);
         coarseSets = limit(coarseSets, coarseBudget);
-        List<SliceFitTrial> coarseTrials = executeFitTrials(candidate, baseParam, fitRows, slice, coarseSets, "COARSE", selection.nextTrialNo);
+        List<SliceFitTrial> coarseTrials = executeFitTrials(candidate, baseParam, fitRows, slice,
+                coarseSets, "COARSE", selection.nextTrialNo, timeline);
         selection.nextTrialNo += coarseTrials.size();
         List<BacktestModels.OptimizationTrial> rankedCoarseTrials =
                 toOptimizationTrials(candidate, baseParam, plan, sliceNo, coarseTrials);
@@ -196,7 +243,8 @@ public class SliceOptimizedWalkForwardRunner {
                 ? Collections.<Map<String, Object>>emptyList()
                 : backtestOptimizationService.buildFineParamSets(plan, rankedCoarseTrials);
         fineSets = limit(fineSets, Math.max(0, sliceBudget - coarseTrials.size()));
-        List<SliceFitTrial> fineTrials = executeFitTrials(candidate, baseParam, fitRows, slice, fineSets, "FINE", selection.nextTrialNo);
+        List<SliceFitTrial> fineTrials = executeFitTrials(candidate, baseParam, fitRows, slice,
+                fineSets, "FINE", selection.nextTrialNo, timeline);
         selection.nextTrialNo += fineTrials.size();
 
         List<SliceFitTrial> allTrials = new ArrayList<SliceFitTrial>();
@@ -204,7 +252,8 @@ public class SliceOptimizedWalkForwardRunner {
         allTrials.addAll(fineTrials);
         if (allTrials.isEmpty()) {
             Map<String, Object> defaultParamSet = plan == null ? new LinkedHashMap<String, Object>() : new LinkedHashMap<String, Object>(plan.defaultParams);
-            BacktestModels.BacktestResult fitResult = runWindow(candidate, baseParam, defaultParamSet, fitRows, slice.fitBegin, slice.fitEnd);
+            BacktestModels.BacktestResult fitResult = runWindow(candidate, baseParam, defaultParamSet,
+                    fitRows, slice.fitBegin, slice.fitEnd, timeline);
             selection.paramSet = defaultParamSet;
             selection.fitResult = fitResult;
             selection.selectionObjective = plan == null ? "" : plan.objective;
@@ -249,7 +298,8 @@ public class SliceOptimizedWalkForwardRunner {
                                                  WindowSlice slice,
                                                  List<Map<String, Object>> paramSets,
                                                  String phase,
-                                                 int startTrialNo) throws Exception {
+                                                 int startTrialNo,
+                                                 DeepSeekSceneTimelineService.Timeline timeline) throws Exception {
         List<SliceFitTrial> results = new ArrayList<SliceFitTrial>();
         if (paramSets == null) {
             return results;
@@ -257,7 +307,8 @@ public class SliceOptimizedWalkForwardRunner {
         int trialNo = Math.max(1, startTrialNo);
         for (Map<String, Object> paramSet : paramSets) {
             BacktestExecutionGuard.checkInterrupted("slice_fit_trial_loop");
-            BacktestModels.BacktestResult fitResult = runWindow(candidate, baseParam, paramSet, fitRows, slice.fitBegin, slice.fitEnd);
+            BacktestModels.BacktestResult fitResult = runWindow(candidate, baseParam, paramSet,
+                    fitRows, slice.fitBegin, slice.fitEnd, timeline);
             SliceFitTrial trial = new SliceFitTrial();
             trial.trialNo = trialNo++;
             trial.phase = phase;
@@ -345,10 +396,86 @@ public class SliceOptimizedWalkForwardRunner {
                                                     Map<String, Object> paramSet,
                                                     List<TTbookOhlc> rows,
                                                     LocalDate begin,
-                                                    LocalDate end) throws Exception {
+                                                    LocalDate end,
+                                                    DeepSeekSceneTimelineService.Timeline timeline) throws Exception {
         BacktestParam target = copyParam(baseParam, begin, end);
         applyTrialParamOverrides(target, paramSet);
-        return versionedBacktestRunner.run(candidate, target, rows);
+        if (timeline == null) {
+            return versionedBacktestRunner.run(candidate, target, rows);
+        }
+        BacktestModels.SceneShadowMetrics metrics = initSceneMetrics(candidate, timeline);
+        BacktestModels.BacktestResult result = versionedBacktestRunner.runSceneGated(
+                candidate, target, rows, timeline.cursor(), metrics);
+        result.windowMode = BacktestModels.SCENE_CONDITIONED_WINDOW_MODE;
+        result.sceneShadow = metrics;
+        populateSceneFinancialMetrics(metrics, result);
+        return result;
+    }
+
+    private BacktestModels.FullPeriodSafetyMetrics runFullPeriodSafety(
+            StrategyCandidateRow candidate,
+            BacktestParam param,
+            List<TTbookOhlc> rows,
+            Map<String, Object> representativeParamSet) throws Exception {
+        BacktestParam safetyParam = copyParam(param, LocalDate.parse(param.beginDate), LocalDate.parse(param.endDate));
+        applyTrialParamOverrides(safetyParam, representativeParamSet);
+        BacktestModels.BacktestResult result = versionedBacktestRunner.run(candidate, safetyParam, rows);
+        BacktestModels.FullPeriodSafetyMetrics safety = new BacktestModels.FullPeriodSafetyMetrics();
+        int missingRiskTargets = result.rejectReasonCounts == null
+                || result.rejectReasonCounts.get("missing_dynamic_stop_take") == null
+                ? 0 : result.rejectReasonCounts.get("missing_dynamic_stop_take").intValue();
+        safety.passed = nzInt(result.totalBars) > 0 && missingRiskTargets == 0;
+        safety.reason = nzInt(result.totalBars) <= 0
+                ? "full-period execution produced no bars"
+                : (missingRiskTargets > 0
+                ? "full-period execution found signals without dynamic stop/take"
+                : "full-period execution completed");
+        safety.totalBars = nzInt(result.totalBars);
+        safety.tradeCount = nzInt(result.tradeCount);
+        safety.rejectReasonCounts = result.rejectReasonCounts == null
+                ? new LinkedHashMap<String, Integer>()
+                : new LinkedHashMap<String, Integer>(result.rejectReasonCounts);
+        return safety;
+    }
+
+    private BacktestModels.SceneShadowMetrics initSceneMetrics(
+            StrategyCandidateRow candidate,
+            DeepSeekSceneTimelineService.Timeline timeline) {
+        BacktestModels.SceneShadowMetrics metrics = new BacktestModels.SceneShadowMetrics();
+        metrics.mode = BacktestModels.SCENE_CONDITIONED_WINDOW_MODE;
+        metrics.strategyScene = candidate == null || candidate.scene == null ? "" : candidate.scene;
+        metrics.sceneRecordCount = timeline == null ? 0 : timeline.size();
+        metrics.dataBegin = timeline == null || timeline.firstTime() == null ? "" : timeline.firstTime().toString();
+        metrics.dataEnd = timeline == null || timeline.lastTime() == null ? "" : timeline.lastTime().toString();
+        return metrics;
+    }
+
+    private void populateSceneFinancialMetrics(BacktestModels.SceneShadowMetrics metrics,
+                                               BacktestModels.BacktestResult result) {
+        if (metrics == null || result == null) {
+            return;
+        }
+        metrics.tradeCount = nzInt(result.tradeCount);
+        metrics.totalPnl = nz(result.totalPnl);
+        metrics.totalFee = nz(result.totalFee);
+        metrics.maxDrawdownPct = nz(result.maxDrawdownPct);
+        metrics.profitFactor = nz(result.profitFactor);
+        metrics.winRate = nz(result.winRate);
+    }
+
+    private void mergeSceneMetrics(BacktestModels.SceneShadowMetrics target,
+                                   BacktestModels.SceneShadowMetrics source) {
+        if (target == null || source == null) {
+            return;
+        }
+        target.coveredBarCount += nzInt(source.coveredBarCount);
+        target.matchedBarCount += nzInt(source.matchedBarCount);
+        target.blockedSignalCount += nzInt(source.blockedSignalCount);
+        target.forcedExitCount += nzInt(source.forcedExitCount);
+        target.tradeCount += nzInt(source.tradeCount);
+        target.totalPnl = add(target.totalPnl, source.totalPnl);
+        target.totalFee = add(target.totalFee, source.totalFee);
+        target.maxDrawdownPct = max(target.maxDrawdownPct, source.maxDrawdownPct);
     }
 
     private BacktestModels.BacktestResult initAggregate(StrategyCandidateRow candidate, BacktestParam param) {
@@ -553,12 +680,12 @@ public class SliceOptimizedWalkForwardRunner {
         return new ArrayList<Map<String, Object>>(paramSets.subList(0, size));
     }
 
-    private String buildRepresentativeParamSetJson(List<Map<String, Object>> selectedParamSets) {
+    private Map<String, Object> buildRepresentativeParamSet(List<Map<String, Object>> selectedParamSets) {
         if (selectedParamSets == null || selectedParamSets.isEmpty()) {
-            return "{}";
+            return new LinkedHashMap<String, Object>();
         }
         Map<String, Integer> counts = new LinkedHashMap<String, Integer>();
-        Map<String, Object> latestByKey = new LinkedHashMap<String, Object>();
+        Map<String, Map<String, Object>> latestByKey = new LinkedHashMap<String, Map<String, Object>>();
         for (Map<String, Object> paramSet : selectedParamSets) {
             if (paramSet == null || paramSet.isEmpty()) {
                 continue;
@@ -576,9 +703,9 @@ public class SliceOptimizedWalkForwardRunner {
             }
         }
         if (bestKey == null) {
-            return "{}";
+            return new LinkedHashMap<String, Object>();
         }
-        return JsonUtils.Serializer(latestByKey.get(bestKey));
+        return new LinkedHashMap<String, Object>(latestByKey.get(bestKey));
     }
 
     private String buildStableParamSummaryJson(List<Map<String, Object>> selectedParamSets) {

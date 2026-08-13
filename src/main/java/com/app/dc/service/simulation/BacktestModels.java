@@ -8,7 +8,8 @@ import java.util.Map;
 
 public final class BacktestModels {
 
-    public static final String EXECUTION_MODEL_VERSION = "v2_realistic_fill_and_trailing";
+    public static final String EXECUTION_MODEL_VERSION = "v3_scene_conditioned_walk_forward";
+    public static final String SCENE_CONDITIONED_WINDOW_MODE = "SCENE_CONDITIONED_WALK_FORWARD";
 
     private BacktestModels() {
     }
@@ -146,6 +147,20 @@ public final class BacktestModels {
         public List<BacktestSliceResult> sliceResults;
         public List<OptimizationTrial> optimizationTrials;
         public SceneShadowMetrics sceneShadow;
+        public FullPeriodSafetyMetrics fullPeriodSafety;
+    }
+
+    /**
+     * Full-period execution is retained only as a runtime safety check. Its PnL
+     * never participates in candidate qualification because live entry is scene gated.
+     */
+    public static class FullPeriodSafetyMetrics {
+        public String mode = "FULL_PERIOD_EXECUTION_SAFETY";
+        public Boolean passed = false;
+        public String reason = "";
+        public Integer totalBars = 0;
+        public Integer tradeCount = 0;
+        public Map<String, Integer> rejectReasonCounts;
     }
 
     /**

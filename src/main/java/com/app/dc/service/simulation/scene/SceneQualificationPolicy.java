@@ -22,7 +22,8 @@ public final class SceneQualificationPolicy {
         if (metrics == null) {
             return Decision.insufficient("scene replay result missing");
         }
-        if (!"SCENE_GATED_QUALIFICATION".equals(metrics.mode)) {
+        if (!"SCENE_GATED_QUALIFICATION".equals(metrics.mode)
+                && !BacktestModels.SCENE_CONDITIONED_WINDOW_MODE.equals(metrics.mode)) {
             return Decision.insufficient("scene qualification mode missing");
         }
         if (metrics.sceneRecordCount == null || metrics.sceneRecordCount < Math.max(1, minSceneRecords)) {

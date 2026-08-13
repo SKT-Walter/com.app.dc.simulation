@@ -64,7 +64,7 @@ public class DeepSeekSceneTimelineService {
         }
     }
 
-    static Timeline buildTimeline(List<SceneRow> rows, int maxAgeHours) {
+    public static Timeline buildTimeline(List<SceneRow> rows, int maxAgeHours) {
         if (rows == null || rows.isEmpty()) {
             return Timeline.empty(maxAgeHours);
         }

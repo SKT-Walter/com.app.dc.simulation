@@ -42,4 +42,6 @@ public class StrategyBacktestSummary {
     public Double scenePnl;
     public Double sceneProfitFactor;
     public Double sceneMaxDrawdownPct;
+    public Boolean fullPeriodSafetyPass;
+    public String fullPeriodSafetyReason;
 }

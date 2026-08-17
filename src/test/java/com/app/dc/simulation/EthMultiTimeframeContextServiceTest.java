@@ -1,8 +1,8 @@
 package com.app.dc.simulation;
 
 import com.app.dc.po.TTbookOhlc;
-import com.app.dc.service.simulation.strategy.trend.bull.EthMultiTimeframeContextService;
-import com.app.dc.service.simulation.strategy.trend.bull.EthMultiTimeframeSnapshot;
+import com.app.dc.strategy.core.strategy.trend.bull.EthMultiTimeframeContextService;
+import com.app.dc.strategy.core.strategy.trend.bull.EthMultiTimeframeSnapshot;
 import org.junit.Assert;
 import org.junit.Test;
 

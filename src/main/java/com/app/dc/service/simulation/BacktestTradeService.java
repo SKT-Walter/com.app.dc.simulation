@@ -3,8 +3,8 @@ package com.app.dc.service.simulation;
 import com.app.dc.po.Side;
 import com.app.dc.po.Signal;
 import com.app.dc.po.backtest.BacktestParam;
-import com.app.dc.service.simulation.BacktestModels.Position;
-import com.app.dc.service.simulation.BacktestModels.TradeRecord;
+import com.app.dc.strategy.core.StrategyRuntimeModels.Position;
+import com.app.dc.strategy.core.StrategyRuntimeModels.TradeRecord;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
 

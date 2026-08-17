@@ -1,6 +1,6 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.strategy.range.TrendPullbackRecoveryBacktestStrategy;
+import com.app.dc.strategy.core.strategy.range.TrendPullbackRecoveryStrategyAlgorithm;
 import org.junit.Assert;
 import org.junit.Test;
 import org.ta4j.core.BarSeries;
@@ -27,8 +27,8 @@ public class TrendPullbackRecoveryMacdTest {
                     BigDecimal.valueOf(1000 + i)));
         }
 
-        TrendPullbackRecoveryBacktestStrategy strategy = new TrendPullbackRecoveryBacktestStrategy();
-        Method method = TrendPullbackRecoveryBacktestStrategy.class.getDeclaredMethod(
+        TrendPullbackRecoveryStrategyAlgorithm strategy = new TrendPullbackRecoveryStrategyAlgorithm();
+        Method method = TrendPullbackRecoveryStrategyAlgorithm.class.getDeclaredMethod(
                 "macdBar", BarSeries.class, int.class, int.class, int.class, int.class);
         method.setAccessible(true);
 

@@ -1,7 +1,7 @@
 package com.app.dc.simulation;
 
 import com.app.dc.po.backtest.BacktestParam;
-import com.app.dc.service.simulation.BacktestModels;
+import com.app.dc.strategy.core.StrategyRuntimeModels;
 import com.app.dc.service.simulation.BacktestQueryService;
 import com.app.dc.service.simulation.BacktestReportService;
 import com.app.dc.service.simulation.BacktestService;
@@ -43,7 +43,7 @@ public final class LocalBacktestRunner {
             BacktestService service = context.getBean(BacktestService.class);
             BacktestReportService reports = context.getBean(BacktestReportService.class);
             BacktestQueryService query = context.getBean(BacktestQueryService.class);
-            BacktestModels.BacktestResponse response = "all".equalsIgnoreCase(param.strategyName)
+            StrategyRuntimeModels.StrategyRunResponse response = "all".equalsIgnoreCase(param.strategyName)
                     ? service.run(param)
                     : isDeterministic(param.strategyName)
                     ? service.runDeterministicChunked(param, chunkDays)
@@ -55,7 +55,7 @@ public final class LocalBacktestRunner {
             System.out.println("strategy=" + response.strategyName + ", symbols=" + response.symbols + ", timeframe=" + response.text + ", range=" + response.beginDate + ".." + response.endDate);
             for (String symbol : response.symbols)
                 System.out.println("dataSource[" + symbol + "]=" + query.getLastSource(symbol));
-            for (BacktestModels.BacktestResult r : response.results)
+            for (StrategyRuntimeModels.StrategyRunResult r : response.results)
                 System.out.println("result strategy=" + r.strategyName + ", symbol=" + r.symbol
                         + ", actualRange=" + r.actualBeginTime + ".." + r.actualEndTime
                         + ", bars=" + r.totalBars + ", trades=" + r.tradeCount
@@ -217,7 +217,8 @@ public final class LocalBacktestRunner {
     }
 
     @SpringBootApplication
-    @ComponentScan({"com.app.dc.service.simulation", "com.app.dc.service.dao", "com.app.common.db"})
+    @ComponentScan({"com.app.dc.service.simulation", "com.app.dc.service.dao",
+            "com.app.dc.strategy.core", "com.app.common.db"})
     public static class LocalApp {
     }
 }

@@ -1,10 +1,10 @@
 package com.app.dc.simulation;
 
 import com.app.dc.po.TTbookOhlc;
-import com.app.dc.service.simulation.strategy.trend.bear.EthDailyBearContextService;
-import com.app.dc.service.simulation.strategy.trend.bear.EthDailyBearContextSnapshot;
-import com.app.dc.service.simulation.strategy.trend.bear.EthBearMultiTimeframeContextService;
-import com.app.dc.service.simulation.strategy.trend.bear.EthBearMultiTimeframeSnapshot;
+import com.app.dc.strategy.core.strategy.trend.bear.EthDailyBearContextService;
+import com.app.dc.strategy.core.strategy.trend.bear.EthDailyBearContextSnapshot;
+import com.app.dc.strategy.core.strategy.trend.bear.EthBearMultiTimeframeContextService;
+import com.app.dc.strategy.core.strategy.trend.bear.EthBearMultiTimeframeSnapshot;
 import com.app.dc.service.simulation.BacktestQueryService;
 import org.junit.Assert;
 import org.junit.Test;

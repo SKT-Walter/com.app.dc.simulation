@@ -1,8 +1,8 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.BacktestModels.TradeRecord;
-import com.app.dc.service.simulation.dynamic.BacktestRegime;
-import com.app.dc.service.simulation.strategy.trend.bull.*;
+import com.app.dc.strategy.core.StrategyRuntimeModels.TradeRecord;
+import com.app.dc.strategy.core.dynamic.MarketRegime;
+import com.app.dc.strategy.core.strategy.trend.bull.*;
 import org.junit.Assert;
 import org.junit.Test;
 import org.ta4j.core.*;
@@ -48,7 +48,7 @@ public class SolTrendRearmServiceTest {
         Assert.assertFalse(service.evaluate("SOLUSDT","15M",series,regime(),context("BULL")).active);
     }
 
-    private BacktestRegime regime(){BacktestRegime r=new BacktestRegime();r.tradeable=true;r.trend="UP";r.volatility="NORMAL";return r;}
+    private MarketRegime regime(){MarketRegime r=new MarketRegime();r.tradeable=true;r.trend="UP";r.volatility="NORMAL";return r;}
     private EthMultiTimeframeSnapshot context(String trend){return new EthMultiTimeframeSnapshot(trend,.9,EthMultiTimeframeSnapshot.COOLDOWN,0,1,98,105,2,100,103,101,1,100,99,99,100,104,102,100,3,"TEST");}
     private BarSeries series(){BarSeries s=new BaseBarSeries("rearm");for(int i=0;i<80;i++)add(s,100,100.5,99.5,100,1000);return s;}
     private void add(BarSeries s,double o,double h,double l,double c,double v){ZonedDateTime t=ZonedDateTime.of(2026,1,1,0,0,0,0,ZoneId.systemDefault()).plusMinutes(s.getBarCount()*15L);s.addBar(new BaseBar(Duration.ofMinutes(15),t,BigDecimal.valueOf(o),BigDecimal.valueOf(h),BigDecimal.valueOf(l),BigDecimal.valueOf(c),BigDecimal.valueOf(v)));}

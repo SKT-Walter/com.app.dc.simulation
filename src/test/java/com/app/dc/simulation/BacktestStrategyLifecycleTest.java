@@ -2,9 +2,9 @@ package com.app.dc.simulation;
 
 import com.app.dc.po.Signal;
 import com.app.dc.po.TTbookOhlc;
-import com.app.dc.service.simulation.BacktestModels.TradeRecord;
-import com.app.dc.service.simulation.BacktestStrategyService;
-import com.app.dc.service.simulation.strategy.BinanceBacktestStrategy;
+import com.app.dc.strategy.core.StrategyRuntimeModels.TradeRecord;
+import com.app.dc.strategy.core.StrategyRegistry;
+import com.app.dc.strategy.core.strategy.TradingStrategy;
 import org.junit.Assert;
 import org.junit.Test;
 import org.ta4j.core.BarSeries;
@@ -18,7 +18,7 @@ public class BacktestStrategyLifecycleTest {
     public void lifecycleIsDispatchedOnlyToTheOpeningStrategy() {
         TrackingStrategy first = new TrackingStrategy("first");
         TrackingStrategy second = new TrackingStrategy("second");
-        BacktestStrategyService service = new BacktestStrategyService(Arrays.<BinanceBacktestStrategy>asList(first, second));
+        StrategyRegistry service = new StrategyRegistry(Arrays.<TradingStrategy>asList(first, second));
 
         service.resetAll("ETHUSDT");
         Assert.assertEquals(1, first.sessionResets);
@@ -34,7 +34,7 @@ public class BacktestStrategyLifecycleTest {
         Assert.assertEquals(0, second.closedTrades);
     }
 
-    private static final class TrackingStrategy implements BinanceBacktestStrategy {
+    private static final class TrackingStrategy implements TradingStrategy {
         private final String name;
         int sessionResets;
         int closedTrades;

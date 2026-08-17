@@ -1,11 +1,11 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.deterministic.MarketContextFactory;
-import com.app.dc.service.simulation.deterministic.StrategyEvaluationContext;
-import com.app.dc.service.simulation.deterministic.TrendCompressionService;
-import com.app.dc.service.simulation.deterministic.TrendCompressionSnapshot;
-import com.app.dc.service.simulation.deterministic.TrendCompressionState;
-import com.app.dc.service.simulation.dynamic.BacktestRegime;
+import com.app.dc.strategy.core.deterministic.MarketContextFactory;
+import com.app.dc.strategy.core.deterministic.StrategyEvaluationContext;
+import com.app.dc.strategy.core.deterministic.TrendCompressionService;
+import com.app.dc.strategy.core.deterministic.TrendCompressionSnapshot;
+import com.app.dc.strategy.core.deterministic.TrendCompressionState;
+import com.app.dc.strategy.core.dynamic.MarketRegime;
 import org.junit.Assert;
 import org.junit.Test;
 import org.ta4j.core.BarSeries;
@@ -51,7 +51,7 @@ public class TrendCompressionServiceTest {
     private StrategyEvaluationContext context(MarketContextFactory factory,
                                               BarSeries series,
                                               String trend, String volatility) {
-        BacktestRegime regime = new BacktestRegime();
+        MarketRegime regime = new MarketRegime();
         regime.trend = trend;
         regime.volatility = volatility;
         regime.confidence = .80;

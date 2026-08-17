@@ -4,44 +4,46 @@ import com.app.dc.po.Signal;
 import com.app.dc.po.Side;
 import com.app.dc.po.TTbookOhlc;
 import com.app.dc.po.backtest.BacktestParam;
-import com.app.dc.service.simulation.BacktestModels.BacktestResponse;
-import com.app.dc.service.simulation.BacktestModels.BacktestResult;
-import com.app.dc.service.simulation.BacktestModels.EquityContext;
-import com.app.dc.service.simulation.BacktestModels.Position;
-import com.app.dc.service.simulation.BacktestModels.TradeRecord;
+import com.app.dc.strategy.core.StrategyRuntimeModels;
+import com.app.dc.strategy.core.StrategyRegistry;
+import com.app.dc.strategy.core.StrategyRuntimeModels.StrategyRunResponse;
+import com.app.dc.strategy.core.StrategyRuntimeModels.StrategyRunResult;
+import com.app.dc.strategy.core.StrategyRuntimeModels.EquityContext;
+import com.app.dc.strategy.core.StrategyRuntimeModels.Position;
+import com.app.dc.strategy.core.StrategyRuntimeModels.TradeRecord;
 import com.app.dc.service.simulation.strategy.BinanceBacktestMarketGuard;
-import com.app.dc.service.simulation.deterministic.DeterministicBacktestPipeline;
-import com.app.dc.service.simulation.deterministic.DeterministicPipelineState;
-import com.app.dc.service.simulation.deterministic.DeterministicPipelineResult;
-import com.app.dc.service.simulation.deterministic.StrategyRoutingDecision;
-import com.app.dc.service.simulation.deterministic.StructuralTrendService;
-import com.app.dc.service.simulation.deterministic.StructuralTrendSnapshot;
-import com.app.dc.service.simulation.deterministic.StructuralTrendState;
-import com.app.dc.service.simulation.dynamic.BacktestRegime;
-import com.app.dc.service.simulation.dynamic.BacktestRegimeService;
-import com.app.dc.service.simulation.strategy.exit.PositionExitDecision;
-import com.app.dc.service.simulation.strategy.exit.StrategyPositionExitContext;
-import com.app.dc.service.simulation.strategy.exit.StrategyPositionExitService;
-import com.app.dc.service.simulation.strategy.exit.LifecycleTrendPositionOwnershipPolicy;
-import com.app.dc.service.simulation.strategy.risk.BinanceTrendEntryRiskService;
-import com.app.dc.service.simulation.strategy.trend.TrendLifecycleService;
-import com.app.dc.service.simulation.strategy.trend.TrendLifecycleSnapshot;
-import com.app.dc.service.simulation.strategy.trend.bull.BullTrendSnapshot;
-import com.app.dc.service.simulation.strategy.trend.bull.EthStructuralBullTrendService;
-import com.app.dc.service.simulation.strategy.trend.bull.EthMultiTimeframeContextService;
-import com.app.dc.service.simulation.strategy.trend.bull.BtcStructuralBullTrendService;
-import com.app.dc.service.simulation.strategy.trend.bull.BtcMultiTimeframeContextService;
-import com.app.dc.service.simulation.strategy.profile.SymbolStrategyProfileService;
-import com.app.dc.service.simulation.strategy.SymbolStrategyNames;
-import com.app.dc.service.simulation.strategy.trend.bull.SolMomentumBullTrendService;
-import com.app.dc.service.simulation.strategy.trend.bull.SolMultiTimeframeContextService;
-import com.app.dc.service.simulation.strategy.trend.bull.SolBullLaunchTrendService;
-import com.app.dc.service.simulation.strategy.trend.bull.SolBullLaunchContextService;
-import com.app.dc.service.simulation.strategy.trend.bear.BearTrendSnapshot;
-import com.app.dc.service.simulation.strategy.trend.bear.EthStructuralBearTrendService;
-import com.app.dc.service.simulation.strategy.trend.bear.EthBearMultiTimeframeContextService;
-import com.app.dc.service.simulation.strategy.trend.bear.EthBearMultiTimeframeSnapshot;
-import com.app.dc.service.simulation.strategy.BinanceStrategyMath;
+import com.app.dc.strategy.core.deterministic.DeterministicStrategyPipeline;
+import com.app.dc.strategy.core.deterministic.DeterministicPipelineState;
+import com.app.dc.strategy.core.deterministic.DeterministicPipelineResult;
+import com.app.dc.strategy.core.deterministic.StrategyRoutingDecision;
+import com.app.dc.strategy.core.deterministic.StructuralTrendService;
+import com.app.dc.strategy.core.deterministic.StructuralTrendSnapshot;
+import com.app.dc.strategy.core.deterministic.StructuralTrendState;
+import com.app.dc.strategy.core.dynamic.MarketRegime;
+import com.app.dc.strategy.core.dynamic.MarketRegimeService;
+import com.app.dc.strategy.core.strategy.exit.PositionExitDecision;
+import com.app.dc.strategy.core.strategy.exit.StrategyPositionExitContext;
+import com.app.dc.strategy.core.strategy.exit.StrategyPositionExitService;
+import com.app.dc.strategy.core.strategy.exit.LifecycleTrendPositionOwnershipPolicy;
+import com.app.dc.strategy.core.strategy.risk.BinanceTrendEntryRiskService;
+import com.app.dc.strategy.core.strategy.trend.TrendLifecycleService;
+import com.app.dc.strategy.core.strategy.trend.TrendLifecycleSnapshot;
+import com.app.dc.strategy.core.strategy.trend.bull.BullTrendSnapshot;
+import com.app.dc.strategy.core.strategy.trend.bull.EthStructuralBullTrendService;
+import com.app.dc.strategy.core.strategy.trend.bull.EthMultiTimeframeContextService;
+import com.app.dc.strategy.core.strategy.trend.bull.BtcStructuralBullTrendService;
+import com.app.dc.strategy.core.strategy.trend.bull.BtcMultiTimeframeContextService;
+import com.app.dc.strategy.core.strategy.profile.SymbolStrategyProfileService;
+import com.app.dc.strategy.core.strategy.SymbolStrategyNames;
+import com.app.dc.strategy.core.strategy.trend.bull.SolMomentumBullTrendService;
+import com.app.dc.strategy.core.strategy.trend.bull.SolMultiTimeframeContextService;
+import com.app.dc.strategy.core.strategy.trend.bull.SolBullLaunchTrendService;
+import com.app.dc.strategy.core.strategy.trend.bull.SolBullLaunchContextService;
+import com.app.dc.strategy.core.strategy.trend.bear.BearTrendSnapshot;
+import com.app.dc.strategy.core.strategy.trend.bear.EthStructuralBearTrendService;
+import com.app.dc.strategy.core.strategy.trend.bear.EthBearMultiTimeframeContextService;
+import com.app.dc.strategy.core.strategy.trend.bear.EthBearMultiTimeframeSnapshot;
+import com.app.dc.strategy.core.strategy.BinanceStrategyMath;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
@@ -76,7 +78,7 @@ public class BacktestService {
     private BacktestSupportService supportService;
 
     @Autowired
-    private BacktestStrategyService strategyService;
+    private StrategyRegistry strategyService;
 
     @Autowired
     private BacktestTradeService tradeService;
@@ -87,11 +89,11 @@ public class BacktestService {
     @Autowired
     private BinanceBacktestMarketGuard marketGuard;
     @Autowired
-    private DeterministicBacktestPipeline deterministicPipeline;
+    private DeterministicStrategyPipeline deterministicPipeline;
     @Autowired
     private StrategyPositionExitService positionExitService;
     @Autowired
-    private BacktestRegimeService regimeService;
+    private MarketRegimeService regimeService;
     @Autowired
     private StructuralTrendService structuralTrendService;
     @Autowired
@@ -111,14 +113,14 @@ public class BacktestService {
     @Autowired private EthBearMultiTimeframeContextService ethBearMultiTimeframeContextService;
     @Autowired private LifecycleTrendPositionOwnershipPolicy lifecyclePositionOwnership;
 
-    public BacktestResponse run(BacktestParam param) throws Exception {
+    public StrategyRunResponse run(BacktestParam param) throws Exception {
         BacktestParam req = normalizeParam(param);
         if ("dynamic".equalsIgnoreCase(req.strategyName)
                 || "deterministic".equalsIgnoreCase(req.strategyName))
             return runDeterministicChunked(req, 2);
         List<String> symbols = supportService.resolveSymbols(req.symbols, req.symbol);
 
-        BacktestResponse response = new BacktestResponse();
+        StrategyRunResponse response = new StrategyRunResponse();
         response.symbol = symbols.size() == 1 ? symbols.get(0) : "MULTI";
         response.symbols = symbols;
         response.text = req.text;
@@ -126,7 +128,7 @@ public class BacktestService {
         response.endDate = req.endDate;
         response.strategyName = req.strategyName;
 
-        List<BacktestResult> results = new ArrayList<>();
+        List<StrategyRunResult> results = new ArrayList<>();
         for (String symbol : symbols) {
             List<TTbookOhlc> ohlcList = queryService.queryOhlc(symbol, req.text, req.beginDate, req.endDate);
             if (ohlcList.isEmpty()) {
@@ -168,7 +170,7 @@ public class BacktestService {
                 results.add(runSingleStrategy(req.strategyName, symbolParam, ohlcList));
             }
         }
-        response.results = results.isEmpty() ? Collections.<BacktestResult>emptyList() : results;
+        response.results = results.isEmpty() ? Collections.<StrategyRunResult>emptyList() : results;
         return response;
     }
 
@@ -190,7 +192,7 @@ public class BacktestService {
         return target;
     }
 
-    public BacktestResult runSingleStrategy(String strategyName, BacktestParam param,
+    public StrategyRunResult runSingleStrategy(String strategyName, BacktestParam param,
                                             List<TTbookOhlc> ohlcList) throws Exception {
         SingleStrategySession session = initializeSession(strategyName, param);
         processChunk(session, ohlcList);
@@ -200,14 +202,14 @@ public class BacktestService {
     /**
      * Runs one strategy over date chunks without resetting indicators, position or equity.
      */
-    public BacktestResponse runContinuousChunked(BacktestParam param, int chunkDays) throws Exception {
+    public StrategyRunResponse runContinuousChunked(BacktestParam param, int chunkDays) throws Exception {
         final BacktestParam req = normalizeParam(param);
         if ("all".equalsIgnoreCase(req.strategyName)) {
             throw new IllegalArgumentException("continuous chunked backtest requires one strategy; use run() for strategy=all");
         }
         List<String> symbols = supportService.resolveSymbols(req.symbols, req.symbol);
-        BacktestResponse response = response(req, symbols);
-        List<BacktestResult> results = new ArrayList<BacktestResult>();
+        StrategyRunResponse response = response(req, symbols);
+        List<StrategyRunResult> results = new ArrayList<StrategyRunResult>();
         for (String symbol : symbols) {
             final BacktestParam symbolParam = copyParamForSymbol(req, symbol);
             final SingleStrategySession session = initializeSession(req.strategyName, symbolParam);
@@ -225,18 +227,18 @@ public class BacktestService {
     }
 
     /** Replays Regime -> hard candidate rules -> deterministic scores -> one active strategy. */
-    public BacktestResponse runDynamicChunked(BacktestParam param, int chunkDays) throws Exception {
+    public StrategyRunResponse runDynamicChunked(BacktestParam param, int chunkDays) throws Exception {
         return runDeterministicChunked(param, chunkDays);
     }
 
-    public BacktestResponse runDeterministicChunked(BacktestParam param, int chunkDays) throws Exception {
+    public StrategyRunResponse runDeterministicChunked(BacktestParam param, int chunkDays) throws Exception {
         final BacktestParam req = normalizeParam(param);
         req.strategyName = "deterministic";
         List<String> symbols = supportService.resolveSymbols(req.symbols, req.symbol);
-        BacktestResponse response = response(req, symbols);
+        StrategyRunResponse response = response(req, symbols);
         response.routingDecisions = new ArrayList<StrategyRoutingDecision>();
-        response.routingStats = new BacktestModels.RoutingStats();
-        List<BacktestResult> results = new ArrayList<BacktestResult>();
+        response.routingStats = new StrategyRuntimeModels.RoutingStats();
+        List<StrategyRunResult> results = new ArrayList<StrategyRunResult>();
         for (String symbol : symbols) {
             final BacktestParam symbolParam = copyParamForSymbol(req, symbol);
             final DeterministicSession session = initializeDeterministic(symbolParam);
@@ -257,7 +259,7 @@ public class BacktestService {
         return response;
     }
 
-    private void mergeRoutingStats(BacktestModels.RoutingStats target, BacktestModels.RoutingStats source) {
+    private void mergeRoutingStats(StrategyRuntimeModels.RoutingStats target, StrategyRuntimeModels.RoutingStats source) {
         target.routingDecisionCount += source.routingDecisionCount;
         mergeCounts(target.routingReasonCounts, source.routingReasonCounts);
         mergeCounts(target.selectedStrategyCounts, source.selectedStrategyCounts);
@@ -314,7 +316,7 @@ public class BacktestService {
     private DeterministicSession initializeDeterministic(BacktestParam param) {
         Duration duration = supportService.resolveDuration(param.text);
         BarSeries series = new BaseBarSeries(param.symbol + "-" + param.text + "-deterministic");
-        BacktestResult result = initResult("deterministic", param);
+        StrategyRunResult result = initResult("deterministic", param);
         EquityContext equity = metricService.initEquityContext(param.initialCapital.doubleValue(),
                 param.tradeNotional.doubleValue());
         BinanceBacktestMarketGuard.GuardContext guard = marketGuard.prepareContext(param.symbol, param.beginDate, param.endDate);
@@ -473,7 +475,7 @@ public class BacktestService {
         return result.routingDecision == null ? null : result.routingDecision.regime;
     }
 
-    private void recordRouting(BacktestModels.RoutingStats stats, DeterministicPipelineResult result) {
+    private void recordRouting(StrategyRuntimeModels.RoutingStats stats, DeterministicPipelineResult result) {
         StrategyRoutingDecision decision = result.routingDecision;
         stats.routingDecisionCount++;
         increment(stats.routingReasonCounts, result.participationBlocked
@@ -484,7 +486,7 @@ public class BacktestService {
         increment(stats.selectedStrategyCounts, result.participationBlocked
                 || decision.strategyName == null ? "NO_TRADE" : decision.strategyName);
         increment(stats.regimeCounts, decision.regime == null ? "UNKNOWN" : decision.regime);
-        for (com.app.dc.service.simulation.dynamic.DynamicStrategyMeta candidate : result.candidates.candidates)
+        for (com.app.dc.strategy.core.dynamic.DynamicStrategyMeta candidate : result.candidates.candidates)
             increment(stats.candidateAcceptedCounts, candidate.strategyName);
         for (String reason : decision.candidateRejections.values()) increment(stats.candidateRejectReasonCounts, reason);
         String side = result.signal == null || result.signal.side == null || result.signal.side == Side.NONE
@@ -558,7 +560,7 @@ public class BacktestService {
         }
     }
 
-    private BacktestResult finishDeterministic(DeterministicSession session) {
+    private StrategyRunResult finishDeterministic(DeterministicSession session) {
         if (session.position != null && session.series.getBarCount() > 0) {
             Bar last = session.series.getLastBar();
             TradeRecord closed = tradeService.closePosition(session.position, last.getClosePrice().doubleValue(), last.getEndTime().toString(), "end_of_test", session.series.getEndIndex(), session.param.feeRatePct.doubleValue());
@@ -575,15 +577,15 @@ public class BacktestService {
         final BacktestParam param;
         final Duration duration;
         final BarSeries series;
-        final BacktestResult result;
+        final StrategyRunResult result;
         final EquityContext equity;
         final BinanceBacktestMarketGuard.GuardContext guard;
         final DeterministicPipelineState routerState;
         final List<StrategyRoutingDecision> decisions = new ArrayList<StrategyRoutingDecision>();
-        final BacktestModels.RoutingStats stats = new BacktestModels.RoutingStats();
+        final StrategyRuntimeModels.RoutingStats stats = new StrategyRuntimeModels.RoutingStats();
         Position position;
 
-        DeterministicSession(BacktestParam p, Duration d, BarSeries s, BacktestResult r, EquityContext e,
+        DeterministicSession(BacktestParam p, Duration d, BarSeries s, StrategyRunResult r, EquityContext e,
                              BinanceBacktestMarketGuard.GuardContext g, DeterministicPipelineState state) {
             param = p;
             duration = d;
@@ -595,8 +597,8 @@ public class BacktestService {
         }
     }
 
-    private BacktestResponse response(BacktestParam req, List<String> symbols) {
-        BacktestResponse r = new BacktestResponse();
+    private StrategyRunResponse response(BacktestParam req, List<String> symbols) {
+        StrategyRunResponse r = new StrategyRunResponse();
         r.symbol = symbols.size() == 1 ? symbols.get(0) : "MULTI";
         r.symbols = symbols;
         r.text = req.text;
@@ -624,7 +626,7 @@ public class BacktestService {
                 ||"solBullLaunchTrend".equalsIgnoreCase(baseStrategy))prepareSolMultiTimeframe(param);
         if("solStructuralBearTrend".equalsIgnoreCase(baseStrategy))prepareSolMultiTimeframe(param,true);
 
-        BacktestResult result = initResult(normalizedStrategy, param);
+        StrategyRunResult result = initResult(normalizedStrategy, param);
         EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue(),
                 param.tradeNotional.doubleValue());
         BinanceBacktestMarketGuard.GuardContext guardContext =
@@ -651,7 +653,7 @@ public class BacktestService {
                 }
             }
 
-            BacktestRegime currentRegime = regimeService.identify(session.replaySeries);
+            MarketRegime currentRegime = regimeService.identify(session.replaySeries);
             StructuralTrendSnapshot structural = structuralTrendService.update(
                     session.structuralTrendState, session.replaySeries);
             TrendLifecycleSnapshot lifecycle=trendLifecycleService.update(
@@ -827,7 +829,7 @@ public class BacktestService {
         }
     }
 
-    private BacktestResult finishSession(SingleStrategySession session) {
+    private StrategyRunResult finishSession(SingleStrategySession session) {
         if (session.position != null && session.replaySeries.getBarCount() > 0) {
             Bar lastBar = session.replaySeries.getLastBar();
             TradeRecord ended = tradeService.closePosition(session.position, lastBar.getClosePrice().doubleValue(),
@@ -845,13 +847,13 @@ public class BacktestService {
         return session.result;
     }
 
-    private void applyClosedTrade(BacktestResult result, TradeRecord trade, EquityContext equity,
+    private void applyClosedTrade(StrategyRunResult result, TradeRecord trade, EquityContext equity,
                                   String symbol, int exitBarIndex) {
         metricService.applyTrade(result, trade, equity);
         strategyService.onTradeClosed(trade.strategyName, symbol, exitBarIndex, trade);
     }
 
-    private void mergeRejectStats(BacktestResult result, Map<String, Integer> strategyRejects) {
+    private void mergeRejectStats(StrategyRunResult result, Map<String, Integer> strategyRejects) {
         if (strategyRejects == null) return;
         for (Map.Entry<String, Integer> entry : strategyRejects.entrySet()) {
             Integer previous = result.rejectReasonCounts.get(entry.getKey());
@@ -860,7 +862,7 @@ public class BacktestService {
         }
     }
 
-    private void updateActualCoverage(BacktestResult result, BarSeries series) {
+    private void updateActualCoverage(StrategyRunResult result, BarSeries series) {
         if (result == null || series == null || series.getBarCount() == 0) {
             return;
         }
@@ -868,7 +870,7 @@ public class BacktestService {
         result.actualEndTime = series.getLastBar().getEndTime().toString();
     }
 
-    private void incrementReject(BacktestResult result, String reason) {
+    private void incrementReject(StrategyRunResult result, String reason) {
         if (result.rejectReasonCounts == null) {
             result.rejectReasonCounts = new LinkedHashMap<String, Integer>();
         }
@@ -881,14 +883,14 @@ public class BacktestService {
         final BacktestParam param;
         final Duration duration;
         final BarSeries replaySeries;
-        final BacktestResult result;
+        final StrategyRunResult result;
         final EquityContext equityContext;
         final BinanceBacktestMarketGuard.GuardContext guardContext;
         final StructuralTrendState structuralTrendState;
         Position position;
 
         SingleStrategySession(String n, BacktestParam p, Duration d, BarSeries s,
-                              BacktestResult r, EquityContext e,
+                              StrategyRunResult r, EquityContext e,
                               BinanceBacktestMarketGuard.GuardContext g,
                               StructuralTrendState structuralState) {
             normalizedStrategy = n;
@@ -941,8 +943,8 @@ public class BacktestService {
         return req;
     }
 
-    public BacktestResult initResult(String strategyName, BacktestParam param) {
-        BacktestResult result = new BacktestResult();
+    public StrategyRunResult initResult(String strategyName, BacktestParam param) {
+        StrategyRunResult result = new StrategyRunResult();
         result.strategyName = strategyName;
         result.symbol = param.symbol;
         result.text = param.text;

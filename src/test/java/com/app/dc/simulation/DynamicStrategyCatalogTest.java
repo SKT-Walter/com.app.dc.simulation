@@ -1,7 +1,7 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.dynamic.BacktestRegime;
-import com.app.dc.service.simulation.dynamic.DynamicStrategyCatalog;
+import com.app.dc.strategy.core.dynamic.MarketRegime;
+import com.app.dc.strategy.core.dynamic.DynamicStrategyCatalog;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -13,7 +13,7 @@ public class DynamicStrategyCatalogTest {
         file.setAccessible(true);
         file.set(catalog, "./config/dynamic_strategy_catalog.json");
         catalog.load();
-        BacktestRegime trend = new BacktestRegime();
+        MarketRegime trend = new MarketRegime();
         trend.trend = "UP";
         trend.volatility = "NORMAL";
         trend.tradeable = true;

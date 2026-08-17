@@ -56,7 +56,7 @@ public class BacktestTradeServiceTest {
     @Test public void bullTrendRemarkSuppressesFallbackTakeProfit(){
         BacktestParam param=param("6","10");Signal signal=signal(Side.BUY,"100","98",null);
         signal.remark="NO_FIXED_TAKE_PROFIT|ETH_PULLBACK_RECOVERY";
-        com.app.dc.service.simulation.BacktestModels.Position position=service.openPosition(signal,0,
+        com.app.dc.strategy.core.StrategyRuntimeModels.Position position=service.openPosition(signal,0,
                 new BaseBar(Duration.ofMinutes(15),ZonedDateTime.now(),new BigDecimal("99"),
                         new BigDecimal("101"),new BigDecimal("98"),new BigDecimal("100"),BigDecimal.ONE),param);
         Assert.assertNull(position.takePrice);Assert.assertEquals(98d,position.stopPrice,.000001);

@@ -3,7 +3,7 @@ package com.app.dc.handler;
 import com.app.common.utils.Consts;
 import com.app.dc.po.backtest.BacktestParam;
 import com.app.dc.service.dao.BacktestResultClickHouseDao;
-import com.app.dc.service.simulation.BacktestModels;
+import com.app.dc.strategy.core.StrategyRuntimeModels;
 import com.app.dc.service.simulation.BacktestReportService;
 import com.app.dc.service.simulation.BacktestService;
 import com.gateway.connector.utils.JsonUtils;
@@ -35,7 +35,7 @@ public class BacktestHandler extends ContentHandler {
         Map<String, Object> resultMap = new HashMap<>();
         try {
             BacktestParam param = JsonUtils.Deserialize(content, BacktestParam.class);
-            BacktestModels.BacktestResponse result = binanceBacktestService.run(param);
+            StrategyRuntimeModels.StrategyRunResponse result = binanceBacktestService.run(param);
             String reportPath = backtestReportService.writeReport(result);
             backtestResultClickHouseDao.insertResults(sid, reportPath, result);
             resultMap.put(Consts.DATA, result);

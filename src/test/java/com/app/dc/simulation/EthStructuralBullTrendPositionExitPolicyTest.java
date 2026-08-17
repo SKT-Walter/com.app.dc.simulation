@@ -1,10 +1,10 @@
 package com.app.dc.simulation;
 
 import com.app.dc.po.Side;
-import com.app.dc.service.simulation.BacktestModels.Position;
-import com.app.dc.service.simulation.strategy.exit.EthStructuralBullTrendPositionExitPolicy;
-import com.app.dc.service.simulation.strategy.exit.PositionExitDecision;
-import com.app.dc.service.simulation.strategy.trend.bull.EthMultiTimeframeSnapshot;
+import com.app.dc.strategy.core.StrategyRuntimeModels.Position;
+import com.app.dc.strategy.core.strategy.exit.EthStructuralBullTrendPositionExitPolicy;
+import com.app.dc.strategy.core.strategy.exit.PositionExitDecision;
+import com.app.dc.strategy.core.strategy.trend.bull.EthMultiTimeframeSnapshot;
 import org.junit.Assert;
 import org.junit.Test;
 

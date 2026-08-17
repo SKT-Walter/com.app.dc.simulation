@@ -1,10 +1,11 @@
 package com.app.dc.service.simulation;
 
-import com.app.dc.service.simulation.BacktestModels.BacktestResponse;
-import com.app.dc.service.simulation.BacktestModels.BacktestResult;
-import com.app.dc.service.simulation.BacktestModels.TradeRecord;
-import com.app.dc.service.simulation.deterministic.DeterministicScoreCard;
-import com.app.dc.service.simulation.deterministic.StrategyRoutingDecision;
+import com.app.dc.strategy.core.StrategyRuntimeModels;
+import com.app.dc.strategy.core.StrategyRuntimeModels.StrategyRunResponse;
+import com.app.dc.strategy.core.StrategyRuntimeModels.StrategyRunResult;
+import com.app.dc.strategy.core.StrategyRuntimeModels.TradeRecord;
+import com.app.dc.strategy.core.deterministic.DeterministicScoreCard;
+import com.app.dc.strategy.core.deterministic.StrategyRoutingDecision;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -39,7 +40,7 @@ public class BacktestReportService {
     private String reportDir;
 
 
-    public String writeReport(BacktestResponse response) {
+    public String writeReport(StrategyRunResponse response) {
         if (!reportEnabled || response == null) {
             return "";
         }
@@ -56,7 +57,7 @@ public class BacktestReportService {
         }
     }
 
-    private String buildFileName(BacktestResponse response) {
+    private String buildFileName(StrategyRunResponse response) {
         String strategy = safeFilePart(response.strategyName);
         String symbol = safeFilePart(response.symbol);
         String text = safeFilePart(response.text);
@@ -64,7 +65,7 @@ public class BacktestReportService {
         return strategy + "_" + symbol + "_" + text + "_" + time + ".md";
     }
 
-    private String buildMarkdown(BacktestResponse response) {
+    private String buildMarkdown(StrategyRunResponse response) {
         StringBuilder sb = new StringBuilder();
         sb.append("# 策略回测报告").append("\n\n");
         sb.append("- 策略：").append(s(response.strategyName)).append("\n");
@@ -77,32 +78,32 @@ public class BacktestReportService {
         sb.append("- 请求结束日期：").append(s(response.endDate)).append("\n");
         sb.append("- 报告生成时间：").append(LocalDateTime.now()).append("\n\n");
 
-        List<BacktestResult> results = response.results == null
-                ? Collections.<BacktestResult>emptyList()
+        List<StrategyRunResult> results = response.results == null
+                ? Collections.<StrategyRunResult>emptyList()
                 : response.results;
         if (!results.isEmpty()) {
             sb.append("- 资金模型：固定名义本金，不复利\n");
             sb.append("- 每笔下单资金：").append(money(results.get(0).tradeNotional)).append("\n\n");
         }
-        List<BacktestResult> sortedResults = new ArrayList<>(results);
+        List<StrategyRunResult> sortedResults = new ArrayList<>(results);
         sortedResults.sort(Comparator.comparing(this::safeTotalPnl).reversed()
                 .thenComparing(result -> s(result.strategyName))
                 .thenComparing(result -> s(result.symbol)));
-        List<BacktestResult> symbolSortedResults = new ArrayList<>(results);
-        symbolSortedResults.sort(Comparator.comparing((BacktestResult result) -> s(result.symbol))
+        List<StrategyRunResult> symbolSortedResults = new ArrayList<>(results);
+        symbolSortedResults.sort(Comparator.comparing((StrategyRunResult result) -> s(result.symbol))
                 .thenComparing(this::safeTotalPnl, Comparator.reverseOrder())
                 .thenComparing(result -> s(result.strategyName)));
 
         sb.append("## 实际行情覆盖").append("\n\n");
-        Map<String, BacktestResult> coverageBySymbol = new LinkedHashMap<String, BacktestResult>();
-        for (BacktestResult result : results) {
-            BacktestResult previous = coverageBySymbol.get(result.symbol);
+        Map<String, StrategyRunResult> coverageBySymbol = new LinkedHashMap<String, StrategyRunResult>();
+        for (StrategyRunResult result : results) {
+            StrategyRunResult previous = coverageBySymbol.get(result.symbol);
             if (previous == null || nzInt(result.totalBars) > nzInt(previous.totalBars)) {
                 coverageBySymbol.put(result.symbol, result);
             }
         }
         List<List<String>> coverageRows = new ArrayList<List<String>>();
-        for (BacktestResult result : coverageBySymbol.values()) {
+        for (StrategyRunResult result : coverageBySymbol.values()) {
             List<String> row = new ArrayList<String>();
             row.add(s(result.symbol));
             row.add(s(result.actualBeginTime));
@@ -123,7 +124,7 @@ public class BacktestReportService {
         summaryHeaders.add("最大回撤"); summaryHeaders.add("最终资金");
 
         List<List<String>> summaryRows = new ArrayList<>();
-        for (BacktestResult r : sortedResults) {
+        for (StrategyRunResult r : sortedResults) {
             List<String> row = new ArrayList<>();
             row.add(s(r.strategyName));
             row.add(s(r.symbol));
@@ -150,7 +151,7 @@ public class BacktestReportService {
 
         sb.append("## 盈利策略汇总").append("\n\n");
         List<List<String>> profitableRows = new ArrayList<>();
-        for (BacktestResult r : sortedResults) {
+        for (StrategyRunResult r : sortedResults) {
             BigDecimal totalPnl = calcTotalPnl(r.initialCapital, r.finalCapital);
             if (totalPnl == null || totalPnl.compareTo(BigDecimal.ZERO) <= 0) {
                 continue;
@@ -181,7 +182,7 @@ public class BacktestReportService {
 
         sb.append("## 按品种汇总").append("\n\n");
         List<List<String>> symbolSummaryRows = new ArrayList<>();
-        for (BacktestResult r : symbolSortedResults) {
+        for (StrategyRunResult r : symbolSortedResults) {
             List<String> row = new ArrayList<>();
             row.add(s(r.strategyName));
             row.add(s(r.symbol));
@@ -207,7 +208,7 @@ public class BacktestReportService {
         sb.append("\n");
 
         if (response.routingStats != null) {
-            BacktestModels.RoutingStats a = response.routingStats;
+            StrategyRuntimeModels.RoutingStats a = response.routingStats;
             sb.append("## 确定性路由执行统计\n\n");
             sb.append("- 路由决策次数：").append(a.routingDecisionCount).append("\n");
             sb.append("- Regime分布：").append(a.regimeCounts).append("\n");
@@ -279,7 +280,7 @@ public class BacktestReportService {
 
         sb.append("## 按年度、策略和方向归因\n\n");
         Map<String,List<TradeRecord>> annualAttribution=new LinkedHashMap<String,List<TradeRecord>>();
-        for(BacktestResult r:results){
+        for(StrategyRunResult r:results){
             if(r.tradeList==null)continue;
             for(TradeRecord t:r.tradeList){
                 String year=t.entryTime!=null&&t.entryTime.length()>=4?t.entryTime.substring(0,4):"UNKNOWN";
@@ -303,7 +304,7 @@ public class BacktestReportService {
         appendAlignedTable(sb,java.util.Arrays.asList("年度","品种","策略","方向","交易数","盈利数","胜率","净盈亏","Profit Factor"),attributionRows);
         sb.append("\n");
 
-        for (BacktestResult r : sortedResults) {
+        for (StrategyRunResult r : sortedResults) {
             sb.append("## 交易明细 - ").append(s(r.strategyName)).append(" - ").append(s(r.symbol)).append("\n\n");
             List<String> tradeHeaders = new ArrayList<>();
             tradeHeaders.add("序号"); tradeHeaders.add("品种"); tradeHeaders.add("开仓策略"); tradeHeaders.add("开仓Regime"); tradeHeaders.add("方向");
@@ -586,7 +587,7 @@ public class BacktestReportService {
         return finalCapital.subtract(initialCapital);
     }
 
-    private BigDecimal safeTotalPnl(BacktestResult result) {
+    private BigDecimal safeTotalPnl(StrategyRunResult result) {
         if (result == null) {
             return BigDecimal.ZERO;
         }

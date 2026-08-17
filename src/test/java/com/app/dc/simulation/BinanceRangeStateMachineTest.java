@@ -1,9 +1,9 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.strategy.range.BinanceRangeSettings;
-import com.app.dc.service.simulation.strategy.range.BinanceRangeState;
-import com.app.dc.service.simulation.strategy.range.BinanceRangeStateMachine;
-import com.app.dc.service.simulation.strategy.range.BinanceRangeStateSnapshot;
+import com.app.dc.strategy.core.strategy.range.BinanceRangeSettings;
+import com.app.dc.strategy.core.strategy.range.BinanceRangeState;
+import com.app.dc.strategy.core.strategy.range.BinanceRangeStateMachine;
+import com.app.dc.strategy.core.strategy.range.BinanceRangeStateSnapshot;
 import org.junit.Assert;
 import org.junit.Test;
 import org.ta4j.core.BarSeries;

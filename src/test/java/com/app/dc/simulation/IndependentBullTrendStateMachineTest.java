@@ -1,9 +1,9 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.deterministic.StructuralTrendSnapshot;
-import com.app.dc.service.simulation.dynamic.BacktestRegime;
-import com.app.dc.service.simulation.strategy.trend.bull.*;
-import com.app.dc.service.simulation.BacktestModels.TradeRecord;
+import com.app.dc.strategy.core.deterministic.StructuralTrendSnapshot;
+import com.app.dc.strategy.core.dynamic.MarketRegime;
+import com.app.dc.strategy.core.strategy.trend.bull.*;
+import com.app.dc.strategy.core.StrategyRuntimeModels.TradeRecord;
 import org.junit.Assert;
 import org.junit.Test;
 import org.ta4j.core.*;
@@ -14,7 +14,7 @@ import java.time.*;
 public class IndependentBullTrendStateMachineTest {
     @Test public void ethRequiresOneHourArmHigherLowAndTwoCloseRecovery(){
         EthStructuralBullTrendService service=new EthStructuralBullTrendService();BarSeries s=flat("eth",100,80);
-        BacktestRegime up=regime("UP","NORMAL",.35);EthMultiTimeframeSnapshot armed=armedContext("BULL",1,97);
+        MarketRegime up=regime("UP","NORMAL",.35);EthMultiTimeframeSnapshot armed=armedContext("BULL",1,97);
         BullTrendSnapshot first=service.update("ETHUSDT","15M",s,up,armed);
         Assert.assertEquals(BullTrendSnapshot.ARMED,first.phase);Assert.assertSame(first,service.update("ETHUSDT","15M",s,up,armed));
         add(s,100,100.5,98.5,99,1000);service.update("ETHUSDT","15M",s,up,armed);
@@ -40,7 +40,7 @@ public class IndependentBullTrendStateMachineTest {
 
     @Test public void solRequiresHigherTimeframeArmAndFifteenMinuteRecovery(){
         SolMomentumBullTrendService service=new SolMomentumBullTrendService();BarSeries s=flat("sol",100,80);
-        BacktestRegime up=regime("UP","NORMAL",.35);EthMultiTimeframeSnapshot armed=armedContext("BULL",3,97);
+        MarketRegime up=regime("UP","NORMAL",.35);EthMultiTimeframeSnapshot armed=armedContext("BULL",3,97);
         Assert.assertEquals(BullTrendSnapshot.ARMED,
                 service.update("SOLUSDT","15M",s,up,armed).phase);
         add(s,100,100.5,98.5,99,1000);service.update("SOLUSDT","15M",s,up,armed);
@@ -73,7 +73,7 @@ public class IndependentBullTrendStateMachineTest {
     @Test public void solLaunchHasIndependentTriggerState(){
         SolBullLaunchTrendService launch=new SolBullLaunchTrendService();
         SolMomentumBullTrendService mature=new SolMomentumBullTrendService();
-        BarSeries s=flat("sol-launch",100,80);BacktestRegime up=regime("UP","NORMAL",.35);
+        BarSeries s=flat("sol-launch",100,80);MarketRegime up=regime("UP","NORMAL",.35);
         EthMultiTimeframeSnapshot armed=armedContext("TRANSITION_UP",9,97);
         launch.update("SOLUSDT","15M",s,up,armed);
         add(s,100,100.5,98.5,99,1000);launch.update("SOLUSDT","15M",s,up,armed);
@@ -95,7 +95,7 @@ public class IndependentBullTrendStateMachineTest {
 
     private StructuralTrendSnapshot structure(String d){return structure(d,d);}
     private StructuralTrendSnapshot structure(String confirmed,String raw){return new StructuralTrendSnapshot(confirmed,raw,"ESTABLISHED",.8,200,0,true);}
-    private BacktestRegime regime(String trend,String vol,double atrPct){BacktestRegime r=new BacktestRegime();r.trend=trend;r.volatility=vol;r.tradeable=true;r.confidence=.8;r.features.put("atrPercentile",atrPct);return r;}
+    private MarketRegime regime(String trend,String vol,double atrPct){MarketRegime r=new MarketRegime();r.trend=trend;r.volatility=vol;r.tradeable=true;r.confidence=.8;r.features.put("atrPercentile",atrPct);return r;}
     private EthMultiTimeframeSnapshot armedContext(String fourHour,long id,double low){return new EthMultiTimeframeSnapshot(fourHour,.8,EthMultiTimeframeSnapshot.ARMED,.90,id,low,105,2.0,"TEST_ARMED");}
     private BarSeries flat(String name,double p,int n){BarSeries s=new BaseBarSeries(name);for(int i=0;i<n;i++)add(s,p-.1,p+1.2,p-1.2,p,1000);return s;}
     private BarSeries risingThenFlat(){BarSeries s=new BaseBarSeries("sol");for(int i=0;i<60;i++){double p=100+i*.13;add(s,p-.05,p+.25,p-.2,p,1000);}for(int i=0;i<25;i++)add(s,108-.05,108.2,107.8,108,1000);return s;}

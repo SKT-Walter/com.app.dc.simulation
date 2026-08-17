@@ -1,8 +1,8 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.strategy.profile.SymbolStrategyProfileService;
-import com.app.dc.service.simulation.strategy.range.BinanceRangeSettings;
-import com.app.dc.service.simulation.strategy.trend.BinanceTrendSettings;
+import com.app.dc.strategy.core.strategy.profile.SymbolStrategyProfileService;
+import com.app.dc.strategy.core.strategy.range.BinanceRangeSettings;
+import com.app.dc.strategy.core.strategy.trend.BinanceTrendSettings;
 import org.junit.Assert;
 import org.junit.Test;
 

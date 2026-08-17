@@ -1,7 +1,7 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.strategy.range.AtrChannelBiasSetupService;
-import com.app.dc.service.simulation.strategy.range.AtrChannelBiasSetupSnapshot;
+import com.app.dc.strategy.core.strategy.range.AtrChannelBiasSetupService;
+import com.app.dc.strategy.core.strategy.range.AtrChannelBiasSetupSnapshot;
 import org.junit.Assert;
 import org.junit.Test;
 import org.ta4j.core.BarSeries;

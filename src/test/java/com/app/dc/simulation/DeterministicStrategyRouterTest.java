@@ -1,13 +1,13 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.deterministic.CandidateSelectionResult;
-import com.app.dc.service.simulation.deterministic.DeterministicScoreCard;
-import com.app.dc.service.simulation.deterministic.DeterministicStrategyRouter;
-import com.app.dc.service.simulation.deterministic.StrategyEvaluationContext;
-import com.app.dc.service.simulation.deterministic.StrategyRoutingDecision;
-import com.app.dc.service.simulation.deterministic.StrategyRoutingState;
-import com.app.dc.service.simulation.dynamic.BacktestRegime;
-import com.app.dc.service.simulation.dynamic.DynamicStrategyMeta;
+import com.app.dc.strategy.core.deterministic.CandidateSelectionResult;
+import com.app.dc.strategy.core.deterministic.DeterministicScoreCard;
+import com.app.dc.strategy.core.deterministic.DeterministicStrategyRouter;
+import com.app.dc.strategy.core.deterministic.StrategyEvaluationContext;
+import com.app.dc.strategy.core.deterministic.StrategyRoutingDecision;
+import com.app.dc.strategy.core.deterministic.StrategyRoutingState;
+import com.app.dc.strategy.core.dynamic.MarketRegime;
+import com.app.dc.strategy.core.dynamic.DynamicStrategyMeta;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -122,7 +122,7 @@ public class DeterministicStrategyRouterTest {
     private StrategyRoutingDecision route(DeterministicStrategyRouter router, StrategyRoutingState state,
                                           int index, CandidateSelectionResult candidates,
                                           DeterministicScoreCard... scores) {
-        BacktestRegime regime = new BacktestRegime();
+        MarketRegime regime = new MarketRegime();
         regime.tradeable = true;
         regime.trend = "UP";
         regime.volatility = "NORMAL";
@@ -136,7 +136,7 @@ public class DeterministicStrategyRouterTest {
     private StrategyRoutingDecision routeWithPriority(DeterministicStrategyRouter router,StrategyRoutingState state,
                                                        int index,CandidateSelectionResult candidates,String priority,
                                                        DeterministicScoreCard... scores){
-        BacktestRegime regime=new BacktestRegime();regime.tradeable=true;regime.trend="UP";
+        MarketRegime regime=new MarketRegime();regime.tradeable=true;regime.trend="UP";
         regime.volatility="NORMAL";regime.confidence=.8;regime.barTime=index*900000L;
         StrategyEvaluationContext context=new StrategyEvaluationContext(
                 "ETHUSDT","15M",index,null,null,regime,null);

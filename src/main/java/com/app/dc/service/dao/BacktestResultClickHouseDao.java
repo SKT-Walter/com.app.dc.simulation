@@ -1,7 +1,7 @@
 package com.app.dc.service.dao;
 
 import com.app.common.db.ClickHouseDBUtils;
-import com.app.dc.service.simulation.BacktestModels;
+import com.app.dc.strategy.core.StrategyRuntimeModels;
 import com.gateway.connector.utils.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -28,15 +28,15 @@ public class BacktestResultClickHouseDao {
     @Value("${binanceBacktestResultTable:backtest_result}")
     private String tableName;
 
-    public void insertResults(String sid, String reportPath, BacktestModels.BacktestResponse response) {
+    public void insertResults(String sid, String reportPath, StrategyRuntimeModels.StrategyRunResponse response) {
         if (!storeEnabled || response == null) {
             return;
         }
         if (!isClickHouseReady()) {
             return;
         }
-        List<BacktestModels.BacktestResult> results =
-                response.results == null ? Collections.<BacktestModels.BacktestResult>emptyList() : response.results;
+        List<StrategyRuntimeModels.StrategyRunResult> results =
+                response.results == null ? Collections.<StrategyRuntimeModels.StrategyRunResult>emptyList() : response.results;
         if (results.isEmpty()) {
             return;
         }
@@ -48,7 +48,7 @@ public class BacktestResultClickHouseDao {
                 + "initial_capital,final_capital,total_pnl,report_path,payload)"
                 + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
-        for (BacktestModels.BacktestResult result : results) {
+        for (StrategyRuntimeModels.StrategyRunResult result : results) {
             try {
                 Object[] args = new Object[]{
                         Timestamp.from(Instant.now()),

@@ -1,8 +1,8 @@
 package com.app.dc.service.simulation;
 
-import com.app.dc.service.simulation.BacktestModels.BacktestResult;
-import com.app.dc.service.simulation.BacktestModels.EquityContext;
-import com.app.dc.service.simulation.BacktestModels.TradeRecord;
+import com.app.dc.strategy.core.StrategyRuntimeModels.StrategyRunResult;
+import com.app.dc.strategy.core.StrategyRuntimeModels.EquityContext;
+import com.app.dc.strategy.core.StrategyRuntimeModels.TradeRecord;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -23,7 +23,7 @@ public class BacktestMetricService {
         return context;
     }
 
-    public void applyTrade(BacktestResult result, TradeRecord tradeRecord, EquityContext context) {
+    public void applyTrade(StrategyRunResult result, TradeRecord tradeRecord, EquityContext context) {
         result.tradeList.add(tradeRecord);
         boolean stopExit = tradeRecord.exitReason != null && tradeRecord.exitReason.startsWith("stop");
         boolean takeExit = tradeRecord.exitReason != null && tradeRecord.exitReason.startsWith("take");
@@ -66,7 +66,7 @@ public class BacktestMetricService {
         }
     }
 
-    public void finishResult(BacktestResult result, EquityContext context) {
+    public void finishResult(StrategyRunResult result, EquityContext context) {
         result.finalCapital = scale(context.equity);
         result.tradeCount = result.tradeList.size();
         result.winRate = result.tradeCount == 0 ? BigDecimal.ZERO

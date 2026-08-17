@@ -1,9 +1,9 @@
 package com.app.dc.simulation;
 
 import com.app.dc.service.simulation.BacktestMetricService;
-import com.app.dc.service.simulation.BacktestModels.BacktestResult;
-import com.app.dc.service.simulation.BacktestModels.EquityContext;
-import com.app.dc.service.simulation.BacktestModels.TradeRecord;
+import com.app.dc.strategy.core.StrategyRuntimeModels.StrategyRunResult;
+import com.app.dc.strategy.core.StrategyRuntimeModels.EquityContext;
+import com.app.dc.strategy.core.StrategyRuntimeModels.TradeRecord;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -15,7 +15,7 @@ public class BacktestMetricServiceTest {
     @Test
     public void usesFixedTradeNotionalInsteadOfCompoundingEquity() {
         BacktestMetricService service = new BacktestMetricService();
-        BacktestResult result = result();
+        StrategyRunResult result = result();
         EquityContext equity = service.initEquityContext(10000, 10000);
 
         service.applyTrade(result, trade("0.10"), equity);
@@ -29,7 +29,7 @@ public class BacktestMetricServiceTest {
     @Test
     public void retainsHistoricalMaximumDrawdownAfterEquityRecovers() {
         BacktestMetricService service = new BacktestMetricService();
-        BacktestResult result = result();
+        StrategyRunResult result = result();
         EquityContext equity = service.initEquityContext(10000, 10000);
 
         service.applyTrade(result, trade("-0.10"), equity);
@@ -39,8 +39,8 @@ public class BacktestMetricServiceTest {
         Assert.assertEquals(11000.0, equity.equity, 0.000001);
     }
 
-    private BacktestResult result() {
-        BacktestResult result = new BacktestResult();
+    private StrategyRunResult result() {
+        StrategyRunResult result = new StrategyRunResult();
         result.tradeList = new ArrayList<TradeRecord>();
         result.maxDrawdownPct = BigDecimal.ZERO;
         return result;

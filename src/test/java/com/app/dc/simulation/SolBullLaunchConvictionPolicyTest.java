@@ -1,6 +1,6 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.strategy.trend.bull.SolBullLaunchConvictionPolicy;
+import com.app.dc.strategy.core.strategy.trend.bull.SolBullLaunchConvictionPolicy;
 import org.junit.Assert;
 import org.junit.Test;
 

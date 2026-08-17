@@ -1,4 +1,4 @@
-package com.app.dc.service.simulation.strategy.trend.bull;
+package com.app.dc.strategy.core.strategy.trend.bull;
 
 import org.junit.Assert;
 import org.junit.Test;

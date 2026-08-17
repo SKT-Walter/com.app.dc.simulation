@@ -1,7 +1,7 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.deterministic.StructuralTrendSnapshot;
-import com.app.dc.service.simulation.strategy.trend.*;
+import com.app.dc.strategy.core.deterministic.StructuralTrendSnapshot;
+import com.app.dc.strategy.core.strategy.trend.*;
 import org.junit.Assert;
 import org.junit.Test;
 import org.ta4j.core.*;

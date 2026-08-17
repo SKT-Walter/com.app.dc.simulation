@@ -3,15 +3,15 @@ package com.app.dc.simulation;
 import com.app.dc.po.Side;
 import com.app.dc.po.Signal;
 import com.app.dc.po.TTbookOhlc;
-import com.app.dc.service.simulation.BacktestModels.Position;
-import com.app.dc.service.simulation.deterministic.StructuralTrendSnapshot;
-import com.app.dc.service.simulation.dynamic.BacktestRegime;
-import com.app.dc.service.simulation.strategy.exit.BinanceTrendPositionExitPolicy;
-import com.app.dc.service.simulation.strategy.exit.PositionExitDecision;
-import com.app.dc.service.simulation.strategy.exit.StrategyPositionExitContext;
-import com.app.dc.service.simulation.strategy.risk.BinanceTrendEntryRiskService;
-import com.app.dc.service.simulation.strategy.profile.SymbolStrategyProfileService;
-import com.app.dc.service.simulation.strategy.trend.BinanceTrendBacktestStrategy;
+import com.app.dc.strategy.core.StrategyRuntimeModels.Position;
+import com.app.dc.strategy.core.deterministic.StructuralTrendSnapshot;
+import com.app.dc.strategy.core.dynamic.MarketRegime;
+import com.app.dc.strategy.core.strategy.exit.BinanceTrendPositionExitPolicy;
+import com.app.dc.strategy.core.strategy.exit.PositionExitDecision;
+import com.app.dc.strategy.core.strategy.exit.StrategyPositionExitContext;
+import com.app.dc.strategy.core.strategy.risk.BinanceTrendEntryRiskService;
+import com.app.dc.strategy.core.strategy.profile.SymbolStrategyProfileService;
+import com.app.dc.strategy.core.strategy.trend.BinanceTrendStrategyAlgorithm;
 import org.junit.Assert;
 import org.junit.Test;
 import org.ta4j.core.BarSeries;
@@ -30,7 +30,7 @@ public class BinanceTrendRiskAndExitTest {
 
     @Test
     public void counterStructureTrendSignalUsesAtrInitialStopOnLossSide() throws Exception {
-        BinanceTrendBacktestStrategy strategy = new BinanceTrendBacktestStrategy();
+        BinanceTrendStrategyAlgorithm strategy = new BinanceTrendStrategyAlgorithm();
         BarSeries series = decliningSeries(64, 150.0, 0.08);
         double close = series.getLastBar().getClosePrice().doubleValue();
         Signal signal = strategy.evaluate("ETHUSDT", "15m", series, ohlc(close));
@@ -53,7 +53,7 @@ public class BinanceTrendRiskAndExitTest {
 
     @Test
     public void alignedTrendSignalKeepsSharedFallbackStop() throws Exception {
-        BinanceTrendBacktestStrategy strategy = new BinanceTrendBacktestStrategy();
+        BinanceTrendStrategyAlgorithm strategy = new BinanceTrendStrategyAlgorithm();
         BarSeries series = decliningSeries(64, 150.0, 0.08);
         Signal signal = strategy.evaluate("ETHUSDT", "15m", series,
                 ohlc(series.getLastBar().getClosePrice().doubleValue()));
@@ -72,7 +72,7 @@ public class BinanceTrendRiskAndExitTest {
 
     @Test
     public void appliesSymbolSpecificTrendTakeProfitWhenLifecycleIsDisabled() throws Exception {
-        BinanceTrendBacktestStrategy strategy = new BinanceTrendBacktestStrategy();
+        BinanceTrendStrategyAlgorithm strategy = new BinanceTrendStrategyAlgorithm();
         BarSeries series = decliningSeries(64, 150.0, 0.08);
         double close = series.getLastBar().getClosePrice().doubleValue();
         Signal signal = strategy.evaluate("ETHUSDT", "15m", series, ohlc(close));
@@ -95,7 +95,7 @@ public class BinanceTrendRiskAndExitTest {
         BinanceTrendPositionExitPolicy policy = policy();
         Position position = shortPosition();
         BarSeries series = decliningSeries(60, 150.0, 0.5);
-        BacktestRegime up = regime("UP");
+        MarketRegime up = regime("UP");
         StrategyPositionExitContext context = new StrategyPositionExitContext(
                 series, up, StructuralTrendSnapshot.warmup());
 
@@ -132,7 +132,7 @@ public class BinanceTrendRiskAndExitTest {
             add(series, close - 0.05, close + 0.5, close - 0.5, close);
         }
         add(series, 103.0, 104.0, 102.0, 103.0);
-        BacktestRegime down = regime("DOWN");
+        MarketRegime down = regime("DOWN");
 
         Assert.assertFalse(policy.evaluate(position, context(series, down, 0.60)).exit);
         Assert.assertFalse(policy.evaluate(position, context(series, down, 0.61)).exit);
@@ -171,7 +171,7 @@ public class BinanceTrendRiskAndExitTest {
             add(series, close - 0.05, close + 0.5, close - 0.5, close);
         }
         add(series, 103.0, 104.0, 102.0, 103.0);
-        BacktestRegime up = regime("UP");
+        MarketRegime up = regime("UP");
 
         Assert.assertFalse(policy.evaluate(position, context(series, up, 0.60)).exit);
         Assert.assertFalse(policy.evaluate(position, context(series, up, 0.61)).exit);
@@ -191,7 +191,7 @@ public class BinanceTrendRiskAndExitTest {
         return policy;
     }
 
-    private StrategyPositionExitContext context(BarSeries series, BacktestRegime regime,
+    private StrategyPositionExitContext context(BarSeries series, MarketRegime regime,
                                                 double confidence) {
         StructuralTrendSnapshot structural = new StructuralTrendSnapshot(
                 StructuralTrendSnapshot.BULL, StructuralTrendSnapshot.BULL,
@@ -207,8 +207,8 @@ public class BinanceTrendRiskAndExitTest {
         return position;
     }
 
-    private BacktestRegime regime(String trend) {
-        BacktestRegime regime = new BacktestRegime();
+    private MarketRegime regime(String trend) {
+        MarketRegime regime = new MarketRegime();
         regime.trend = trend;
         regime.tradeable = true;
         return regime;

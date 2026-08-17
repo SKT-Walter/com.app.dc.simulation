@@ -1,8 +1,8 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.deterministic.StructuralTrendService;
-import com.app.dc.service.simulation.deterministic.StructuralTrendSnapshot;
-import com.app.dc.service.simulation.deterministic.StructuralTrendState;
+import com.app.dc.strategy.core.deterministic.StructuralTrendService;
+import com.app.dc.strategy.core.deterministic.StructuralTrendSnapshot;
+import com.app.dc.strategy.core.deterministic.StructuralTrendState;
 import org.junit.Assert;
 import org.junit.Test;
 import org.ta4j.core.BarSeries;

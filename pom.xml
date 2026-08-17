@@ -12,7 +12,7 @@
 		<maven.compiler.encoding>UTF-8</maven.compiler.encoding>
 	</properties>
 	<dependencies>
-		<dependency><groupId>com.app.dc</groupId><artifactId>com.app.dc.strategycore</artifactId><version>0.0.1-SNAPSHOT</version></dependency>
+		<dependency><groupId>com.app.dc</groupId><artifactId>com.app.dc.strategycore</artifactId><version>0.2.0</version></dependency>
 		<dependency>
 			<groupId>com.app.dc</groupId>
 			<artifactId>com.app.dc</artifactId>

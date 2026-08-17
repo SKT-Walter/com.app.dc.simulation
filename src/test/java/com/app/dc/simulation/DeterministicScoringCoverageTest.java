@@ -1,16 +1,16 @@
 package com.app.dc.simulation;
 
 import com.app.dc.po.TTbookOhlc;
-import com.app.dc.service.simulation.deterministic.DeterministicScoreCard;
-import com.app.dc.service.simulation.deterministic.DeterministicScoringService;
-import com.app.dc.service.simulation.deterministic.CandidateRuleChain;
-import com.app.dc.service.simulation.deterministic.CandidateSelectionResult;
-import com.app.dc.service.simulation.deterministic.MarketContextFactory;
-import com.app.dc.service.simulation.deterministic.StrategyEvaluationContext;
-import com.app.dc.service.simulation.deterministic.StructuralTrendSnapshot;
-import com.app.dc.service.simulation.dynamic.BacktestRegime;
-import com.app.dc.service.simulation.dynamic.DynamicStrategyCatalog;
-import com.app.dc.service.simulation.dynamic.DynamicStrategyMeta;
+import com.app.dc.strategy.core.deterministic.DeterministicScoreCard;
+import com.app.dc.strategy.core.deterministic.DeterministicScoringService;
+import com.app.dc.strategy.core.deterministic.CandidateRuleChain;
+import com.app.dc.strategy.core.deterministic.CandidateSelectionResult;
+import com.app.dc.strategy.core.deterministic.MarketContextFactory;
+import com.app.dc.strategy.core.deterministic.StrategyEvaluationContext;
+import com.app.dc.strategy.core.deterministic.StructuralTrendSnapshot;
+import com.app.dc.strategy.core.dynamic.MarketRegime;
+import com.app.dc.strategy.core.dynamic.DynamicStrategyCatalog;
+import com.app.dc.strategy.core.dynamic.DynamicStrategyMeta;
 import org.junit.Assert;
 import org.junit.Test;
 import org.springframework.boot.WebApplicationType;
@@ -41,7 +41,7 @@ public class DeterministicScoringCoverageTest {
             MarketContextFactory contexts = spring.getBean(MarketContextFactory.class);
             CandidateRuleChain candidateRules = spring.getBean(CandidateRuleChain.class);
             BarSeries series = series();
-            BacktestRegime regime = regime();
+            MarketRegime regime = regime();
             StrategyEvaluationContext context = contexts.create(
                     "ETHUSDT", "15M", series, new TTbookOhlc(), regime);
             int enabled = 0;
@@ -55,7 +55,7 @@ public class DeterministicScoringCoverageTest {
             }
             Assert.assertEquals(76, enabled);
 
-            BacktestRegime range = rangeRegime();
+            MarketRegime range = rangeRegime();
             CandidateSelectionResult ethCandidates = candidateRules.select(contexts.create(
                     "ETHUSDT", "15M", series, new TTbookOhlc(), range));
             Assert.assertTrue(ethCandidates.candidates.stream()
@@ -113,8 +113,8 @@ public class DeterministicScoringCoverageTest {
         return series;
     }
 
-    private BacktestRegime regime() {
-        BacktestRegime regime = new BacktestRegime();
+    private MarketRegime regime() {
+        MarketRegime regime = new MarketRegime();
         regime.trend = "UP";
         regime.volatility = "HIGH";
         regime.confidence = .82;
@@ -130,8 +130,8 @@ public class DeterministicScoringCoverageTest {
         return regime;
     }
 
-    private BacktestRegime rangeRegime() {
-        BacktestRegime regime = regime();
+    private MarketRegime rangeRegime() {
+        MarketRegime regime = regime();
         regime.trend = "NONE";
         regime.volatility = "LOW";
         regime.breakoutExpansion = false;

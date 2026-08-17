@@ -3,9 +3,9 @@ package com.app.dc.simulation;
 import com.app.dc.po.Side;
 import com.app.dc.po.Signal;
 import com.app.dc.po.TTbookOhlc;
-import com.app.dc.service.simulation.BacktestModels.TradeRecord;
-import com.app.dc.service.simulation.strategy.range.BinanceRangeBacktestStrategy;
-import com.app.dc.service.simulation.strategy.range.BinanceRangeSetupAnalyzer;
+import com.app.dc.strategy.core.StrategyRuntimeModels.TradeRecord;
+import com.app.dc.strategy.core.strategy.range.BinanceRangeStrategyAlgorithm;
+import com.app.dc.strategy.core.strategy.range.BinanceRangeSetupAnalyzer;
 import org.junit.Assert;
 import org.junit.Test;
 import org.ta4j.core.BarSeries;
@@ -29,7 +29,7 @@ public class BinanceRangeStrategyTest {
         Assert.assertEquals("BUY", setup.side);
         Assert.assertTrue(setup.rewardRisk >= BinanceRangeSetupAnalyzer.MIN_REWARD_RISK);
 
-        Signal signal = new BinanceRangeBacktestStrategy()
+        Signal signal = new BinanceRangeStrategyAlgorithm()
                 .evaluate("ETHUSDT", "15m", series, ohlc(98.50));
         Assert.assertEquals(Side.BUY, signal.side);
         Assert.assertTrue(signal.stopPrice.doubleValue() < 98.50);
@@ -92,7 +92,7 @@ public class BinanceRangeStrategyTest {
     public void stopExitStartsSixBarCooldownAndSessionResetClearsIt() {
         BarSeries series = stableBox();
         add(series, 98.15, 98.60, 97.90, 98.50);
-        BinanceRangeBacktestStrategy strategy = new BinanceRangeBacktestStrategy();
+        BinanceRangeStrategyAlgorithm strategy = new BinanceRangeStrategyAlgorithm();
         Assert.assertEquals(Side.BUY,
                 strategy.evaluate("ETHUSDT", "15m", series, ohlc(98.50)).side);
 
@@ -102,7 +102,7 @@ public class BinanceRangeStrategyTest {
         Signal cooled = strategy.evaluate("ETHUSDT", "15m", series, ohlc(98.50));
         Assert.assertTrue(cooled.side == null || cooled.side == Side.NONE);
         Assert.assertEquals(Integer.valueOf(1), strategy.snapshotRejectStats("ETHUSDT")
-                .get(BinanceRangeBacktestStrategy.COOLDOWN_REJECTION));
+                .get(BinanceRangeStrategyAlgorithm.COOLDOWN_REJECTION));
 
         strategy.resetSession("ETHUSDT");
         Assert.assertEquals(Side.BUY,

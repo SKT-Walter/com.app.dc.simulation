@@ -3,8 +3,8 @@ package com.app.dc.simulation;
 import com.app.dc.po.Side;
 import com.app.dc.po.Signal;
 import com.app.dc.po.TTbookOhlc;
-import com.app.dc.service.simulation.BacktestModels.TradeRecord;
-import com.app.dc.service.simulation.strategy.range.VwapReversionBacktestStrategy;
+import com.app.dc.strategy.core.StrategyRuntimeModels.TradeRecord;
+import com.app.dc.strategy.core.strategy.range.VwapReversionStrategyAlgorithm;
 import org.junit.Assert;
 import org.junit.Test;
 import org.ta4j.core.BarSeries;
@@ -20,7 +20,7 @@ public class VwapStrategyTest {
 
     @Test
     public void reversionWaitsForDirectionalRecoveryConfirmation() {
-        VwapReversionBacktestStrategy strategy = new VwapReversionBacktestStrategy();
+        VwapReversionStrategyAlgorithm strategy = new VwapReversionStrategyAlgorithm();
 
         BarSeries falling = baseSeries();
         add(falling, 99.40, 99.50, 98.60, 98.80);
@@ -39,7 +39,7 @@ public class VwapStrategyTest {
 
     @Test
     public void insufficientRewardRiskIsRejected() {
-        VwapReversionBacktestStrategy strategy = new VwapReversionBacktestStrategy();
+        VwapReversionStrategyAlgorithm strategy = new VwapReversionStrategyAlgorithm();
         BarSeries series = volatileBaseSeries();
         add(series, 99.40, 101.50, 97.50, 98.80);
         add(series, 98.90, 101.50, 97.50, 99.30);
@@ -49,7 +49,7 @@ public class VwapStrategyTest {
 
     @Test
     public void stopCooldownSurvivesRoutingResetButNotNewSession() {
-        VwapReversionBacktestStrategy strategy = new VwapReversionBacktestStrategy();
+        VwapReversionStrategyAlgorithm strategy = new VwapReversionStrategyAlgorithm();
         BarSeries series = recoverySeries();
         Assert.assertEquals(Side.BUY, strategy.evaluate("ETHUSDT", "15m", series, ohlc(99.30)).side);
 
@@ -59,7 +59,7 @@ public class VwapStrategyTest {
         strategy.resetRuntime("ETHUSDT");
         assertHold(strategy.evaluate("ETHUSDT", "15m", series, ohlc(99.30)));
         Assert.assertEquals(Integer.valueOf(1),
-                strategy.snapshotRejectStats("ETHUSDT").get(VwapReversionBacktestStrategy.COOLDOWN_REJECTION));
+                strategy.snapshotRejectStats("ETHUSDT").get(VwapReversionStrategyAlgorithm.COOLDOWN_REJECTION));
 
         strategy.resetSession("ETHUSDT");
         Assert.assertEquals(Side.BUY, strategy.evaluate("ETHUSDT", "15m", series, ohlc(99.30)).side);
@@ -68,7 +68,7 @@ public class VwapStrategyTest {
 
     @Test
     public void takeProfitDoesNotStartCooldown() {
-        VwapReversionBacktestStrategy strategy = new VwapReversionBacktestStrategy();
+        VwapReversionStrategyAlgorithm strategy = new VwapReversionStrategyAlgorithm();
         BarSeries series = recoverySeries();
         TradeRecord take = new TradeRecord();
         take.exitReason = "take_profit";

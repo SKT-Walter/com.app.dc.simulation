@@ -1,8 +1,8 @@
-package com.app.dc.service.simulation.deterministic.scoring;
+package com.app.dc.strategy.core.deterministic.scoring;
 
-import com.app.dc.service.simulation.deterministic.StrategyEvaluationContext;
-import com.app.dc.service.simulation.deterministic.StrategySetupScore;
-import com.app.dc.service.simulation.deterministic.TechnicalSnapshot;
+import com.app.dc.strategy.core.deterministic.StrategyEvaluationContext;
+import com.app.dc.strategy.core.deterministic.StrategySetupScore;
+import com.app.dc.strategy.core.deterministic.TechnicalSnapshot;
 import org.junit.Assert;
 import org.junit.Test;
 

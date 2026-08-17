@@ -1,8 +1,8 @@
-package com.app.dc.service.simulation.strategy.exit;
+package com.app.dc.strategy.core.strategy.exit;
 
 import com.app.dc.po.Side;
-import com.app.dc.service.simulation.BacktestModels.Position;
-import com.app.dc.service.simulation.strategy.trend.bull.BtcMultiTimeframeSnapshot;
+import com.app.dc.strategy.core.StrategyRuntimeModels.Position;
+import com.app.dc.strategy.core.strategy.trend.bull.BtcMultiTimeframeSnapshot;
 import org.junit.Assert;
 import org.junit.Test;
 

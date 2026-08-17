@@ -1,9 +1,9 @@
 package com.app.dc.simulation;
 
 import com.app.dc.po.Side;
-import com.app.dc.service.simulation.deterministic.MarketParticipationGate;
-import com.app.dc.service.simulation.deterministic.StrategyRoutingDecision;
-import com.app.dc.service.simulation.strategy.range.AtrChannelBiasSetupSnapshot;
+import com.app.dc.strategy.core.deterministic.MarketParticipationGate;
+import com.app.dc.strategy.core.deterministic.StrategyRoutingDecision;
+import com.app.dc.strategy.core.strategy.range.AtrChannelBiasSetupSnapshot;
 import org.junit.Assert;
 import org.junit.Test;
 

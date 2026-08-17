@@ -1,12 +1,12 @@
 package com.app.dc.simulation;
 
 import com.app.dc.po.Side;
-import com.app.dc.service.simulation.BacktestModels.Position;
-import com.app.dc.service.simulation.deterministic.*;
-import com.app.dc.service.simulation.dynamic.BacktestRegime;
-import com.app.dc.service.simulation.strategy.exit.LifecycleTrendPositionOwnershipPolicy;
-import com.app.dc.service.simulation.strategy.trend.TrendLifecycleSnapshot;
-import com.app.dc.service.simulation.strategy.trend.bull.BullTrendSnapshot;
+import com.app.dc.strategy.core.StrategyRuntimeModels.Position;
+import com.app.dc.strategy.core.deterministic.*;
+import com.app.dc.strategy.core.dynamic.MarketRegime;
+import com.app.dc.strategy.core.strategy.exit.LifecycleTrendPositionOwnershipPolicy;
+import com.app.dc.strategy.core.strategy.trend.TrendLifecycleSnapshot;
+import com.app.dc.strategy.core.strategy.trend.bull.BullTrendSnapshot;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -73,7 +73,7 @@ public class LifecycleTrendPoliciesTest {
     }
 
     private StrategyEvaluationContext context(boolean triggered){
-        BacktestRegime regime=new BacktestRegime();regime.tradeable=true;regime.trend="UP";
+        MarketRegime regime=new MarketRegime();regime.tradeable=true;regime.trend="UP";
         regime.volatility="NORMAL";regime.confidence=.8;
         BullTrendSnapshot eth=new BullTrendSnapshot("ethStructuralBullTrend",
                 triggered?BullTrendSnapshot.TRIGGERED:BullTrendSnapshot.ARMED,"TEST",.9,
@@ -84,7 +84,7 @@ public class LifecycleTrendPoliciesTest {
     }
 
     private StrategyEvaluationContext solContext(boolean triggered){
-        BacktestRegime regime=new BacktestRegime();regime.tradeable=true;regime.trend="UP";
+        MarketRegime regime=new MarketRegime();regime.tradeable=true;regime.trend="UP";
         regime.volatility="NORMAL";regime.confidence=.8;
         BullTrendSnapshot sol=new BullTrendSnapshot("solMomentumBullTrend",
                 triggered?BullTrendSnapshot.TRIGGERED:BullTrendSnapshot.ARMED,"TEST",.9,
@@ -95,7 +95,7 @@ public class LifecycleTrendPoliciesTest {
     }
 
     private StrategyEvaluationContext solLaunchContext(boolean matureTriggered,boolean launchTriggered){
-        BacktestRegime regime=new BacktestRegime();regime.tradeable=true;regime.trend="UP";
+        MarketRegime regime=new MarketRegime();regime.tradeable=true;regime.trend="UP";
         regime.volatility="NORMAL";regime.confidence=.8;
         BullTrendSnapshot mature=new BullTrendSnapshot("solMomentumBullTrend",
                 matureTriggered?BullTrendSnapshot.TRIGGERED:BullTrendSnapshot.OBSERVING,

@@ -1,14 +1,14 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.dynamic.BacktestRegime;
-import com.app.dc.service.simulation.strategy.trend.bear.BearTrendSnapshot;
-import com.app.dc.service.simulation.strategy.trend.bear.EthBearMultiTimeframeSnapshot;
-import com.app.dc.service.simulation.strategy.trend.bear.EthDailyBearContextSnapshot;
-import com.app.dc.service.simulation.strategy.trend.bear.EthStructuralBearTrendService;
-import com.app.dc.service.simulation.strategy.trend.bear.EthBearMultiTimeframeContextService;
-import com.app.dc.service.simulation.strategy.trend.bear.EthDailyBearContextService;
+import com.app.dc.strategy.core.dynamic.MarketRegime;
+import com.app.dc.strategy.core.strategy.trend.bear.BearTrendSnapshot;
+import com.app.dc.strategy.core.strategy.trend.bear.EthBearMultiTimeframeSnapshot;
+import com.app.dc.strategy.core.strategy.trend.bear.EthDailyBearContextSnapshot;
+import com.app.dc.strategy.core.strategy.trend.bear.EthStructuralBearTrendService;
+import com.app.dc.strategy.core.strategy.trend.bear.EthBearMultiTimeframeContextService;
+import com.app.dc.strategy.core.strategy.trend.bear.EthDailyBearContextService;
 import com.app.dc.service.simulation.BacktestQueryService;
-import com.app.dc.service.simulation.dynamic.BacktestRegimeService;
+import com.app.dc.strategy.core.dynamic.MarketRegimeService;
 import com.app.dc.po.TTbookOhlc;
 import org.junit.Assert;
 import org.junit.Test;
@@ -33,7 +33,7 @@ public class EthStructuralBearTrendAdmissionTest {
 
     @Test public void armedSetupCannotTriggerBeforeOneHourContinuationConfirmation(){
         EthStructuralBearTrendService service=new EthStructuralBearTrendService();
-        BarSeries series=series();BacktestRegime regime=new BacktestRegime();regime.tradeable=true;regime.trend="DOWN";regime.volatility="NORMAL";
+        BarSeries series=series();MarketRegime regime=new MarketRegime();regime.tradeable=true;regime.trend="DOWN";regime.volatility="NORMAL";
         BearTrendSnapshot snapshot=service.update("ETHUSDT","15M",series,regime,
                 context(EthBearMultiTimeframeSnapshot.BEAR,false,80));
         Assert.assertEquals(BearTrendSnapshot.ARMED,snapshot.phase);
@@ -42,7 +42,7 @@ public class EthStructuralBearTrendAdmissionTest {
 
     @Test public void fastFourHourBreakdownCanUseStrongFifteenMinuteMomentumWithoutPullback(){
         EthStructuralBearTrendService service=new EthStructuralBearTrendService();BarSeries series=flatSeries();
-        add(series,100,100.2,98.6,98.8,2200);BacktestRegime regime=new BacktestRegime();regime.tradeable=true;regime.trend="DOWN";regime.volatility="HIGH";
+        add(series,100,100.2,98.6,98.8,2200);MarketRegime regime=new MarketRegime();regime.tradeable=true;regime.trend="DOWN";regime.volatility="HIGH";
         EthBearMultiTimeframeSnapshot context=new EthBearMultiTimeframeSnapshot(
                 EthBearMultiTimeframeSnapshot.BEAR,.85,EthBearMultiTimeframeSnapshot.OBSERVING,.85,9,
                 Double.NaN,Double.NaN,2,100,99,100,-1,103,100,99,101,103,2,
@@ -62,7 +62,7 @@ public class EthStructuralBearTrendAdmissionTest {
         List<TTbookOhlc> d1=query.queryLocalOhlc("ETHUSDT","1d","2023-01-01","2023-04-30");
         EthDailyBearContextService daily=new EthDailyBearContextService();EthBearMultiTimeframeContextService mtf=new EthBearMultiTimeframeContextService();
         set(mtf,"dailyContext",daily);mtf.prepare("ETHUSDT",d1,h1,h4);EthStructuralBearTrendService service=new EthStructuralBearTrendService();set(service,"multiTimeframe",mtf);
-        BacktestRegimeService regimes=new BacktestRegimeService();set(regimes,"minimumBars",60);set(regimes,"adxThreshold",25d);set(regimes,"slopeThreshold",.0015d);set(regimes,"minimumConfidence",.55d);
+        MarketRegimeService regimes=new MarketRegimeService();set(regimes,"minimumBars",60);set(regimes,"adxThreshold",25d);set(regimes,"slopeThreshold",.0015d);set(regimes,"minimumConfidence",.55d);
         BarSeries actual=new BaseBarSeries("actual-april-2023");Map<String,Integer> reasons=new LinkedHashMap<String,Integer>();boolean action=false;
         DateTimeFormatter f=DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
         for(TTbookOhlc row:m15){ZonedDateTime t=LocalDateTime.parse(row.starttime,f).atZone(ZoneId.of("Asia/Shanghai"));
@@ -82,7 +82,7 @@ public class EthStructuralBearTrendAdmissionTest {
         EthBearMultiTimeframeContextService mtf=new EthBearMultiTimeframeContextService();
         set(mtf,"dailyContext",daily);mtf.prepare("ETHUSDT",d1,h1,h4);
         EthStructuralBearTrendService service=new EthStructuralBearTrendService();set(service,"multiTimeframe",mtf);
-        BacktestRegimeService regimes=new BacktestRegimeService();set(regimes,"minimumBars",60);
+        MarketRegimeService regimes=new MarketRegimeService();set(regimes,"minimumBars",60);
         set(regimes,"adxThreshold",25d);set(regimes,"slopeThreshold",.0015d);set(regimes,"minimumConfidence",.55d);
         BarSeries actual=new BaseBarSeries("actual-march-2024-distribution");
         DateTimeFormatter f=DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");

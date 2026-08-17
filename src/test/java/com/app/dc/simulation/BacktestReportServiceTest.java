@@ -1,10 +1,10 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.BacktestModels.BacktestResponse;
-import com.app.dc.service.simulation.BacktestModels.BacktestResult;
-import com.app.dc.service.simulation.BacktestModels.TradeRecord;
+import com.app.dc.strategy.core.StrategyRuntimeModels.StrategyRunResponse;
+import com.app.dc.strategy.core.StrategyRuntimeModels.StrategyRunResult;
+import com.app.dc.strategy.core.StrategyRuntimeModels.TradeRecord;
 import com.app.dc.service.simulation.BacktestReportService;
-import com.app.dc.service.simulation.deterministic.StrategyRoutingDecision;
+import com.app.dc.strategy.core.deterministic.StrategyRoutingDecision;
 import org.junit.Assert;
 import org.junit.Test;
 import java.lang.reflect.Method;
@@ -24,7 +24,7 @@ public class BacktestReportServiceTest {
         trade.holdBars = 3;
         trade.returnPct = new BigDecimal("0.10");
         trade.pnl = new BigDecimal("1000");
-        BacktestResult result = new BacktestResult();
+        StrategyRunResult result = new StrategyRunResult();
         result.strategyName = "binanceTrend";
         result.symbol = "ETHUSDT";
         result.initialCapital = new BigDecimal("10000");
@@ -36,7 +36,7 @@ public class BacktestReportServiceTest {
         result.actualEndTime = "2026-01-30T23:45+08:00[Asia/Shanghai]";
         result.totalBars = 960;
         result.tradeList = Arrays.asList(trade);
-        BacktestResponse response = new BacktestResponse();
+        StrategyRunResponse response = new StrategyRunResponse();
         response.strategyName = "binanceTrend";
         response.symbol = "ETHUSDT";
         response.symbols = Arrays.asList("ETHUSDT");
@@ -52,11 +52,11 @@ public class BacktestReportServiceTest {
         decision.activeScore = 87.5;
         decision.reason = "ACTIVATED";
         response.routingDecisions = Arrays.asList(decision);
-        response.routingStats = new com.app.dc.service.simulation.BacktestModels.RoutingStats();
+        response.routingStats = new com.app.dc.strategy.core.StrategyRuntimeModels.RoutingStats();
         response.routingStats.routingDecisionCount = 960;
         response.routingStats.routingReasonCounts.put("ACTIVATED", 1);
         BacktestReportService service = new BacktestReportService();
-        Method method = BacktestReportService.class.getDeclaredMethod("buildMarkdown", BacktestResponse.class);
+        Method method = BacktestReportService.class.getDeclaredMethod("buildMarkdown", StrategyRunResponse.class);
         method.setAccessible(true);
         String markdown = (String) method.invoke(service, response);
         Assert.assertTrue(markdown.contains("# 策略回测报告"));
@@ -91,15 +91,15 @@ public class BacktestReportServiceTest {
             trade.pnl = BigDecimal.ONE;
             trades.add(trade);
         }
-        BacktestResult result = new BacktestResult();
+        StrategyRunResult result = new StrategyRunResult();
         result.strategyName = "deterministic";
         result.symbol = "ETHUSDT";
         result.tradeList = trades;
-        BacktestResponse response = new BacktestResponse();
+        StrategyRunResponse response = new StrategyRunResponse();
         response.results = Arrays.asList(result);
 
         BacktestReportService service = new BacktestReportService();
-        Method method = BacktestReportService.class.getDeclaredMethod("buildMarkdown", BacktestResponse.class);
+        Method method = BacktestReportService.class.getDeclaredMethod("buildMarkdown", StrategyRunResponse.class);
         method.setAccessible(true);
         String markdown = (String) method.invoke(service, response);
 

@@ -1,12 +1,12 @@
 package com.app.dc.simulation;
 
-import com.app.dc.service.simulation.deterministic.DeterministicScoreCard;
-import com.app.dc.service.simulation.deterministic.StrategyEvaluationContext;
-import com.app.dc.service.simulation.deterministic.StructuralTrendScoreModifier;
-import com.app.dc.service.simulation.deterministic.StructuralTrendSnapshot;
-import com.app.dc.service.simulation.deterministic.TechnicalSnapshot;
-import com.app.dc.service.simulation.dynamic.BacktestRegime;
-import com.app.dc.service.simulation.dynamic.DynamicStrategyMeta;
+import com.app.dc.strategy.core.deterministic.DeterministicScoreCard;
+import com.app.dc.strategy.core.deterministic.StrategyEvaluationContext;
+import com.app.dc.strategy.core.deterministic.StructuralTrendScoreModifier;
+import com.app.dc.strategy.core.deterministic.StructuralTrendSnapshot;
+import com.app.dc.strategy.core.deterministic.TechnicalSnapshot;
+import com.app.dc.strategy.core.dynamic.MarketRegime;
+import com.app.dc.strategy.core.dynamic.DynamicStrategyMeta;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -88,7 +88,7 @@ public class StructuralTrendScoreModifierTest {
     private StrategyEvaluationContext context(String regimeTrend, double zScore,
                                               String structuralDirection, String phase,
                                               double confidence, double closeVsEma20) {
-        BacktestRegime regime = new BacktestRegime();
+        MarketRegime regime = new MarketRegime();
         regime.trend = regimeTrend;
         regime.volatility = "NORMAL";
         regime.tradeable = true;

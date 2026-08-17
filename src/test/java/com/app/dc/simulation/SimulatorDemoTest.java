@@ -3,14 +3,14 @@ package com.app.dc.simulation;
 import com.app.dc.po.TTbookOhlc;
 import com.app.dc.po.backtest.BacktestParam;
 import com.app.dc.service.simulation.BacktestMetricService;
-import com.app.dc.service.simulation.BacktestModels;
+import com.app.dc.strategy.core.StrategyRuntimeModels;
 import com.app.dc.service.simulation.BacktestService;
-import com.app.dc.service.simulation.BacktestStrategyService;
+import com.app.dc.strategy.core.StrategyRegistry;
 import com.app.dc.service.simulation.BacktestSupportService;
 import com.app.dc.service.simulation.BacktestTradeService;
-//import com.app.dc.service.simulation.strategy.BinanceChannelBacktestStrategy;
-//import com.app.dc.service.simulation.strategy.BinanceRangeBacktestStrategy;
-//import com.app.dc.service.simulation.strategy.BinanceTrendBacktestStrategy;
+//import com.app.dc.strategy.core.strategy.BinanceChannelStrategyAlgorithm;
+//import com.app.dc.strategy.core.strategy.BinanceRangeStrategyAlgorithm;
+//import com.app.dc.strategy.core.strategy.BinanceTrendStrategyAlgorithm;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -43,7 +43,7 @@ public class SimulatorDemoTest {
         param.maxHoldBars = 24;
 
         List<TTbookOhlc> ohlcList = buildChannelDemoBars();
-        BacktestModels.BacktestResult result = service.runSingleStrategy("binanceChannel", param, ohlcList);
+        StrategyRuntimeModels.StrategyRunResult result = service.runSingleStrategy("binanceChannel", param, ohlcList);
 
         System.out.println("strategy=" + result.strategyName);
         System.out.println("tradeCount=" + result.tradeCount);
@@ -55,7 +55,7 @@ public class SimulatorDemoTest {
         System.out.println("finalCapital=" + result.finalCapital);
 
         if (result.tradeList != null) {
-            for (BacktestModels.TradeRecord tradeRecord : result.tradeList) {
+            for (StrategyRuntimeModels.TradeRecord tradeRecord : result.tradeList) {
                 System.out.println(
                         "trade side=" + tradeRecord.side
                                 + ", entry=" + tradeRecord.entryPrice
@@ -70,10 +70,10 @@ public class SimulatorDemoTest {
     private BacktestService buildService() throws Exception {
         BacktestService service = new BacktestService();
         setField(service, "supportService", new BacktestSupportService());
-        setField(service, "strategyService", new BacktestStrategyService(Arrays.asList(
-//                new BinanceChannelBacktestStrategy(),
-//                new BinanceRangeBacktestStrategy(),
-//                new BinanceTrendBacktestStrategy()
+        setField(service, "strategyService", new StrategyRegistry(Arrays.asList(
+//                new BinanceChannelStrategyAlgorithm(),
+//                new BinanceRangeStrategyAlgorithm(),
+//                new BinanceTrendStrategyAlgorithm()
         )));
         setField(service, "tradeService", new BacktestTradeService());
         setField(service, "metricService", new BacktestMetricService());

@@ -3,12 +3,12 @@ package com.app.dc.simulation;
 import com.app.dc.po.Side;
 import com.app.dc.po.Signal;
 import com.app.dc.po.TTbookOhlc;
-import com.app.dc.service.simulation.BacktestModels.Position;
-import com.app.dc.service.simulation.deterministic.StructuralTrendSnapshot;
-import com.app.dc.service.simulation.strategy.channel.BinanceChannelBacktestStrategy;
-import com.app.dc.service.simulation.strategy.exit.BinanceChannelPositionExitPolicy;
-import com.app.dc.service.simulation.strategy.exit.PositionExitDecision;
-import com.app.dc.service.simulation.strategy.exit.StrategyPositionExitContext;
+import com.app.dc.strategy.core.StrategyRuntimeModels.Position;
+import com.app.dc.strategy.core.deterministic.StructuralTrendSnapshot;
+import com.app.dc.strategy.core.strategy.channel.BinanceChannelStrategyAlgorithm;
+import com.app.dc.strategy.core.strategy.exit.BinanceChannelPositionExitPolicy;
+import com.app.dc.strategy.core.strategy.exit.PositionExitDecision;
+import com.app.dc.strategy.core.strategy.exit.StrategyPositionExitContext;
 import org.junit.Assert;
 import org.junit.Test;
 import org.ta4j.core.BarSeries;
@@ -26,7 +26,7 @@ public class BinanceChannelOptimizationTest {
         BarSeries series = breakoutSeries(220);
         TTbookOhlc current = new TTbookOhlc();
         current.close = BigDecimal.valueOf(108.0);
-        Signal signal = new BinanceChannelBacktestStrategy().evaluate(
+        Signal signal = new BinanceChannelStrategyAlgorithm().evaluate(
                 "ETHUSDT", "15M", series, current);
         Assert.assertEquals(Side.BUY, signal.side);
         Assert.assertNotNull(signal.stopPrice);
@@ -40,7 +40,7 @@ public class BinanceChannelOptimizationTest {
         BarSeries series = breakoutSeries(50);
         TTbookOhlc current = new TTbookOhlc();
         current.close = BigDecimal.valueOf(108.0);
-        Signal signal = new BinanceChannelBacktestStrategy().evaluate(
+        Signal signal = new BinanceChannelStrategyAlgorithm().evaluate(
                 "ETHUSDT", "15M", series, current);
         Assert.assertTrue(signal.side == null || signal.side == Side.NONE);
     }

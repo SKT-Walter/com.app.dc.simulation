@@ -32,7 +32,7 @@ public class BinanceTrendBacktestStrategy implements BinanceBacktestStrategy {
         Signal signal = BinanceStrategyMath.createBaseSignal(symbol, text, currentOhlc);
         BinanceTrendSettings settings = strategyProfiles == null
                 ? BinanceTrendSettings.legacy()
-                : strategyProfiles.binanceTrendSettings(symbol, text);
+                : strategyProfiles.binanceTrendSettings(symbol, text, getName());
         if (settings.lifecycleEnabled && lifecycleService != null) {
             TrendLifecycleSnapshot lifecycle=lifecycleService.current(symbol,text);
             if(lifecycle.actionable) {
@@ -61,7 +61,7 @@ public class BinanceTrendBacktestStrategy implements BinanceBacktestStrategy {
         boolean downTrend = maFast < maMid && maMid < maSlow && close < closePrev;
 
         if (upTrend && nearFastMa) {
-            if(strategyProfiles==null||strategyProfiles.binanceTrendBuyEnabled(symbol,text))
+            if(strategyProfiles==null||strategyProfiles.binanceTrendBuyEnabled(symbol,text,getName()))
                 signal.side = Side.BUY;
         } else if (downTrend && nearFastMa) {
             signal.side = Side.SELL;

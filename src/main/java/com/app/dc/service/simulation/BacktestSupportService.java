@@ -44,6 +44,12 @@ public class BacktestSupportService {
         if ("solbull".equalsIgnoreCase(value)||"sol_momentum_bull".equalsIgnoreCase(value)) {
             return "solMomentumBullTrend";
         }
+        if ("sollaunch".equalsIgnoreCase(value)||"sol_bull_launch".equalsIgnoreCase(value)) {
+            return "solBullLaunchTrend";
+        }
+        if ("solbear".equalsIgnoreCase(value)||"sol_structural_bear".equalsIgnoreCase(value)) {
+            return "solStructuralBearTrend";
+        }
         if ("breakoutretestcontinuationtrend".equalsIgnoreCase(value)
                 || "breakout_retest_continuation_trend".equalsIgnoreCase(value)
                 || "breakoutretestcontinuationsignal".equalsIgnoreCase(value)

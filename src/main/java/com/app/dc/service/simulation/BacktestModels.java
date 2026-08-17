@@ -28,11 +28,17 @@ public final class BacktestModels {
         public int routingDecisionCount;
         public Map<String, Integer> routingReasonCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> selectedStrategyCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> routeOwnerStrategyCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> setupBlockedStrategyCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> positionRunningStrategyCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> regimeCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> candidateAcceptedCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> candidateRejectReasonCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> signalCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> strategySignalCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> participationBlockReasonCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> atrChannelPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> atrChannelReasonCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> strategyTradeCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> structuralTrendCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> structuralPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
@@ -44,10 +50,20 @@ public final class BacktestModels {
         public Map<String, Integer> trendLifecycleReasonCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> ethBullTrendPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> ethBullTrendReasonCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> btcBullTrendPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> btcBullTrendReasonCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> solBullTrendPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> solBullTrendReasonCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> solBullLaunchTrendPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> solBullLaunchTrendReasonCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> ethBearTrendPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
         public Map<String, Integer> ethBearTrendReasonCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> solBearTrendPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> solBearTrendReasonCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> btcBullLaunchTrendPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> btcBullLaunchTrendReasonCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> btcBearTrendPhaseCounts = new java.util.LinkedHashMap<String, Integer>();
+        public Map<String, Integer> btcBearTrendReasonCounts = new java.util.LinkedHashMap<String, Integer>();
     }
 
     public static class BacktestResult {
@@ -138,6 +154,16 @@ public final class BacktestModels {
         public int ethLastOneHourIndex = -1;
         public int ethSoftInvalidationBars;
         public double ethSoftStopPrice = Double.NaN;
+        public int btcLastFourHourIndex = -1;
+        public int btcFourHourBearBars;
+        public int btcLastOneHourIndex = -1;
+        public int btcSoftInvalidationBars;
+        public double btcSoftStopPrice = Double.NaN;
+        public int solLastFourHourIndex = -1;
+        public int solFourHourBearBars;
+        public int solLastOneHourIndex = -1;
+        public int solSoftInvalidationBars;
+        public double solSoftStopPrice = Double.NaN;
         public int ethBearLastFourHourIndex = -1;
         public int ethBearFourHourBullBars;
         public int ethBearLastOneHourIndex = -1;

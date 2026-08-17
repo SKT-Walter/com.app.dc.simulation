@@ -49,10 +49,12 @@ public class SymbolStrategyProfileServiceTest {
 
         Assert.assertEquals(10.0,
                 service.takeProfitPct("SOLUSDT", "15M", "binanceTrend"), 0.000001);
+        Assert.assertEquals("2026-08-sol-v3",
+                service.profileVersion("SOLUSDT", "15M"));
         Assert.assertFalse(service.binanceTrendSettings(
                 "SOLUSDT", "15M").lifecycleEnabled);
-        Assert.assertTrue(service.binanceTrendBuyEnabled("SOLUSDT","15M"));
-        Assert.assertFalse(service.isStrategyEnabled("SOLUSDT","15M","solMomentumBullTrend"));
+        Assert.assertFalse(service.binanceTrendBuyEnabled("SOLUSDT","15M"));
+        Assert.assertTrue(service.isStrategyEnabled("SOLUSDT","15M","solMomentumBullTrend"));
         Assert.assertTrue(service.isStrategyEnabled(
                 "SOLUSDT", "15M", "binanceRange"));
         Assert.assertEquals(0.0, service.minimumTriggerRangeAtr(
@@ -67,6 +69,14 @@ public class SymbolStrategyProfileServiceTest {
                 "SOLUSDT", "15M", "atrChannelBiasReversion"));
         Assert.assertTrue(service.isStrategyEnabled(
                 "SOLUSDT", "15M", "compressionBreak"));
+        Assert.assertTrue(service.isSideEnabled(
+                "SOLUSDT", "15M", "donchianReversion", "BUY"));
+        Assert.assertFalse(service.isSideEnabled(
+                "SOLUSDT", "15M", "donchianReversion", "SELL"));
+        Assert.assertFalse(service.isSideEnabled(
+                "SOLUSDT", "15M", "atrChannelReversion", "BUY"));
+        Assert.assertFalse(service.isSideEnabled(
+                "SOLUSDT", "15M", "atrChannelReversion", "SELL"));
 
         Assert.assertNull(service.takeProfitPct("BTCUSDT", "15M", "binanceTrend"));
         Assert.assertTrue(service.binanceTrendBuyEnabled("BTCUSDT","15M"));

@@ -3,6 +3,7 @@ package com.app.dc.service.simulation.deterministic;
 import com.app.dc.service.simulation.dynamic.DynamicStrategyMeta;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import com.app.dc.service.simulation.strategy.SymbolStrategyNames;
 
 /**
  * Converts the slow, stateful structural trend into a bounded score adjustment.
@@ -75,9 +76,11 @@ public class StructuralTrendScoreModifier {
             return null;
         String family = meta.family == null ? "" : meta.family;
         if ("TREND".equalsIgnoreCase(family)) {
-            if ("emaPullbackBuy".equalsIgnoreCase(meta.strategyName)
-                    || "ethStructuralBullTrend".equalsIgnoreCase(meta.strategyName)
-                    || "solMomentumBullTrend".equalsIgnoreCase(meta.strategyName)) return BUY;
+            String strategyName=SymbolStrategyNames.baseName(meta.strategyName);
+            if ("emaPullbackBuy".equalsIgnoreCase(strategyName)
+                    || "ethStructuralBullTrend".equalsIgnoreCase(strategyName)
+                    || "btcStructuralBullTrend".equalsIgnoreCase(strategyName)
+                    || "solMomentumBullTrend".equalsIgnoreCase(strategyName)) return BUY;
             if ("UP".equals(context.regime.trend)) return BUY;
             if ("DOWN".equals(context.regime.trend)) return SELL;
             return null;

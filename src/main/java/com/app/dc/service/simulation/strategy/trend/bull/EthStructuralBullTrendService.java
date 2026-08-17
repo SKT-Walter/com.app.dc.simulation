@@ -4,6 +4,7 @@ import com.app.dc.service.simulation.BacktestModels.TradeRecord;
 import com.app.dc.service.simulation.deterministic.StructuralTrendSnapshot;
 import com.app.dc.service.simulation.dynamic.BacktestRegime;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.BarSeries;
 
@@ -15,7 +16,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class EthStructuralBullTrendService {
     public static final String STRATEGY="ethStructuralBullTrend";
     private static final int TRIGGER_VALIDITY=4,COOLDOWN_BARS=96;
-    @Autowired(required=false) private EthMultiTimeframeContextService multiTimeframe;
+    @Autowired(required=false) @Qualifier("ethMultiTimeframeContextService")
+    private EthMultiTimeframeContextService multiTimeframe;
     private final Map<String,EthStructuralBullTrendState> states=new ConcurrentHashMap<String,EthStructuralBullTrendState>();
 
     public BullTrendSnapshot update(String symbol,String timeframe,BarSeries series,
@@ -54,10 +56,10 @@ public class EthStructuralBullTrendService {
             return cache(s,end,phase,context.reason,context.readiness,false,Double.NaN,null);
         }
         if(s.setupId!=context.setupId)s.setup(context.setupId);
-        return trigger(s,series,end,atr,regime,context);
+        return trigger(s,symbol,series,end,atr,regime,context);
     }
 
-    private BullTrendSnapshot trigger(EthStructuralBullTrendState s,BarSeries x,int end,double atr,
+    private BullTrendSnapshot trigger(EthStructuralBullTrendState s,String symbol,BarSeries x,int end,double atr,
                                       BacktestRegime regime,EthMultiTimeframeSnapshot context){
         s.tacticalBars++;double low=BullTrendMath.low(x,end),ema20=BullTrendMath.ema(x,end,20),close=BullTrendMath.close(x,end);
         s.tacticalLow=Double.isFinite(s.tacticalLow)?Math.min(s.tacticalLow,low):low;
@@ -69,7 +71,8 @@ public class EthStructuralBullTrendService {
         double prior8=BullTrendMath.highest(x,end-1,8),extension=(close-ema20)/atr;
         boolean transition=EthMultiTimeframeSnapshot.FOUR_HOUR_TRANSITION_UP.equals(context.fourHourTrend);
         boolean regimeOk=regime!=null&&(transition?"UP".equals(regime.trend):("UP".equals(regime.trend)||"NONE".equals(regime.trend)));
-        boolean cautious=close>=3500,extreme=close>=4500;
+        boolean eth="ETHUSDT".equalsIgnoreCase(symbol);
+        boolean cautious=eth&&close>=3500,extreme=eth&&close>=4500;
         double fourHourExtension=Double.isFinite(context.fourHourAtr)&&context.fourHourAtr>0
                 &&Double.isFinite(context.fourHourClose)&&Double.isFinite(context.fourHourEma20)
                 ?(context.fourHourClose-context.fourHourEma20)/context.fourHourAtr:Double.POSITIVE_INFINITY;

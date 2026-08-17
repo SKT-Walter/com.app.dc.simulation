@@ -38,32 +38,59 @@ public class IndependentBullTrendStateMachineTest {
         Assert.assertEquals("ETH_4H_DIRECTION_BLOCKED",blocked.reason);
     }
 
-    @Test public void solNeedsEightCompressionBarsAndRejectsWrongSymbol(){
-        SolMomentumBullTrendService service=new SolMomentumBullTrendService();BarSeries s=risingThenFlat();
-        StructuralTrendSnapshot bull=structure("BULL");BacktestRegime low=regime("UP","LOW",.25);
-        BullTrendSnapshot snapshot=null;
-        for(int i=0;i<8;i++){add(s,108.0,108.25,107.85,108.1,1000);snapshot=service.update("SOLUSDT","15M",s,bull,low);}
-        Assert.assertEquals(BullTrendSnapshot.ARMED,snapshot.phase);
-        double priorHigh=highest(s,20);add(s,priorHigh-.05,priorHigh+.60,priorHigh-.15,priorHigh+.45,2200);
-        snapshot=service.update("SOLUSDT","15M",s,bull,regime("UP","NORMAL",.5));
+    @Test public void solRequiresHigherTimeframeArmAndFifteenMinuteRecovery(){
+        SolMomentumBullTrendService service=new SolMomentumBullTrendService();BarSeries s=flat("sol",100,80);
+        BacktestRegime up=regime("UP","NORMAL",.35);EthMultiTimeframeSnapshot armed=armedContext("BULL",3,97);
+        Assert.assertEquals(BullTrendSnapshot.ARMED,
+                service.update("SOLUSDT","15M",s,up,armed).phase);
+        add(s,100,100.5,98.5,99,1000);service.update("SOLUSDT","15M",s,up,armed);
+        add(s,99,99.5,98.0,98.8,1000);service.update("SOLUSDT","15M",s,up,armed);
+        add(s,98.8,100,98.4,99.8,1000);service.update("SOLUSDT","15M",s,up,armed);
+        add(s,99.8,101.5,99.6,101.3,1800);service.update("SOLUSDT","15M",s,up,armed);
+        add(s,101.2,102.5,101.0,102.3,1800);
+        BullTrendSnapshot snapshot=service.update("SOLUSDT","15M",s,up,armed);
         Assert.assertEquals(BullTrendSnapshot.TRIGGERED,snapshot.phase);Assert.assertTrue(snapshot.actionable);
-        Assert.assertEquals(BullTrendSnapshot.WARMUP,service.update("ETHUSDT","15M",s,bull,low).phase);
+        Assert.assertEquals(BullTrendSnapshot.WARMUP,
+                service.update("ETHUSDT","15M",s,up,armed).phase);
     }
 
     @Test public void slowBearInvalidatesBothDetectors(){
         EthStructuralBullTrendService eth=new EthStructuralBullTrendService();SolMomentumBullTrendService sol=new SolMomentumBullTrendService();
         BarSeries e=flat("e",100,80),s=risingThenFlat();
         Assert.assertEquals(BullTrendSnapshot.OBSERVING,eth.update("ETHUSDT","15M",e,regime("DOWN","NORMAL",.5),armedContext("BEAR",2,97)).phase);
-        Assert.assertEquals(BullTrendSnapshot.OBSERVING,sol.update("SOLUSDT","15M",s,structure("BEAR"),regime("DOWN","NORMAL",.5)).phase);
+        Assert.assertEquals(BullTrendSnapshot.OBSERVING,sol.update("SOLUSDT","15M",s,
+                regime("DOWN","NORMAL",.5),armedContext("BEAR",2,97)).phase);
     }
 
-    @Test public void solHighVolatilityCancelsArmedSetupWithoutTrigger(){
+    @Test public void solFourHourBearBlocksArmedSetup(){
         SolMomentumBullTrendService service=new SolMomentumBullTrendService();BarSeries s=risingThenFlat();
-        for(int i=0;i<8;i++){add(s,108,108.2,107.85,108.08,1000);service.update("SOLUSDT","15M",s,structure("BULL"),regime("UP","LOW",.2));}
-        add(s,108.05,108.18,107.9,108.0,1000);
-        BullTrendSnapshot rejected=service.update("SOLUSDT","15M",s,structure("BULL"),regime("UP","HIGH",.9));
-        Assert.assertEquals(BullTrendSnapshot.INVALIDATED,rejected.phase);
-        Assert.assertEquals("SOL_BULL_HIGH_VOLATILITY_REJECTED",rejected.reason);
+        BullTrendSnapshot rejected=service.update("SOLUSDT","15M",s,
+                regime("UP","HIGH",.9),armedContext("BEAR",4,97));
+        Assert.assertEquals(BullTrendSnapshot.OBSERVING,rejected.phase);
+        Assert.assertEquals("SOL_4H_DIRECTION_BLOCKED",rejected.reason);
+    }
+
+    @Test public void solLaunchHasIndependentTriggerState(){
+        SolBullLaunchTrendService launch=new SolBullLaunchTrendService();
+        SolMomentumBullTrendService mature=new SolMomentumBullTrendService();
+        BarSeries s=flat("sol-launch",100,80);BacktestRegime up=regime("UP","NORMAL",.35);
+        EthMultiTimeframeSnapshot armed=armedContext("TRANSITION_UP",9,97);
+        launch.update("SOLUSDT","15M",s,up,armed);
+        add(s,100,100.5,98.5,99,1000);launch.update("SOLUSDT","15M",s,up,armed);
+        add(s,99,99.5,98.0,98.8,1000);launch.update("SOLUSDT","15M",s,up,armed);
+        add(s,98.8,100,98.4,99.8,1000);launch.update("SOLUSDT","15M",s,up,armed);
+        add(s,99.8,101.5,99.6,101.3,1800);launch.update("SOLUSDT","15M",s,up,armed);
+        add(s,101.2,102.5,101.0,102.3,1800);
+        BullTrendSnapshot triggered=launch.update("SOLUSDT","15M",s,up,armed);
+        Assert.assertEquals(BullTrendSnapshot.TRIGGERED,triggered.phase);
+        Assert.assertEquals("SOL_4H_TURN_UP_15M_BREAKOUT",triggered.triggerType);
+        Assert.assertEquals(BullTrendSnapshot.WARMUP,
+                mature.current("SOLUSDT","15M").phase);
+        launch.consume("SOLUSDT","15M",s.getEndIndex());
+        Assert.assertEquals(BullTrendSnapshot.RUNNING,
+                launch.current("SOLUSDT","15M").phase);
+        Assert.assertEquals(BullTrendSnapshot.WARMUP,
+                mature.current("SOLUSDT","15M").phase);
     }
 
     private StructuralTrendSnapshot structure(String d){return structure(d,d);}

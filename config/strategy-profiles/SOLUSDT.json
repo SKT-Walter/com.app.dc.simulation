@@ -1,17 +1,30 @@
 {
-  "profileVersion": "2026-07-v1",
+  "profileVersion": "2026-08-sol-v3",
   "symbol": "SOLUSDT",
   "timeframe": "15M",
   "enabled": true,
   "strategies": {
-    "binanceTrend": {
+    "binanceTrendSOL": {
       "takeProfitPct": 10,
-      "binanceTrendBuyEnabled": true
+      "binanceTrendBuyEnabled": false
     },
-    "solMomentumBullTrend": {
-      "enabled": false
+    "solMomentumBullTrendSOL": {
+      "enabled": true
     },
-    "binanceRange": {
+    "solBullLaunchTrendSOL": {
+      "enabled": true
+    },
+    "solStructuralBearTrendSOL": {
+      "enabled": true
+    },
+    "donchianReversionSOL": {
+      "sellEnabled": false
+    },
+    "atrChannelReversionSOL": {
+      "buyEnabled": false,
+      "sellEnabled": false
+    },
+    "binanceRangeSOL": {
       "enabled": true
     }
   }

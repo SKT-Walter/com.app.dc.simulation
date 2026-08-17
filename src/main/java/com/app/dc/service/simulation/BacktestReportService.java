@@ -212,12 +212,19 @@ public class BacktestReportService {
             sb.append("- 路由决策次数：").append(a.routingDecisionCount).append("\n");
             sb.append("- Regime分布：").append(a.regimeCounts).append("\n");
             sb.append("- 路由原因统计：").append(a.routingReasonCounts).append("\n");
-            sb.append("- 主策略选择统计：").append(a.selectedStrategyCounts).append("\n");
+            sb.append("- 路由所有权统计：").append(a.routeOwnerStrategyCounts).append("\n");
+            sb.append("- 可执行主策略统计：").append(a.selectedStrategyCounts).append("\n");
+            sb.append("- 形态未准备阻止：").append(a.setupBlockedStrategyCounts).append("\n");
+            sb.append("- 持仓运行占用：").append(a.positionRunningStrategyCounts).append("\n");
             sb.append("- 合法候选出现次数：").append(a.candidateAcceptedCounts).append("\n");
             sb.append("- 候选拒绝原因：").append(a.candidateRejectReasonCounts).append("\n");
             sb.append("- 信号统计：").append(a.signalCounts).append("\n");
             sb.append("- 策略信号统计：").append(a.strategySignalCounts).append("\n");
             sb.append("- 策略成交统计：").append(a.strategyTradeCounts).append("\n\n");
+            sb.append("- 市场参与门拒绝原因：")
+                    .append(a.participationBlockReasonCounts).append("\n");
+            sb.append("- ATR通道准备阶段：").append(a.atrChannelPhaseCounts).append("\n");
+            sb.append("- ATR通道准备原因：").append(a.atrChannelReasonCounts).append("\n\n");
             sb.append("- 结构趋势分布：").append(a.structuralTrendCounts).append("\n");
             sb.append("- 结构趋势阶段：").append(a.structuralPhaseCounts).append("\n");
             sb.append("- 信号来源统计：").append(a.signalSourceCounts).append("\n");
@@ -230,10 +237,20 @@ public class BacktestReportService {
             sb.append("- 趋势生命周期原因：").append(a.trendLifecycleReasonCounts).append("\n\n");
             sb.append("- ETH多头趋势阶段：").append(a.ethBullTrendPhaseCounts).append("\n");
             sb.append("- ETH多头趋势原因：").append(a.ethBullTrendReasonCounts).append("\n");
+            sb.append("- BTC多头趋势阶段：").append(a.btcBullTrendPhaseCounts).append("\n");
+            sb.append("- BTC多头趋势原因：").append(a.btcBullTrendReasonCounts).append("\n");
             sb.append("- SOL多头趋势阶段：").append(a.solBullTrendPhaseCounts).append("\n");
             sb.append("- SOL多头趋势原因：").append(a.solBullTrendReasonCounts).append("\n\n");
+            sb.append("- SOL早期启动阶段：").append(a.solBullLaunchTrendPhaseCounts).append("\n");
+            sb.append("- SOL早期启动原因：").append(a.solBullLaunchTrendReasonCounts).append("\n\n");
             sb.append("- ETH空头趋势阶段：").append(a.ethBearTrendPhaseCounts).append("\n");
             sb.append("- ETH空头趋势原因：").append(a.ethBearTrendReasonCounts).append("\n\n");
+            sb.append("- SOL空头趋势阶段：").append(a.solBearTrendPhaseCounts).append("\n");
+            sb.append("- SOL空头趋势原因：").append(a.solBearTrendReasonCounts).append("\n\n");
+            sb.append("- BTC早期多头启动阶段：").append(a.btcBullLaunchTrendPhaseCounts).append("\n");
+            sb.append("- BTC早期多头启动原因：").append(a.btcBullLaunchTrendReasonCounts).append("\n");
+            sb.append("- BTC结构空头阶段：").append(a.btcBearTrendPhaseCounts).append("\n");
+            sb.append("- BTC结构空头原因：").append(a.btcBearTrendReasonCounts).append("\n\n");
         }
 
         if (response.routingDecisions != null && !response.routingDecisions.isEmpty()) {
@@ -399,6 +416,10 @@ public class BacktestReportService {
 
     private String translateExitReason(String reason) {
         if (reason == null) return "";
+        if ("btc_4h_chandelier_exit".equals(reason)) return "BTC四小时ATR跟踪退出";
+        if ("btc_4h_bear_reversal_exit".equals(reason)) return "BTC四小时趋势反转退出";
+        if ("btc_1h_soft_invalidation_exit".equals(reason)) return "BTC一小时结构失效确认退出";
+        if ("btc_early_profit_protection_exit".equals(reason)) return "BTC早期浮盈保护退出";
         switch (reason) {
             case "stop_first_same_bar": return "同根K线同时触发，按止损处理";
             case "stop_loss": return "触发止损";
@@ -416,6 +437,14 @@ public class BacktestReportService {
             case "eth_4h_bear_reversal_exit": return "ETH四小时趋势反转退出";
             case "eth_1h_soft_invalidation_exit": return "ETH一小时软失效确认退出";
             case "eth_breakeven_protection_exit": return "ETH趋势保本退出";
+            case "sol_4h_chandelier_exit": return "SOL四小时ATR跟踪退出";
+            case "sol_4h_bear_reversal_exit": return "SOL四小时趋势反转退出";
+            case "sol_1h_structure_invalidation_exit": return "SOL一小时结构失效退出";
+            case "sol_1h_profit_lock_exit": return "SOL一小时趋势利润锁定";
+            case "sol_4h_core_trailing_exit": return "SOL四小时核心趋势跟踪退出";
+            case "sol_breakeven_protection_exit": return "SOL趋势保本退出";
+            case "sol_bear_fast_mfe_capture_exit": return "SOL顶部A浪快速浮盈保护退出";
+            case "sol_bear_breakeven_protection_exit": return "SOL顶部A浪保本退出";
             case "channel_slow_structure_reversed": return "通道突破慢结构反转退出";
             case "channel_breakout_failed": return "通道突破失败退出";
             case "channel_breakeven_trailing_exit": return "通道突破保本跟踪退出";
@@ -428,6 +457,7 @@ public class BacktestReportService {
         if (reason == null) return "";
         switch (reason) {
             case "SYMBOL_STRATEGY_DISABLED": return "该品种已禁用此策略";
+            case "POSITION_ALREADY_OWNED": return "已有持仓，顶部A浪策略不抢仓";
             case "SYMBOL_NOT_SUPPORTED": return "策略不支持该品种或周期";
             case "SYMBOL_SIDE_BLOCKED": return "该品种已关闭此交易方向";
             case "SYMBOL_REGIME_BLOCKED": return "该品种当前Regime不允许此策略";

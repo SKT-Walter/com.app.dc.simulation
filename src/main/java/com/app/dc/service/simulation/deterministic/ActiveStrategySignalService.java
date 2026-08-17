@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.app.dc.service.simulation.strategy.profile.SymbolStrategyProfileService;
 import com.app.dc.po.Side;
+import com.app.dc.service.simulation.strategy.SymbolStrategyNames;
 
 /** Sole signal publication gate: only the router's active strategy is evaluated. */
 @Service
@@ -23,7 +24,8 @@ public class ActiveStrategySignalService {
                 || "HARD_INVALID_SWITCHED".equals(decision.reason)
                 || "LOW_SCORE_SWITCHED".equals(decision.reason))
             strategyService.resetRuntime(decision.strategyName, context.symbol);
-        if ("compressionBreak".equalsIgnoreCase(decision.strategyName)
+        String baseName=SymbolStrategyNames.baseName(decision.strategyName);
+        if ("compressionBreak".equalsIgnoreCase(baseName)
                 && context.trendCompression != null
                 && context.trendCompression.triggered) {
             Signal signal = trendCompressionSignals.evaluate(context);
@@ -31,9 +33,9 @@ public class ActiveStrategySignalService {
         }
         Signal signal=strategyService.evaluateSignal(decision.strategyName, context.symbol, context.timeframe,
                 context.series, context.currentOhlc);
-        if("binanceTrend".equalsIgnoreCase(decision.strategyName)&&signal!=null
+        if("binanceTrend".equalsIgnoreCase(baseName)&&signal!=null
                 &&signal.side==Side.BUY&&!strategyProfiles.binanceTrendBuyEnabled(
-                        context.symbol,context.timeframe))signal.side=Side.NONE;
+                        context.symbol,context.timeframe,decision.strategyName))signal.side=Side.NONE;
         if(signal!=null&&signal.side!=null&&signal.side!=Side.NONE
                 &&!strategyProfiles.isSideEnabled(context.symbol,context.timeframe,
                 decision.strategyName,signal.side.name()))signal.side=Side.NONE;

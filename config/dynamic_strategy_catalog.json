@@ -300,7 +300,69 @@
       ]
     },
     {
+      "strategyName": "btcStructuralBullTrend",
+      "family": "TREND",
+      "strategyRole": "BULL_CONTINUATION",
+      "enabled": true,
+      "minimumScore": 67,
+      "supportedRegimes": ["UP_LOW", "UP_NORMAL", "UP_HIGH", "NONE_LOW", "NONE_NORMAL"],
+      "requiredFeatures": ["atr", "atrPercentile"]
+    },
+    {
+      "strategyName": "btcBullLaunchTrend",
+      "family": "TREND",
+      "strategyRole": "BULL_LAUNCH",
+      "enabled": true,
+      "minimumScore": 67,
+      "supportedRegimes": ["UP_LOW", "UP_NORMAL", "UP_HIGH", "NONE_LOW", "NONE_NORMAL"],
+      "requiredFeatures": ["atr", "atrPercentile"]
+    },
+    {
+      "strategyName": "btcStructuralBearTrend",
+      "family": "TREND",
+      "strategyRole": "BEAR_CONTINUATION",
+      "enabled": true,
+      "minimumScore": 67,
+      "supportedRegimes": ["DOWN_LOW", "DOWN_NORMAL", "DOWN_HIGH", "NONE_LOW", "NONE_NORMAL"],
+      "requiredFeatures": ["atr", "atrPercentile"]
+    },
+    {
+      "strategyName": "solBullLaunchTrend",
+      "family": "TREND",
+      "strategyRole": "BULL_LAUNCH",
+      "enabled": true,
+      "minimumScore": 67,
+      "supportedRegimes": [
+        "UP_LOW",
+        "UP_NORMAL",
+        "NONE_LOW",
+        "NONE_NORMAL"
+      ],
+      "requiredFeatures": [
+        "atr",
+        "atrPercentile"
+      ]
+    },
+    {
       "strategyName": "ethStructuralBearTrend",
+      "family": "TREND",
+      "strategyRole": "BEAR_CONTINUATION",
+      "enabled": true,
+      "minimumScore": 67,
+      "supportedRegimes": [
+        "DOWN_LOW",
+        "DOWN_NORMAL",
+        "DOWN_HIGH",
+        "NONE_LOW",
+        "NONE_NORMAL"
+      ],
+      "requiredFeatures": [
+        "atr",
+        "atrPercentile"
+      ]
+    },
+    {
+      "strategyName": "solStructuralBearTrend",
       "family": "TREND",
       "strategyRole": "BEAR_CONTINUATION",
       "enabled": true,

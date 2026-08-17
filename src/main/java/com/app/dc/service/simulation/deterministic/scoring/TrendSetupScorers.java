@@ -8,6 +8,8 @@ import com.app.dc.service.simulation.strategy.trend.BinanceTrendSettings;
 import com.app.dc.service.simulation.strategy.trend.TrendLifecycleSnapshot;
 import com.app.dc.service.simulation.strategy.trend.bull.BullTrendSnapshot;
 import com.app.dc.service.simulation.strategy.trend.bear.BearTrendSnapshot;
+import com.app.dc.service.simulation.strategy.range.AtrChannelBiasSetupService;
+import com.app.dc.service.simulation.strategy.range.AtrChannelBiasSetupSnapshot;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -45,11 +47,27 @@ abstract class TrendScorer extends AbstractSetupScorer { public String family(){
 @Service class BollingerPullbackBiasSetupScorer extends TrendScorer {
  public String strategyName(){return "bollingerPullbackBias";} public StrategySetupScore score(StrategyEvaluationContext x){return result(.5*trendAlignment(x)+.3*pullback(x.technical)+.2*n(Math.abs(x.technical.zScore20),.5,2),"趋势中的布林回踩");}}
 @Service class AtrChannelBiasReversionSetupScorer extends TrendScorer {
- public String strategyName(){return "atrChannelBiasReversion";} public StrategySetupScore score(StrategyEvaluationContext x){TechnicalSnapshot t=x.technical;return result(.5*trendAlignment(x)+.3*n(Math.abs(t.close-t.ema20)/Math.max(t.atr,1e-9),.4,1.8)+.2*reversal(t),"趋势偏置ATR通道回归");}}
+ @Autowired private AtrChannelBiasSetupService setups;
+ public String strategyName(){return "atrChannelBiasReversion";} public StrategySetupScore score(StrategyEvaluationContext x){
+  AtrChannelBiasSetupSnapshot s=setups.current(x.symbol,x.timeframe,x.barIndex);
+  TechnicalSnapshot t=x.technical;
+  double environment=.5*trendAlignment(x)
+    +.3*n(Math.abs(t.close-t.ema20)/Math.max(t.atr,1e-9),.4,1.8)+.2*reversal(t);
+  return result(environment,"ATR通道环境|执行状态="+s.phase+"|"+s.reason);}}
 @Service class EthStructuralBullTrendSetupScorer extends TrendScorer {
  public String strategyName(){return "ethStructuralBullTrend";} public StrategySetupScore score(StrategyEvaluationContext x){BullTrendSnapshot s=x.ethBullTrend;return result(s==null?0:s.readiness,"ETH结构多头|"+(s==null?"NONE":s.reason));}}
+@Service class BtcStructuralBullTrendSetupScorer extends TrendScorer {
+ public String strategyName(){return "btcStructuralBullTrend";} public StrategySetupScore score(StrategyEvaluationContext x){BullTrendSnapshot s=x.btcBullTrend;return result(s==null?0:s.readiness,"BTC结构多头|"+(s==null?"NONE":s.reason));}}
+@Service class BtcBullLaunchTrendSetupScorer extends TrendScorer {
+ public String strategyName(){return "btcBullLaunchTrend";} public StrategySetupScore score(StrategyEvaluationContext x){BullTrendSnapshot s=x.btcBullLaunchTrend;return result(s==null?0:s.readiness,"BTC早期启动|"+(s==null?"NONE":s.reason));}}
+@Service class BtcStructuralBearTrendSetupScorer extends TrendScorer {
+ public String strategyName(){return "btcStructuralBearTrend";} public StrategySetupScore score(StrategyEvaluationContext x){BearTrendSnapshot s=x.btcBearTrend;return result(s==null?0:s.readiness,"BTC结构空头|"+(s==null?"NONE":s.reason));}}
 @Service class SolMomentumBullTrendSetupScorer extends TrendScorer {
  public String strategyName(){return "solMomentumBullTrend";} public StrategySetupScore score(StrategyEvaluationContext x){BullTrendSnapshot s=x.solBullTrend;return result(s==null?0:s.readiness,"SOL压缩多头|"+(s==null?"NONE":s.reason));}}
+@Service class SolBullLaunchTrendSetupScorer extends TrendScorer {
+ public String strategyName(){return "solBullLaunchTrend";} public StrategySetupScore score(StrategyEvaluationContext x){BullTrendSnapshot s=x.solBullLaunchTrend;return result(s==null?0:s.readiness,"SOL早期启动|"+(s==null?"NONE":s.reason));}}
 @Service class EthStructuralBearTrendSetupScorer extends TrendScorer {
  public String strategyName(){return "ethStructuralBearTrend";} public StrategySetupScore score(StrategyEvaluationContext x){BearTrendSnapshot s=x.ethBearTrend;return result(s==null?0:s.readiness,"ETH structural bear|"+(s==null?"NONE":s.reason));}}
+@Service class SolStructuralBearTrendSetupScorer extends TrendScorer {
+ public String strategyName(){return "solStructuralBearTrend";} public StrategySetupScore score(StrategyEvaluationContext x){BearTrendSnapshot s=x.solBearTrend;return result(s==null?0:s.readiness,"SOL structural bear|"+(s==null?"NONE":s.reason));}}
 public final class TrendSetupScorers {private TrendSetupScorers(){}}

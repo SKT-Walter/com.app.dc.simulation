@@ -1,0 +1,56 @@
+{
+  "profileVersion": "2026-08-btc-v1",
+  "symbol": "BTCUSDT",
+  "timeframe": "15M",
+  "enabled": true,
+  "strategies": {
+    "binanceTrendBTC": {
+      "enabled": true,
+      "buyEnabled": true,
+      "sellEnabled": false,
+      "trendLifecycleEnabled": false,
+      "trendImpulseLookbackBars": 96,
+      "trendMinimumPullbackBars": 3,
+      "trendMinimumRetracement": 0.20,
+      "trendMaximumRetracement": 0.70,
+      "trendInvalidationRetracement": 0.82,
+      "trendMaximumLifecycleBars": 576,
+      "trendTriggerValidityBars": 4,
+      "trendMinimumBodyAtr": 0.30,
+      "trendMinimumVolumeRatio": 0.75,
+      "trendMinimumCloseLocation": 0.62,
+      "trendMaximumTriggerExtensionAtr": 1.25,
+      "trendStopPaddingAtr": 0.50,
+      "trendMinimumStopAtr": 2.0,
+      "trendMaximumStopAtr": 4.5,
+      "trendTrailActivationAtr": 2.5,
+      "trendInitialTrailAtr": 4.0,
+      "trendMatureTrailActivationAtr": 5.0,
+      "trendMatureTrailAtr": 3.25
+    },
+    "btcStructuralBullTrendBTC": {
+      "enabled": true
+    },
+    "btcBullLaunchTrendBTC": {
+      "enabled": false
+    },
+    "btcStructuralBearTrendBTC": {
+      "enabled": true
+    },
+    "binanceRangeBTC": {
+      "enabled": true,
+      "buyEnabled": false,
+      "sellEnabled": false
+    },
+    "donchianReversionBTC": {
+      "enabled": true,
+      "buyEnabled": false,
+      "sellEnabled": false
+    },
+    "atrChannelReversionBTC": {
+      "enabled": true,
+      "buyEnabled": false,
+      "sellEnabled": false
+    }
+  }
+}

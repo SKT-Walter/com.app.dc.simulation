@@ -28,6 +28,7 @@ public class BacktestStrategyAliasTest {
     @Test public void independentBullTrendAliasesRemainDistinct(){
         Assert.assertEquals("ethStructuralBullTrend",support.normalizeStrategyName("ethbull"));
         Assert.assertEquals("solMomentumBullTrend",support.normalizeStrategyName("solbull"));
+        Assert.assertEquals("solBullLaunchTrend",support.normalizeStrategyName("sollaunch"));
     }
 
     @Test public void ethBearTrendAliasesResolveToIndependentStrategy(){

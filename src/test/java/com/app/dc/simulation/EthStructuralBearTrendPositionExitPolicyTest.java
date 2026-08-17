@@ -47,6 +47,15 @@ public class EthStructuralBearTrendPositionExitPolicyTest {
         Assert.assertEquals("eth_bear_mfe_capture_exit",p.stopExitReason);
     }
 
+    @Test public void solTopWaveCapturesNinetyPercentAfterEightPercentMfe() throws Exception {
+        Position p=position();p.strategyName="solStructuralBearTrendSOL";
+        p.lowestSinceEntry=91;p.maxFavorableExcursionPct=.09;
+        PositionExitDecision d=evaluate(p,snapshot(EthBearMultiTimeframeSnapshot.BEAR,1,1),91);
+        Assert.assertFalse(d.exit);Assert.assertEquals(91.9,p.stopPrice,.0001);
+        Assert.assertEquals("sol_bear_fast_mfe_capture_exit",p.stopExitReason);
+        Assert.assertEquals("SOL_BEAR_FAST_MFE_CAPTURE",p.exitLifecyclePhase);
+    }
+
     private Position position(){Position p=new Position();p.side=Side.SELL;p.entryPrice=100;p.stopPrice=108d;
         p.initialRiskPriceDistance=4;p.entryAtr=2;p.lowestSinceEntry=98;p.ethBearSoftStopPrice=104;return p;}
     private EthBearMultiTimeframeSnapshot snapshot(String trend,int h4,int h1){return new EthBearMultiTimeframeSnapshot(

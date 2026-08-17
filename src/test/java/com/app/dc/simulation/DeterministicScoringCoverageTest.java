@@ -53,23 +53,37 @@ public class DeterministicScoringCoverageTest {
                 Assert.assertTrue(meta.strategyName, Double.isFinite(card.score));
                 Assert.assertTrue(meta.strategyName, card.score >= 0 && card.score <= 100);
             }
-            Assert.assertEquals(18, enabled);
+            Assert.assertEquals(76, enabled);
 
             BacktestRegime range = rangeRegime();
             CandidateSelectionResult ethCandidates = candidateRules.select(contexts.create(
                     "ETHUSDT", "15M", series, new TTbookOhlc(), range));
             Assert.assertTrue(ethCandidates.candidates.stream()
-                    .anyMatch(meta -> "binanceRange".equals(meta.strategyName)));
+                    .anyMatch(meta -> "binanceRangeETH".equals(meta.strategyName)));
+            Assert.assertFalse(ethCandidates.candidates.stream()
+                    .anyMatch(meta -> "binanceRangeSOL".equals(meta.strategyName)
+                            || "binanceRange".equals(meta.strategyName)));
             CandidateSelectionResult solCandidates = candidateRules.select(contexts.create(
                     "SOLUSDT", "15M", series, new TTbookOhlc(), range));
             Assert.assertTrue(solCandidates.candidates.stream()
-                    .anyMatch(meta -> "binanceRange".equals(meta.strategyName)));
+                    .anyMatch(meta -> "binanceRangeSOL".equals(meta.strategyName)));
+            Assert.assertFalse(solCandidates.candidates.stream()
+                    .anyMatch(meta -> "binanceRangeETH".equals(meta.strategyName)
+                            || "binanceRange".equals(meta.strategyName)));
             CandidateSelectionResult btcCandidates = candidateRules.select(contexts.create(
                     "BTCUSDT", "15M", series, new TTbookOhlc(), regime));
+            Assert.assertTrue(btcCandidates.candidates.stream()
+                    .anyMatch(meta -> "btcStructuralBullTrendBTC".equals(meta.strategyName)));
+            Assert.assertTrue(btcCandidates.rejectedStrategies.containsKey("btcBullLaunchTrendBTC"));
+            Assert.assertTrue(btcCandidates.rejectedStrategies.containsKey("btcStructuralBearTrendBTC"));
+            Assert.assertFalse(btcCandidates.candidates.stream()
+                    .anyMatch(meta -> "btcStructuralBullTrend".equals(meta.strategyName)));
             Assert.assertEquals("SYMBOL_NOT_SUPPORTED",
-                    btcCandidates.rejectedStrategies.get("ethStructuralBullTrend"));
+                    btcCandidates.rejectedStrategies.get("ethStructuralBullTrendETH"));
             Assert.assertEquals("SYMBOL_NOT_SUPPORTED",
-                    btcCandidates.rejectedStrategies.get("solMomentumBullTrend"));
+                    btcCandidates.rejectedStrategies.get("solMomentumBullTrendSOL"));
+            Assert.assertEquals("SYMBOL_NOT_SUPPORTED",
+                    btcCandidates.rejectedStrategies.get("solBullLaunchTrendSOL"));
 
             StructuralTrendSnapshot bear = new StructuralTrendSnapshot(
                     StructuralTrendSnapshot.BEAR, StructuralTrendSnapshot.BEAR,
@@ -77,10 +91,10 @@ public class DeterministicScoringCoverageTest {
             CandidateSelectionResult ethBearCandidates = candidateRules.select(contexts.create(
                     "ETHUSDT", "15M", series, new TTbookOhlc(), regime, bear));
             Assert.assertEquals("STRUCTURAL_DIRECTION_CONFLICT",
-                    ethBearCandidates.rejectedStrategies.get("emaPullbackBuy"));
+                    ethBearCandidates.rejectedStrategies.get("emaPullbackBuyETH"));
             CandidateSelectionResult solBearCandidates = candidateRules.select(contexts.create(
                     "SOLUSDT", "15M", series, new TTbookOhlc(), regime, bear));
-            Assert.assertNull(solBearCandidates.rejectedStrategies.get("emaPullbackBuy"));
+            Assert.assertNull(solBearCandidates.rejectedStrategies.get("emaPullbackBuySOL"));
         } finally {
             spring.close();
         }

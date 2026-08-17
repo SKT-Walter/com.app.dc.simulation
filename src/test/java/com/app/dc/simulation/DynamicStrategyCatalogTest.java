@@ -21,5 +21,21 @@ public class DynamicStrategyCatalogTest {
         trend.features.put("emaSlowSlope", .003d);
         Assert.assertFalse(catalog.candidates(trend).isEmpty());
         Assert.assertTrue(catalog.candidates(trend).stream().allMatch(m -> "TREND".equals(m.family)));
+        Assert.assertNotNull(catalog.find("binanceTrendETH"));
+        Assert.assertEquals("ETHUSDT", catalog.find("binanceTrendETH").supportedSymbol);
+        Assert.assertNotNull(catalog.find("binanceTrendSOL"));
+        Assert.assertEquals("SOLUSDT", catalog.find("binanceTrendSOL").supportedSymbol);
+        Assert.assertNotNull(catalog.find("binanceTrendBTC"));
+        Assert.assertEquals("BTCUSDT", catalog.find("binanceTrendBTC").supportedSymbol);
+        Assert.assertNull(catalog.find("solMomentumBullTrendETH"));
+        Assert.assertNotNull(catalog.find("solBullLaunchTrendSOL"));
+        Assert.assertNull(catalog.find("solBullLaunchTrendETH"));
+        Assert.assertNull(catalog.find("ethStructuralBullTrendSOL"));
+        Assert.assertNull(catalog.find("ethStructuralBullTrendBTC"));
+        Assert.assertNull(catalog.find("solMomentumBullTrendBTC"));
+        Assert.assertNotNull(catalog.find("btcStructuralBullTrendBTC"));
+        Assert.assertNull(catalog.find("btcStructuralBullTrendETH"));
+        Assert.assertNotNull(catalog.find("btcBullLaunchTrendBTC"));
+        Assert.assertNotNull(catalog.find("btcStructuralBearTrendBTC"));
     }
 }

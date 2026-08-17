@@ -15,6 +15,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Stream;
+import com.app.dc.service.simulation.strategy.SymbolStrategyNames;
 
 /** Loads deterministic static overrides keyed by exact symbol and timeframe. */
 @Service
@@ -25,6 +26,10 @@ public class SymbolStrategyProfileService {
 
     @PostConstruct
     public void load() {
+        if (profileDir != null && profileDir.startsWith("classpath:")) {
+            loadClasspathProfiles(profileDir.substring("classpath:".length()));
+            return;
+        }
         Path directory = Paths.get(profileDir);
         if (!Files.isDirectory(directory))
             throw new IllegalStateException("strategy profile directory does not exist: " + profileDir);
@@ -35,6 +40,31 @@ public class SymbolStrategyProfileService {
                     .sorted().forEach(path -> loadOne(path, loaded));
         } catch (Exception e) {
             throw new IllegalStateException("cannot load strategy profiles: " + profileDir, e);
+        }
+        profiles = Collections.unmodifiableMap(loaded);
+    }
+
+    private void loadClasspathProfiles(String root) {
+        String normalized = root == null ? "" : root;
+        while (normalized.startsWith("/")) normalized = normalized.substring(1);
+        Map<String, SymbolStrategyProfile> loaded = new LinkedHashMap<String, SymbolStrategyProfile>();
+        for (String name : new String[]{"BTCUSDT.json", "ETHUSDT.json", "SOLUSDT.json"}) {
+            String resource = normalized + (normalized.endsWith("/") ? "" : "/") + name;
+            try (java.io.InputStream in = Thread.currentThread().getContextClassLoader().getResourceAsStream(resource)) {
+                if (in == null) throw new IllegalStateException("strategy profile resource not found: " + resource);
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                byte[] buffer = new byte[4096]; int count;
+                while ((count = in.read(buffer)) >= 0) out.write(buffer, 0, count);
+                SymbolStrategyProfile profile = JsonUtils.Deserialize(
+                        new String(out.toByteArray(), StandardCharsets.UTF_8), SymbolStrategyProfile.class);
+                Path identity = Paths.get(name);
+                validate(profile, identity);
+                String profileKey = key(profile.symbol, profile.timeframe);
+                if (loaded.put(profileKey, profile) != null)
+                    throw new IllegalStateException("duplicate strategy profile: " + profileKey);
+            } catch (Exception e) {
+                throw new IllegalStateException("cannot load strategy profile: " + resource, e);
+            }
         }
         profiles = Collections.unmodifiableMap(loaded);
     }
@@ -64,7 +94,11 @@ public class SymbolStrategyProfileService {
     }
 
     public boolean binanceTrendBuyEnabled(String symbol,String timeframe){
-        SymbolStrategyProfile.StrategyOverride value=findOverride(symbol,timeframe,"binanceTrend");
+        return binanceTrendBuyEnabled(symbol,timeframe,"binanceTrend");
+    }
+
+    public boolean binanceTrendBuyEnabled(String symbol,String timeframe,String strategyName){
+        SymbolStrategyProfile.StrategyOverride value=findOverride(symbol,timeframe,strategyName);
         return value==null||value.binanceTrendBuyEnabled==null||value.binanceTrendBuyEnabled;
     }
 
@@ -126,8 +160,14 @@ public class SymbolStrategyProfileService {
 
     public BinanceTrendSettings binanceTrendSettings(String symbol,
                                                      String timeframe) {
+        return binanceTrendSettings(symbol,timeframe,"binanceTrend");
+    }
+
+    public BinanceTrendSettings binanceTrendSettings(String symbol,
+                                                     String timeframe,
+                                                     String strategyName) {
         SymbolStrategyProfile.StrategyOverride value =
-                findOverride(symbol, timeframe, "binanceTrend");
+                findOverride(symbol, timeframe, strategyName);
         if (value == null || value.trendLifecycleEnabled == null
                 || !value.trendLifecycleEnabled)
             return BinanceTrendSettings.legacy();
@@ -226,7 +266,15 @@ public class SymbolStrategyProfileService {
             String symbol, String timeframe, String strategyName) {
         SymbolStrategyProfile profile = profiles.get(key(symbol, timeframe));
         if (profile == null || !profile.enabled || blank(strategyName)) return null;
-        return profile.strategies.get(strategyName.trim().toLowerCase());
+        String requested=strategyName.trim().toLowerCase();
+        SymbolStrategyProfile.StrategyOverride exact=profile.strategies.get(requested);
+        if(exact!=null)return exact;
+        String qualified=SymbolStrategyNames.qualify(
+                SymbolStrategyNames.baseName(strategyName),symbol).toLowerCase();
+        SymbolStrategyProfile.StrategyOverride symbolOwned=profile.strategies.get(qualified);
+        if(symbolOwned!=null)return symbolOwned;
+        return profile.strategies.get(
+                SymbolStrategyNames.baseName(strategyName).toLowerCase());
     }
 
     private String key(String symbol, String timeframe) {

@@ -4,7 +4,7 @@
   "timeframe": "15M",
   "enabled": true,
   "strategies": {
-    "binanceTrend": {
+    "binanceTrendETH": {
       "enabled": true,
       "takeProfitPct": 10,
       "binanceTrendBuyEnabled": false,
@@ -28,23 +28,23 @@
       "trendMatureTrailActivationAtr": 4.0,
       "trendMatureTrailAtr": 3.0
     },
-    "ethStructuralBullTrend": {
+    "ethStructuralBullTrendETH": {
       "enabled": true
     },
-    "ethStructuralBearTrend": {
+    "ethStructuralBearTrendETH": {
       "enabled": true
     },
-    "bollingerMeanReversion": {
+    "bollingerMeanReversionETH": {
       "enabled": false
     },
-    "donchianReversion": {
+    "donchianReversionETH": {
       "buyEnabled": false,
       "sellEnabled": true
     },
-    "atrChannelBiasReversion": {
+    "atrChannelBiasReversionETH": {
       "enabled": false
     },
-    "binanceRange": {
+    "binanceRangeETH": {
       "enabled": true,
       "minimumTriggerRangeAtr": 0.7,
       "minimumBuyRecoveryBodyAtr": 0.10,
@@ -64,7 +64,7 @@
       "rangeStopPaddingAtr": 0.10,
       "rangeTargetExtensionRatio": 0.15
     },
-    "compressionBreak": {
+    "compressionBreakETH": {
       "enabled": false
     }
   }

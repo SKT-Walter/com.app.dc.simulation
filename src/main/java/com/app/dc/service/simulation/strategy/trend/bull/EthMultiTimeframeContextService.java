@@ -26,21 +26,22 @@ public class EthMultiTimeframeContextService {
     private final Map<String,Session> sessions=new ConcurrentHashMap<String,Session>();
 
     public void prepare(String symbol,List<TTbookOhlc> oneHour,List<TTbookOhlc> fourHour){
-        sessions.put(key(symbol),new Session(convert(oneHour),convert(fourHour)));
+        sessions.put(key(symbol),new Session(convert(oneHour),convert(fourHour),
+                "BTCUSDT".equalsIgnoreCase(symbol)));
     }
 
     public EthMultiTimeframeSnapshot update(String symbol,long currentFifteenMinuteOpen){
         Session s=sessions.get(key(symbol));if(s==null)return EthMultiTimeframeSnapshot.warmup();
         long cutoff=currentFifteenMinuteOpen+FIFTEEN_MINUTES;
         s.available4h=available(s.fourHour,FOUR_HOURS,cutoff,s.available4h);
-        FourHourContext four=context4h(s.fourHour,s.available4h);
+        FourHourContext four=context4h(s.fourHour,s.available4h,s.btc);
         int next=available(s.oneHour,ONE_HOUR,cutoff,s.available1h);
         while(s.available1h<next){s.available1h++;advanceOneHour(s,s.available1h,four);}
         s.snapshot=snapshot(s,four);
         return s.snapshot;
     }
 
-    public void consume(String symbol,long setupId){Session s=sessions.get(key(symbol));if(s!=null&&s.setupId==setupId){s.phase=EthMultiTimeframeSnapshot.RUNNING;s.snapshot=snapshot(s,context4h(s.fourHour,s.available4h));}}
+    public void consume(String symbol,long setupId){Session s=sessions.get(key(symbol));if(s!=null&&s.setupId==setupId){s.phase=EthMultiTimeframeSnapshot.RUNNING;s.snapshot=snapshot(s,context4h(s.fourHour,s.available4h,s.btc));}}
     public EthMultiTimeframeSnapshot current(String symbol){Session s=sessions.get(key(symbol));return s==null?EthMultiTimeframeSnapshot.warmup():s.snapshot;}
     public double currentOneHourAtr(String symbol){Session s=sessions.get(key(symbol));return s==null?Double.NaN:s.lastOneHourAtr;}
     public void tradeClosed(String symbol){Session s=sessions.get(key(symbol));if(s!=null){s.resetLifecycle();s.cooldownUntil=s.available1h+24;s.phase=EthMultiTimeframeSnapshot.COOLDOWN;}}
@@ -97,10 +98,18 @@ public class EthMultiTimeframeContextService {
                 s.available4h,four.close,four.ema20,four.ema60,four.atr,s.reason);
     }
 
-    private FourHourContext context4h(List<HBar> bars,int end){
+    private FourHourContext context4h(List<HBar> bars,int end,boolean btc){
         if(end<60)return new FourHourContext(EthMultiTimeframeSnapshot.FOUR_HOUR_NEUTRAL,0,
                 end,Double.NaN,Double.NaN,Double.NaN,Double.NaN);
         HBar b=bars.get(end);double e20=ema(bars,end,20),e60=ema(bars,end,60),past60=ema(bars,end-6,60),a=atr(bars,end,14);
+        if(btc){
+            if(end<200)return new FourHourContext(EthMultiTimeframeSnapshot.FOUR_HOUR_NEUTRAL,0,
+                    end,b.close,e20,e60,a);
+            double e200=ema(bars,end,200),past200=ema(bars,end-12,200);
+            if(!(b.close>e200&&e200>past200))
+                return new FourHourContext(EthMultiTimeframeSnapshot.FOUR_HOUR_BEAR,.75,
+                        end,b.close,e20,e60,a);
+        }
         double recentHigh=highest(bars,end,12),priorHigh=highest(bars,end-12,12),recentLow=lowest(bars,end,12),priorLow=lowest(bars,end-12,12);
         int bull=0,bear=0;if(e20>e60)bull++;else bear++;if(e60>past60)bull++;else bear++;if(b.close>e20)bull++;else bear++;if(recentHigh>priorHigh&&recentLow>priorLow)bull++;else if(recentHigh<priorHigh&&recentLow<priorLow)bear++;
         if(bull>=3)return new FourHourContext(EthMultiTimeframeSnapshot.FOUR_HOUR_BULL,bull/4d,end,b.close,e20,e60,a);
@@ -126,8 +135,8 @@ public class EthMultiTimeframeContextService {
     private static final class HBar{final long openTime;final double open,high,low,close,volume;HBar(long t,double o,double h,double l,double c,double v){openTime=t;open=o;high=h;low=l;close=c;volume=v;}}
     private static final class FourHourContext{final String trend;final double confidence;final int index;final double close,ema20,ema60,atr;FourHourContext(String t,double c,int i,double x,double e20,double e60,double a){trend=t;confidence=c;index=i;close=x;ema20=e20;ema60=e60;atr=a;}boolean allowsLong(){return EthMultiTimeframeSnapshot.FOUR_HOUR_BULL.equals(trend)||EthMultiTimeframeSnapshot.FOUR_HOUR_TRANSITION_UP.equals(trend);}}
     private static final class Session{
-        final List<HBar> oneHour,fourHour;int available1h=-1,available4h=-1,impulseBar=-1,pullbackBars,armedUntil=-1,cooldownUntil=-1,lastOneHourSwingLowIndex=-1;long setupId;double impulseOrigin=Double.NaN,impulseHigh=Double.NaN,pullbackLow=Double.NaN,lastOneHourAtr=Double.NaN,lastOneHourClose=Double.NaN,lastOneHourEma20=Double.NaN,lastOneHourEma20Slope=Double.NaN,lastOneHourEma60=Double.NaN,lastOneHourSwingLow=Double.NaN;String phase=EthMultiTimeframeSnapshot.WARMUP,reason="ETH_MTF_WARMUP";EthMultiTimeframeSnapshot snapshot=EthMultiTimeframeSnapshot.warmup();
-        Session(List<HBar>a,List<HBar>b){oneHour=a;fourHour=b;}
+        final List<HBar> oneHour,fourHour;final boolean btc;int available1h=-1,available4h=-1,impulseBar=-1,pullbackBars,armedUntil=-1,cooldownUntil=-1,lastOneHourSwingLowIndex=-1;long setupId;double impulseOrigin=Double.NaN,impulseHigh=Double.NaN,pullbackLow=Double.NaN,lastOneHourAtr=Double.NaN,lastOneHourClose=Double.NaN,lastOneHourEma20=Double.NaN,lastOneHourEma20Slope=Double.NaN,lastOneHourEma60=Double.NaN,lastOneHourSwingLow=Double.NaN;String phase=EthMultiTimeframeSnapshot.WARMUP,reason="ETH_MTF_WARMUP";EthMultiTimeframeSnapshot snapshot=EthMultiTimeframeSnapshot.warmup();
+        Session(List<HBar>a,List<HBar>b,boolean btc){oneHour=a;fourHour=b;this.btc=btc;}
         void observing(){phase=EthMultiTimeframeSnapshot.OBSERVING;impulseBar=-1;pullbackBars=0;armedUntil=-1;impulseOrigin=impulseHigh=pullbackLow=Double.NaN;}
         void resetLifecycle(){observing();}
     }

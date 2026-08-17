@@ -21,7 +21,12 @@ public final class StrategyEvaluationContext {
     public final TrendLifecycleSnapshot trendLifecycle;
     public final BullTrendSnapshot ethBullTrend;
     public final BullTrendSnapshot solBullTrend;
+    public final BullTrendSnapshot solBullLaunchTrend;
     public final BearTrendSnapshot ethBearTrend;
+    public final BearTrendSnapshot solBearTrend;
+    public final BullTrendSnapshot btcBullLaunchTrend;
+    public final BullTrendSnapshot btcBullTrend;
+    public final BearTrendSnapshot btcBearTrend;
 
     public StrategyEvaluationContext(String symbol,String timeframe,int barIndex,BarSeries series,
                                      TTbookOhlc currentOhlc,BacktestRegime regime,
@@ -75,6 +80,66 @@ public final class StrategyEvaluationContext {
                                      BullTrendSnapshot ethBullTrend,
                                      BullTrendSnapshot solBullTrend,
                                      BearTrendSnapshot ethBearTrend){
+        this(symbol,timeframe,barIndex,series,currentOhlc,regime,technical,structural,
+                compression,lifecycle,ethBullTrend,solBullTrend,
+                BullTrendSnapshot.none("solBullLaunchTrend"),ethBearTrend);
+    }
+    public StrategyEvaluationContext(String symbol,String timeframe,int barIndex,BarSeries series,
+                                     TTbookOhlc currentOhlc,BacktestRegime regime,
+                                     TechnicalSnapshot technical,StructuralTrendSnapshot structural,
+                                     TrendCompressionSnapshot compression,
+                                     TrendLifecycleSnapshot lifecycle,
+                                     BullTrendSnapshot ethBullTrend,
+                                     BullTrendSnapshot solBullTrend,
+                                     BullTrendSnapshot solBullLaunchTrend,
+                                     BearTrendSnapshot ethBearTrend){
+        this(symbol,timeframe,barIndex,series,currentOhlc,regime,technical,structural,
+                compression,lifecycle,ethBullTrend,solBullTrend,solBullLaunchTrend,ethBearTrend,
+                BearTrendSnapshot.none("solStructuralBearTrend"));
+    }
+    public StrategyEvaluationContext(String symbol,String timeframe,int barIndex,BarSeries series,
+                                     TTbookOhlc currentOhlc,BacktestRegime regime,
+                                     TechnicalSnapshot technical,StructuralTrendSnapshot structural,
+                                     TrendCompressionSnapshot compression,
+                                     TrendLifecycleSnapshot lifecycle,
+                                     BullTrendSnapshot ethBullTrend,
+                                     BullTrendSnapshot solBullTrend,
+                                     BullTrendSnapshot solBullLaunchTrend,
+                                     BearTrendSnapshot ethBearTrend,
+                                     BearTrendSnapshot solBearTrend){
+        this(symbol,timeframe,barIndex,series,currentOhlc,regime,technical,structural,compression,lifecycle,
+                ethBullTrend,solBullTrend,solBullLaunchTrend,ethBearTrend,solBearTrend,
+                BullTrendSnapshot.none("btcBullLaunchTrend"),BearTrendSnapshot.none("btcStructuralBearTrend"));
+    }
+    public StrategyEvaluationContext(String symbol,String timeframe,int barIndex,BarSeries series,
+                                     TTbookOhlc currentOhlc,BacktestRegime regime,
+                                     TechnicalSnapshot technical,StructuralTrendSnapshot structural,
+                                     TrendCompressionSnapshot compression,
+                                     TrendLifecycleSnapshot lifecycle,
+                                     BullTrendSnapshot ethBullTrend,
+                                     BullTrendSnapshot solBullTrend,
+                                     BullTrendSnapshot solBullLaunchTrend,
+                                     BearTrendSnapshot ethBearTrend,
+                                     BearTrendSnapshot solBearTrend,
+                                     BullTrendSnapshot btcBullLaunchTrend,
+                                     BearTrendSnapshot btcBearTrend){
+        this(symbol,timeframe,barIndex,series,currentOhlc,regime,technical,structural,compression,lifecycle,
+                ethBullTrend,solBullTrend,solBullLaunchTrend,ethBearTrend,solBearTrend,btcBullLaunchTrend,
+                BullTrendSnapshot.none("btcStructuralBullTrend"),btcBearTrend);
+    }
+    public StrategyEvaluationContext(String symbol,String timeframe,int barIndex,BarSeries series,
+                                     TTbookOhlc currentOhlc,BacktestRegime regime,
+                                     TechnicalSnapshot technical,StructuralTrendSnapshot structural,
+                                     TrendCompressionSnapshot compression,
+                                     TrendLifecycleSnapshot lifecycle,
+                                     BullTrendSnapshot ethBullTrend,
+                                     BullTrendSnapshot solBullTrend,
+                                     BullTrendSnapshot solBullLaunchTrend,
+                                     BearTrendSnapshot ethBearTrend,
+                                     BearTrendSnapshot solBearTrend,
+                                     BullTrendSnapshot btcBullLaunchTrend,
+                                     BullTrendSnapshot btcBullTrend,
+                                     BearTrendSnapshot btcBearTrend){
         this.symbol=symbol;this.timeframe=timeframe;this.barIndex=barIndex;this.series=series;
         this.currentOhlc=currentOhlc;this.regime=regime;this.technical=technical;
         this.structuralTrend=structural==null?StructuralTrendSnapshot.warmup():structural;
@@ -82,6 +147,11 @@ public final class StrategyEvaluationContext {
         this.trendLifecycle=lifecycle==null?TrendLifecycleSnapshot.none():lifecycle;
         this.ethBullTrend=ethBullTrend==null?BullTrendSnapshot.none("ethStructuralBullTrend"):ethBullTrend;
         this.solBullTrend=solBullTrend==null?BullTrendSnapshot.none("solMomentumBullTrend"):solBullTrend;
+        this.solBullLaunchTrend=solBullLaunchTrend==null?BullTrendSnapshot.none("solBullLaunchTrend"):solBullLaunchTrend;
         this.ethBearTrend=ethBearTrend==null?BearTrendSnapshot.none("ethStructuralBearTrend"):ethBearTrend;
+        this.solBearTrend=solBearTrend==null?BearTrendSnapshot.none("solStructuralBearTrend"):solBearTrend;
+        this.btcBullLaunchTrend=btcBullLaunchTrend==null?BullTrendSnapshot.none("btcBullLaunchTrend"):btcBullLaunchTrend;
+        this.btcBullTrend=btcBullTrend==null?BullTrendSnapshot.none("btcStructuralBullTrend"):btcBullTrend;
+        this.btcBearTrend=btcBearTrend==null?BearTrendSnapshot.none("btcStructuralBearTrend"):btcBearTrend;
     }
 }

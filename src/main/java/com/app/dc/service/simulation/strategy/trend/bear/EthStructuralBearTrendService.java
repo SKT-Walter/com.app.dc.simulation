@@ -16,6 +16,7 @@ public class EthStructuralBearTrendService {
     public static final String STRATEGY="ethStructuralBearTrend";
     private static final int TRIGGER_VALIDITY=4,COOLDOWN_BARS=96;
     @Autowired(required=false) private EthBearMultiTimeframeContextService multiTimeframe;
+    @Autowired(required=false) private EthDailyBearContextService dailyContext;
     private final Map<String,EthStructuralBearTrendState> states=new ConcurrentHashMap<String,EthStructuralBearTrendState>();
 
     public BearTrendSnapshot update(String symbol,String timeframe,BarSeries series,
@@ -31,6 +32,16 @@ public class EthStructuralBearTrendService {
         String key=key(symbol,timeframe);EthStructuralBearTrendState s=states.get(key);if(s==null){s=new EthStructuralBearTrendState();states.put(key,s);}
         int end=series.getEndIndex();if(s.lastIndex>end){s=new EthStructuralBearTrendState();states.put(key,s);}if(s.lastIndex==end)return s.snapshot;s.lastIndex=end;
         s.campaignActive=context!=null&&context.bearCampaignActive;
+        if("SOLUSDT".equalsIgnoreCase(symbol)){
+            EthDailyBearContextSnapshot daily=dailyContext==null?EthDailyBearContextSnapshot.warmup():dailyContext.current(symbol);
+            boolean topRisk=EthDailyBearContextSnapshot.DISTRIBUTION_RISK.equals(daily.state)
+                    ||(EthDailyBearContextSnapshot.BEAR_RISK.equals(daily.state)
+                    &&daily.reason!=null&&daily.reason.contains("FAILED_HIGH"));
+            if(!s.campaignActive)s.topRiskCampaign=false;
+            if(topRisk&&s.campaignActive)s.topRiskCampaign=true;
+            if(!topRisk&&!s.topRiskCampaign){s.observing();return cache(s,end,BearTrendSnapshot.OBSERVING,
+                    "SOL_BEAR_TOP_RISK_REQUIRED",0,false,Double.NaN,null);}
+        }
         double atr=BearTrendMath.atr(series,end,14);if(!Double.isFinite(atr)||atr<=0)return cache(s,end,BearTrendSnapshot.INVALIDATED,"ETH_BEAR_INVALID_ATR",0,false,Double.NaN,null);
         if(end<=s.cooldownUntil)return cache(s,end,BearTrendSnapshot.COOLDOWN,"ETH_BEAR_TRADE_COOLDOWN",0,false,Double.NaN,null);
         if(BearTrendSnapshot.RUNNING.equals(s.phase))return cache(s,end,s.phase,"ETH_BEAR_POSITION_RUNNING",.9,false,s.stopPrice,s.triggerType);
@@ -39,13 +50,13 @@ public class EthStructuralBearTrendService {
         if(!context.directionAllowsShort()&&!context.fastBearBreakdownActive){s.observing();return cache(s,end,BearTrendSnapshot.OBSERVING,"ETH_BEAR_4H_DIRECTION_BLOCKED",0,false,Double.NaN,null);}
         if(context.fastBearBreakdownActive){
             long fastSetup=-(context.fourHourBarIndex+1L);if(s.setupId!=fastSetup)s.setup(fastSetup);
-            return fastTrigger(s,series,end,atr,regime,context);
+            return fastTrigger(s,series,end,atr,regime,context,"SOLUSDT".equalsIgnoreCase(symbol));
         }
         if(!context.armed()){s.observing();String p=EthBearMultiTimeframeSnapshot.IMPULSE.equals(context.oneHourPhase)?BearTrendSnapshot.IMPULSE:EthBearMultiTimeframeSnapshot.PULLBACK.equals(context.oneHourPhase)?BearTrendSnapshot.PULLBACK:BearTrendSnapshot.OBSERVING;return cache(s,end,p,context.reason,context.readiness,false,Double.NaN,null);}
-        if(s.setupId!=context.setupId)s.setup(context.setupId);return trigger(s,series,end,atr,regime,context);
+        if(s.setupId!=context.setupId)s.setup(context.setupId);return trigger(s,series,end,atr,regime,context,"SOLUSDT".equalsIgnoreCase(symbol));
     }
     private BearTrendSnapshot fastTrigger(EthStructuralBearTrendState s,BarSeries x,int end,double atr,
-                                          BacktestRegime regime,EthBearMultiTimeframeSnapshot context){
+                                          BacktestRegime regime,EthBearMultiTimeframeSnapshot context,boolean sol){
         double close=BearTrendMath.close(x,end),ema20=BearTrendMath.ema(x,end,20);
         double prior8=BearTrendMath.lowest(x,end-1,8),prior20=BearTrendMath.lowest(x,end-1,20);
         double previousAtr=BearTrendMath.atr(x,end-1,14);
@@ -56,6 +67,18 @@ public class EthStructuralBearTrendService {
         boolean distributionCampaign=EthDailyBearContextSnapshot.DISTRIBUTION_RISK.equals(context.dailyState);
         boolean establishedCampaign=EthDailyBearContextSnapshot.BEAR.equals(context.dailyState)
                 ||EthDailyBearContextSnapshot.BEAR_RISK.equals(context.dailyState);
+        boolean failedHighCampaign=EthDailyBearContextSnapshot.BEAR_RISK.equals(context.dailyState)
+                &&context.dailyConfidence>=.75;
+        if(sol){
+            boolean down=regime!=null&&"DOWN".equals(regime.trend);
+            if(distributionCampaign&&(EthBearMultiTimeframeSnapshot.NEUTRAL.equals(context.fourHourTrend)||!down))
+                return cache(s,end,BearTrendSnapshot.ARMED,"SOL_DISTRIBUTION_WAITING_4H_15M_BREAK",.80,false,Double.NaN,null);
+            if(failedHighCampaign&&!down)
+                return cache(s,end,BearTrendSnapshot.ARMED,"SOL_FAILED_HIGH_WAITING_15M_DOWN",.80,false,Double.NaN,null);
+            if(!distributionCampaign&&!failedHighCampaign
+                    &&!(EthDailyBearContextSnapshot.BEAR.equals(context.dailyState)&&context.armed()))
+                return cache(s,end,BearTrendSnapshot.ARMED,"SOL_BEAR_CAMPAIGN_WAITING_1H_ARM",.75,false,Double.NaN,null);
+        }
         boolean regimeOk=regime!=null&&("DOWN".equals(regime.trend)
                 ||(establishedCampaign&&"NONE".equals(regime.trend)));
         double executionLow=distributionCampaign?prior20:(establishedCampaign?prior8:prior20);
@@ -73,8 +96,6 @@ public class EthStructuralBearTrendService {
                 ?(context.oneHourEma20-context.oneHourClose)/context.oneHourAtr:0;
         double fourHourExtension=Double.isFinite(context.fourHourAtr)&&context.fourHourAtr>0
                 ?(context.fourHourEma20-context.fourHourClose)/context.fourHourAtr:0;
-        boolean failedHighCampaign=EthDailyBearContextSnapshot.BEAR_RISK.equals(context.dailyState)
-                &&context.dailyConfidence>=.75;
         double maxRecentDecline=(failedHighCampaign||distributionCampaign)?8.0:5.0;
         double maxOneHourExtension=failedHighCampaign?3.0:distributionCampaign?2.25:1.75;
         double maxFourHourExtension=failedHighCampaign?4.0:distributionCampaign?3.0:2.25;
@@ -115,13 +136,15 @@ public class EthStructuralBearTrendService {
                 failedHighEntry?"FAILED_HIGH_BEAR_BREAKDOWN":"FAST_BEAR_BREAKDOWN";s.consumed=false;
         return cache(s,end,s.phase,"ETH_FAST_BEAR_BREAKDOWN_TRIGGERED",1,true,s.stopPrice,s.triggerType);
     }
-    private BearTrendSnapshot trigger(EthStructuralBearTrendState s,BarSeries x,int end,double atr,BacktestRegime regime,EthBearMultiTimeframeSnapshot context){
+    private BearTrendSnapshot trigger(EthStructuralBearTrendState s,BarSeries x,int end,double atr,BacktestRegime regime,EthBearMultiTimeframeSnapshot context,boolean sol){
         s.tacticalBars++;double high=BearTrendMath.high(x,end),ema20=BearTrendMath.ema(x,end,20),close=BearTrendMath.close(x,end);
         if(close<ema20)s.belowEmaBars++;else s.belowEmaBars=0;
         if(end>=x.getBeginIndex()+2){double left=BearTrendMath.high(x,end-2),pivot=BearTrendMath.high(x,end-1),right=high;if(pivot>left&&pivot>right&&pivot<context.pullbackHigh-.10*atr){s.lowerHighConfirmed=true;s.lowerHigh=pivot;}}
         double prior8=BearTrendMath.lowest(x,end-1,8),extension=(ema20-close)/atr;
         boolean defensive=EthDailyBearContextSnapshot.BULL_WEAKENING.equals(context.dailyState);
         boolean bearRisk=EthDailyBearContextSnapshot.BEAR_RISK.equals(context.dailyState);
+        if(sol&&!EthDailyBearContextSnapshot.BEAR.equals(context.dailyState))
+            return cache(s,end,BearTrendSnapshot.ARMED,"SOL_BEAR_CONTINUATION_REQUIRES_DAILY_BEAR",.75,false,Double.NaN,null);
         boolean regimeOk=regime!=null&&(defensive?"DOWN".equals(regime.trend):
                 ("DOWN".equals(regime.trend)||"NONE".equals(regime.trend)));
         double recentDecline=(BearTrendMath.highest(x,end,8)-close)/atr;
@@ -159,5 +182,5 @@ public class EthStructuralBearTrendService {
     private BearTrendSnapshot cache(EthStructuralBearTrendState s,int end,String phase,String reason,double ready,boolean action,double stop,String trigger){s.phase=phase;s.snapshot=new BearTrendSnapshot(STRATEGY,phase,reason,ready,action,stop,trigger,end,s.campaignActive);return s.snapshot;}
     private boolean profitProtected(TradeRecord trade){if(trade==null)return false;if(trade.pnl!=null&&trade.pnl.signum()>0)return true;
         if(trade.exitReason==null)return false;String r=trade.exitReason.toLowerCase();return r.contains("mfe_capture")||r.contains("staged_profit_lock")||r.contains("chandelier");}
-    private boolean supports(String s,String t){return "ETHUSDT".equalsIgnoreCase(s)&&"15M".equalsIgnoreCase(t);}private String key(String s,String t){return (s==null?"":s.toUpperCase())+"|"+(t==null?"":t.toUpperCase());}
+    private boolean supports(String s,String t){return ("ETHUSDT".equalsIgnoreCase(s)||"SOLUSDT".equalsIgnoreCase(s)||"BTCUSDT".equalsIgnoreCase(s))&&"15M".equalsIgnoreCase(t);}private String key(String s,String t){return (s==null?"":s.toUpperCase())+"|"+(t==null?"":t.toUpperCase());}
 }

@@ -7,6 +7,7 @@ import com.app.dc.service.simulation.strategy.trend.bear.EthBearMultiTimeframeSn
 import com.app.dc.service.simulation.strategy.trend.bear.EthDailyBearContextSnapshot;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import com.app.dc.service.simulation.strategy.SymbolStrategyNames;
 
 /** Slow, symmetric lifecycle protection for ETH structural short positions. */
 @Service
@@ -19,7 +20,9 @@ public class EthStructuralBearTrendPositionExitPolicy implements StrategyPositio
     @Autowired(required=false) private EthBearMultiTimeframeContextService multiTimeframe;
 
     public boolean supports(String strategyName){
-        return "ethStructuralBearTrend".equalsIgnoreCase(strategyName);
+        return "ethStructuralBearTrend".equalsIgnoreCase(strategyName)
+                ||"solStructuralBearTrend".equalsIgnoreCase(strategyName)
+                ||"btcStructuralBearTrend".equalsIgnoreCase(strategyName);
     }
 
     public PositionExitDecision evaluate(Position position,StrategyPositionExitContext context){
@@ -59,15 +62,18 @@ public class EthStructuralBearTrendPositionExitPolicy implements StrategyPositio
         // Do not strangle a multi-month leg after its first ordinary rebound.
         // Protection begins only after a meaningful wave has developed and
         // tightens progressively as the campaign matures.
-        double capture=mfe>=.30?.92:mfe>=.15?.701:mfe>=.08?.50:0;
+        boolean sol="solStructuralBearTrend".equalsIgnoreCase(SymbolStrategyNames.baseName(position.strategyName));
+        double capture=sol?(mfe>=.08?.90:0):(mfe>=.30?.92:mfe>=.15?.701:mfe>=.08?.50:0);
         if(capture>0){
             double candidate=position.entryPrice*(1-mfe*capture);
             if(Double.isFinite(currentClose)&&currentClose<candidate
                     &&(position.stopPrice==null||candidate<position.stopPrice)){
                 position.stopPrice=candidate;
                 boolean mature=mfe>=.30;
-                position.stopExitReason=mature?"eth_bear_mfe_capture_exit":"eth_bear_staged_profit_lock_exit";
-                position.exitLifecyclePhase=mature?"ETH_BEAR_MFE_CAPTURE":"ETH_BEAR_STAGED_PROFIT_LOCK";
+                position.stopExitReason=sol?"sol_bear_fast_mfe_capture_exit":
+                        mature?"eth_bear_mfe_capture_exit":"eth_bear_staged_profit_lock_exit";
+                position.exitLifecyclePhase=sol?"SOL_BEAR_FAST_MFE_CAPTURE":
+                        mature?"ETH_BEAR_MFE_CAPTURE":"ETH_BEAR_STAGED_PROFIT_LOCK";
                 position.trendTrailingActive=true;
             }
         }
@@ -75,8 +81,8 @@ public class EthStructuralBearTrendPositionExitPolicy implements StrategyPositio
             double candidate=position.entryPrice*(1-BREAKEVEN_BUFFER_RATIO);
             if(Double.isFinite(currentClose)&&currentClose<candidate
                     &&(position.stopPrice==null||candidate<position.stopPrice)){
-                position.stopPrice=candidate;position.stopExitReason="eth_bear_breakeven_protection_exit";
-                position.exitLifecyclePhase="ETH_BEAR_BREAKEVEN_PROTECTED";position.trendTrailingActive=true;
+                position.stopPrice=candidate;position.stopExitReason=sol?"sol_bear_breakeven_protection_exit":"eth_bear_breakeven_protection_exit";
+                position.exitLifecyclePhase=sol?"SOL_BEAR_BREAKEVEN_PROTECTED":"ETH_BEAR_BREAKEVEN_PROTECTED";position.trendTrailingActive=true;
             }
         }
         return PositionExitDecision.hold();

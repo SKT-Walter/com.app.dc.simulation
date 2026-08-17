@@ -5,6 +5,7 @@ import com.app.dc.service.simulation.BacktestModels.Position;
 import com.app.dc.service.simulation.strategy.trend.bull.EthMultiTimeframeContextService;
 import com.app.dc.service.simulation.strategy.trend.bull.EthMultiTimeframeSnapshot;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 /**
@@ -22,11 +23,12 @@ public class EthStructuralBullTrendPositionExitPolicy implements StrategyPositio
     static final int FOUR_HOUR_REVERSAL_CONFIRMATION=3;
     static final int SOFT_INVALIDATION_CONFIRMATION=2;
 
-    @Autowired(required=false)
+    @Autowired(required=false) @Qualifier("ethMultiTimeframeContextService")
     private EthMultiTimeframeContextService multiTimeframe;
 
     public boolean supports(String strategyName){
-        return "ethStructuralBullTrend".equalsIgnoreCase(strategyName);
+        return "ethStructuralBullTrend".equalsIgnoreCase(strategyName)
+                ||"btcBullLaunchTrend".equalsIgnoreCase(strategyName);
     }
 
     public PositionExitDecision evaluate(Position position,StrategyPositionExitContext context){

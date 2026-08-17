@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import com.app.dc.service.simulation.strategy.SymbolStrategyNames;
 
 /** Selects the policy owned by the strategy that opened the current position. */
 @Service
@@ -19,7 +20,8 @@ public class StrategyPositionExitService {
     public PositionExitDecision evaluate(Position position, StrategyPositionExitContext context) {
         if (position == null || position.strategyName == null) return PositionExitDecision.hold();
         for (StrategyPositionExitPolicy policy : policies) {
-            if (policy.supports(position.strategyName)) return policy.evaluate(position, context);
+            if (policy.supports(SymbolStrategyNames.baseName(position.strategyName)))
+                return policy.evaluate(position, context);
         }
         return PositionExitDecision.hold();
     }

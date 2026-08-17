@@ -145,8 +145,10 @@ public class BacktestTradeService {
         record.maxFavorableExcursionPct=scale(position.maxFavorableExcursionPct);
         record.maxAdverseExcursionPct=scale(position.maxAdverseExcursionPct);
         double captured=record.returnPct.doubleValue();
-        record.profitCaptureRatio=scale(position.maxFavorableExcursionPct>0
-                ?captured/position.maxFavorableExcursionPct:0);
+        // Capture ratio is meaningful only for a profitable exit. Dividing a loss
+        // by a tiny positive MFE produced misleading values such as -12037%.
+        record.profitCaptureRatio=position.maxFavorableExcursionPct>0&&captured>0
+                ?scale(captured/position.maxFavorableExcursionPct):null;
         record.entryLifecyclePhase=position.entryLifecyclePhase;
         record.trendTriggerType=position.trendTriggerType;
         record.exitLifecyclePhase=position.exitLifecyclePhase;

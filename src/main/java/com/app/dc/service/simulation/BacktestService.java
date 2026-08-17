@@ -29,8 +29,14 @@ import com.app.dc.service.simulation.strategy.trend.TrendLifecycleSnapshot;
 import com.app.dc.service.simulation.strategy.trend.bull.BullTrendSnapshot;
 import com.app.dc.service.simulation.strategy.trend.bull.EthStructuralBullTrendService;
 import com.app.dc.service.simulation.strategy.trend.bull.EthMultiTimeframeContextService;
+import com.app.dc.service.simulation.strategy.trend.bull.BtcStructuralBullTrendService;
+import com.app.dc.service.simulation.strategy.trend.bull.BtcMultiTimeframeContextService;
 import com.app.dc.service.simulation.strategy.profile.SymbolStrategyProfileService;
+import com.app.dc.service.simulation.strategy.SymbolStrategyNames;
 import com.app.dc.service.simulation.strategy.trend.bull.SolMomentumBullTrendService;
+import com.app.dc.service.simulation.strategy.trend.bull.SolMultiTimeframeContextService;
+import com.app.dc.service.simulation.strategy.trend.bull.SolBullLaunchTrendService;
+import com.app.dc.service.simulation.strategy.trend.bull.SolBullLaunchContextService;
 import com.app.dc.service.simulation.strategy.trend.bear.BearTrendSnapshot;
 import com.app.dc.service.simulation.strategy.trend.bear.EthStructuralBearTrendService;
 import com.app.dc.service.simulation.strategy.trend.bear.EthBearMultiTimeframeContextService;
@@ -46,6 +52,7 @@ import org.ta4j.core.BaseBarSeries;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -93,8 +100,13 @@ public class BacktestService {
     private TrendLifecycleService trendLifecycleService;
     @Autowired private EthStructuralBullTrendService ethBullTrendService;
     @Autowired private EthMultiTimeframeContextService ethMultiTimeframeContextService;
+    @Autowired private BtcStructuralBullTrendService btcBullTrendService;
+    @Autowired private BtcMultiTimeframeContextService btcMultiTimeframeContextService;
     @Autowired private SymbolStrategyProfileService symbolStrategyProfiles;
     @Autowired private SolMomentumBullTrendService solBullTrendService;
+    @Autowired private SolMultiTimeframeContextService solMultiTimeframeContextService;
+    @Autowired private SolBullLaunchTrendService solBullLaunchTrendService;
+    @Autowired private SolBullLaunchContextService solBullLaunchContextService;
     @Autowired private EthStructuralBearTrendService ethBearTrendService;
     @Autowired private EthBearMultiTimeframeContextService ethBearMultiTimeframeContextService;
     @Autowired private LifecycleTrendPositionOwnershipPolicy lifecyclePositionOwnership;
@@ -128,7 +140,11 @@ public class BacktestService {
                 results.add(runSingleStrategy("binanceTrend", symbolParam, ohlcList));
                 results.add(runSingleStrategy("ethStructuralBullTrend", symbolParam, ohlcList));
                 results.add(runSingleStrategy("ethStructuralBearTrend", symbolParam, ohlcList));
+                results.add(runSingleStrategy("btcBullLaunchTrend", symbolParam, ohlcList));
+                results.add(runSingleStrategy("btcStructuralBearTrend", symbolParam, ohlcList));
                 results.add(runSingleStrategy("solMomentumBullTrend", symbolParam, ohlcList));
+                results.add(runSingleStrategy("solBullLaunchTrend", symbolParam, ohlcList));
+                results.add(runSingleStrategy("solStructuralBearTrend", symbolParam, ohlcList));
                 results.add(runSingleStrategy("breakoutRetestContinuationTrend", symbolParam, ohlcList));
                 results.add(runSingleStrategy("emaPullbackBuy", symbolParam, ohlcList));
                 results.add(runSingleStrategy("trendRestart", symbolParam, ohlcList));
@@ -245,11 +261,17 @@ public class BacktestService {
         target.routingDecisionCount += source.routingDecisionCount;
         mergeCounts(target.routingReasonCounts, source.routingReasonCounts);
         mergeCounts(target.selectedStrategyCounts, source.selectedStrategyCounts);
+        mergeCounts(target.routeOwnerStrategyCounts, source.routeOwnerStrategyCounts);
+        mergeCounts(target.setupBlockedStrategyCounts, source.setupBlockedStrategyCounts);
+        mergeCounts(target.positionRunningStrategyCounts, source.positionRunningStrategyCounts);
         mergeCounts(target.regimeCounts, source.regimeCounts);
         mergeCounts(target.candidateAcceptedCounts, source.candidateAcceptedCounts);
         mergeCounts(target.candidateRejectReasonCounts, source.candidateRejectReasonCounts);
         mergeCounts(target.signalCounts, source.signalCounts);
         mergeCounts(target.strategySignalCounts, source.strategySignalCounts);
+        mergeCounts(target.participationBlockReasonCounts, source.participationBlockReasonCounts);
+        mergeCounts(target.atrChannelPhaseCounts, source.atrChannelPhaseCounts);
+        mergeCounts(target.atrChannelReasonCounts, source.atrChannelReasonCounts);
         mergeCounts(target.strategyTradeCounts, source.strategyTradeCounts);
         mergeCounts(target.structuralTrendCounts, source.structuralTrendCounts);
         mergeCounts(target.structuralPhaseCounts, source.structuralPhaseCounts);
@@ -261,10 +283,20 @@ public class BacktestService {
         mergeCounts(target.trendLifecycleReasonCounts,source.trendLifecycleReasonCounts);
         mergeCounts(target.ethBullTrendPhaseCounts,source.ethBullTrendPhaseCounts);
         mergeCounts(target.ethBullTrendReasonCounts,source.ethBullTrendReasonCounts);
+        mergeCounts(target.btcBullTrendPhaseCounts,source.btcBullTrendPhaseCounts);
+        mergeCounts(target.btcBullTrendReasonCounts,source.btcBullTrendReasonCounts);
         mergeCounts(target.solBullTrendPhaseCounts,source.solBullTrendPhaseCounts);
         mergeCounts(target.solBullTrendReasonCounts,source.solBullTrendReasonCounts);
+        mergeCounts(target.solBullLaunchTrendPhaseCounts,source.solBullLaunchTrendPhaseCounts);
+        mergeCounts(target.solBullLaunchTrendReasonCounts,source.solBullLaunchTrendReasonCounts);
         mergeCounts(target.ethBearTrendPhaseCounts,source.ethBearTrendPhaseCounts);
         mergeCounts(target.ethBearTrendReasonCounts,source.ethBearTrendReasonCounts);
+        mergeCounts(target.solBearTrendPhaseCounts,source.solBearTrendPhaseCounts);
+        mergeCounts(target.solBearTrendReasonCounts,source.solBearTrendReasonCounts);
+        mergeCounts(target.btcBullLaunchTrendPhaseCounts,source.btcBullLaunchTrendPhaseCounts);
+        mergeCounts(target.btcBullLaunchTrendReasonCounts,source.btcBullLaunchTrendReasonCounts);
+        mergeCounts(target.btcBearTrendPhaseCounts,source.btcBearTrendPhaseCounts);
+        mergeCounts(target.btcBearTrendReasonCounts,source.btcBearTrendReasonCounts);
     }
 
     private void mergeCounts(Map<String, Integer> target, Map<String, Integer> source) {
@@ -287,9 +319,31 @@ public class BacktestService {
                 param.tradeNotional.doubleValue());
         BinanceBacktestMarketGuard.GuardContext guard = marketGuard.prepareContext(param.symbol, param.beginDate, param.endDate);
         strategyService.resetAll(param.symbol);
-        boolean bearEnabled=symbolStrategyProfiles.isStrategyEnabled(param.symbol,param.text,"ethStructuralBearTrend");
-        if(symbolStrategyProfiles.isStrategyEnabled(param.symbol,param.text,"ethStructuralBullTrend")||bearEnabled)
+        String ethBearStrategy=SymbolStrategyNames.qualify("ethStructuralBearTrend",param.symbol);
+        String ethBullStrategy=SymbolStrategyNames.qualify("ethStructuralBullTrend",param.symbol);
+        String btcBullStrategy=SymbolStrategyNames.qualify("btcStructuralBullTrend",param.symbol);
+        String btcLaunchStrategy=SymbolStrategyNames.qualify("btcBullLaunchTrend",param.symbol);
+        String btcBearStrategy=SymbolStrategyNames.qualify("btcStructuralBearTrend",param.symbol);
+        boolean bearEnabled="ETHUSDT".equalsIgnoreCase(param.symbol)
+                &&symbolStrategyProfiles.isStrategyEnabled(param.symbol,param.text,ethBearStrategy);
+        boolean btcBearEnabled="BTCUSDT".equalsIgnoreCase(param.symbol)
+                &&symbolStrategyProfiles.isStrategyEnabled(param.symbol,param.text,btcBearStrategy);
+        if(symbolStrategyProfiles.isStrategyEnabled(param.symbol,param.text,ethBullStrategy)||bearEnabled)
             prepareEthMultiTimeframe(param,bearEnabled);
+        if(symbolStrategyProfiles.isStrategyEnabled(param.symbol,param.text,btcBullStrategy))
+            prepareBtcStructuralBullMultiTimeframe(param);
+        if(btcBearEnabled)prepareEthMultiTimeframe(param,true);
+        if("BTCUSDT".equalsIgnoreCase(param.symbol)
+                &&symbolStrategyProfiles.isStrategyEnabled(param.symbol,param.text,btcLaunchStrategy))
+            prepareBtcLaunchMultiTimeframe(param);
+        String solBullStrategy=SymbolStrategyNames.qualify("solMomentumBullTrend",param.symbol);
+        String solLaunchStrategy=SymbolStrategyNames.qualify("solBullLaunchTrend",param.symbol);
+        String solBearStrategy=SymbolStrategyNames.qualify("solStructuralBearTrend",param.symbol);
+        boolean solBearEnabled=symbolStrategyProfiles.isStrategyEnabled(param.symbol,param.text,solBearStrategy);
+        if(symbolStrategyProfiles.isStrategyEnabled(param.symbol,param.text,solBullStrategy)
+                ||symbolStrategyProfiles.isStrategyEnabled(param.symbol,param.text,solLaunchStrategy)
+                ||solBearEnabled)
+            prepareSolMultiTimeframe(param,solBearEnabled);
         return new DeterministicSession(param, duration, series, result, equity, guard,
                 deterministicPipeline.newState());
     }
@@ -422,8 +476,13 @@ public class BacktestService {
     private void recordRouting(BacktestModels.RoutingStats stats, DeterministicPipelineResult result) {
         StrategyRoutingDecision decision = result.routingDecision;
         stats.routingDecisionCount++;
-        increment(stats.routingReasonCounts, decision.reason == null ? "UNKNOWN" : decision.reason);
-        increment(stats.selectedStrategyCounts, decision.strategyName == null ? "NO_TRADE" : decision.strategyName);
+        increment(stats.routingReasonCounts, result.participationBlocked
+                ? "MARKET_PARTICIPATION_BLOCKED"
+                : decision.reason == null ? "UNKNOWN" : decision.reason);
+        increment(stats.routeOwnerStrategyCounts,
+                decision.strategyName == null ? "NO_OWNER" : decision.strategyName);
+        increment(stats.selectedStrategyCounts, result.participationBlocked
+                || decision.strategyName == null ? "NO_TRADE" : decision.strategyName);
         increment(stats.regimeCounts, decision.regime == null ? "UNKNOWN" : decision.regime);
         for (com.app.dc.service.simulation.dynamic.DynamicStrategyMeta candidate : result.candidates.candidates)
             increment(stats.candidateAcceptedCounts, candidate.strategyName);
@@ -431,9 +490,22 @@ public class BacktestService {
         String side = result.signal == null || result.signal.side == null || result.signal.side == Side.NONE
                 ? "HOLD" : result.signal.side.name();
         increment(stats.signalCounts, side);
-        String executionStrategy = result.executionStrategyName == null
+        String executionStrategy = result.participationBlocked ? null
+                : result.executionStrategyName == null
                 ? decision.strategyName : result.executionStrategyName;
         if (executionStrategy != null) increment(stats.strategySignalCounts, executionStrategy + ":" + side);
+        if (result.participationBlocked)
+            increment(stats.participationBlockReasonCounts,
+                    result.participationBlockReason == null ? "UNKNOWN" : result.participationBlockReason);
+        if (result.participationBlocked && decision.strategyName != null) {
+            if ("POSITION_RUNNING".equals(result.participationBlockReason))
+                increment(stats.positionRunningStrategyCounts, decision.strategyName);
+            else increment(stats.setupBlockedStrategyCounts, decision.strategyName);
+        }
+        if (result.atrChannelBiasSetup != null) {
+            increment(stats.atrChannelPhaseCounts, result.atrChannelBiasSetup.phase);
+            increment(stats.atrChannelReasonCounts, result.atrChannelBiasSetup.reason);
+        }
         if (result.structuralTrend != null) {
             increment(stats.structuralTrendCounts, result.structuralTrend.direction);
             increment(stats.structuralPhaseCounts, result.structuralTrend.phase);
@@ -460,9 +532,29 @@ public class BacktestService {
             increment(stats.solBullTrendPhaseCounts,result.solBullTrend.phase);
             increment(stats.solBullTrendReasonCounts,result.solBullTrend.reason);
         }
+        if(result.btcBullTrend!=null){
+            increment(stats.btcBullTrendPhaseCounts,result.btcBullTrend.phase);
+            increment(stats.btcBullTrendReasonCounts,result.btcBullTrend.reason);
+        }
+        if(result.solBullLaunchTrend!=null){
+            increment(stats.solBullLaunchTrendPhaseCounts,result.solBullLaunchTrend.phase);
+            increment(stats.solBullLaunchTrendReasonCounts,result.solBullLaunchTrend.reason);
+        }
         if(result.ethBearTrend!=null){
             increment(stats.ethBearTrendPhaseCounts,result.ethBearTrend.phase);
             increment(stats.ethBearTrendReasonCounts,result.ethBearTrend.reason);
+        }
+        if(result.solBearTrend!=null){
+            increment(stats.solBearTrendPhaseCounts,result.solBearTrend.phase);
+            increment(stats.solBearTrendReasonCounts,result.solBearTrend.reason);
+        }
+        if(result.btcBullLaunchTrend!=null){
+            increment(stats.btcBullLaunchTrendPhaseCounts,result.btcBullLaunchTrend.phase);
+            increment(stats.btcBullLaunchTrendReasonCounts,result.btcBullLaunchTrend.reason);
+        }
+        if(result.btcBearTrend!=null){
+            increment(stats.btcBearTrendPhaseCounts,result.btcBearTrend.phase);
+            increment(stats.btcBearTrendReasonCounts,result.btcBearTrend.reason);
         }
     }
 
@@ -519,9 +611,18 @@ public class BacktestService {
         Duration duration = supportService.resolveDuration(param.text);
         BarSeries replaySeries = new BaseBarSeries(param.symbol + "-" + param.text + "-" + normalizedStrategy);
         strategyService.getStrategy(normalizedStrategy).resetSession(param.symbol);
-        if("ethStructuralBullTrend".equalsIgnoreCase(normalizedStrategy)
-                ||"ethStructuralBearTrend".equalsIgnoreCase(normalizedStrategy))
-            prepareEthMultiTimeframe(param,"ethStructuralBearTrend".equalsIgnoreCase(normalizedStrategy));
+        String baseStrategy=SymbolStrategyNames.baseName(normalizedStrategy);
+        if("ethStructuralBullTrend".equalsIgnoreCase(baseStrategy)
+                ||"btcBullLaunchTrend".equalsIgnoreCase(baseStrategy)
+                ||"ethStructuralBearTrend".equalsIgnoreCase(baseStrategy)
+                ||"btcStructuralBearTrend".equalsIgnoreCase(baseStrategy))
+            prepareEthMultiTimeframe(param,"ethStructuralBearTrend".equalsIgnoreCase(baseStrategy)
+                    ||"btcStructuralBearTrend".equalsIgnoreCase(baseStrategy));
+        if("btcStructuralBullTrend".equalsIgnoreCase(baseStrategy))prepareBtcStructuralBullMultiTimeframe(param);
+        if("btcBullLaunchTrend".equalsIgnoreCase(baseStrategy))prepareBtcLaunchMultiTimeframe(param);
+        if("solMomentumBullTrend".equalsIgnoreCase(baseStrategy)
+                ||"solBullLaunchTrend".equalsIgnoreCase(baseStrategy))prepareSolMultiTimeframe(param);
+        if("solStructuralBearTrend".equalsIgnoreCase(baseStrategy))prepareSolMultiTimeframe(param,true);
 
         BacktestResult result = initResult(normalizedStrategy, param);
         EquityContext equityContext = metricService.initEquityContext(param.initialCapital.doubleValue(),
@@ -557,7 +658,11 @@ public class BacktestService {
                     session.param.symbol,session.param.text,session.replaySeries,structural,currentRegime);
             ethBullTrendService.update(session.param.symbol,session.param.text,
                     session.replaySeries,structural,currentRegime);
+            btcBullTrendService.update(session.param.symbol,session.param.text,
+                    session.replaySeries,structural,currentRegime);
             solBullTrendService.update(session.param.symbol,session.param.text,
+                    session.replaySeries,structural,currentRegime);
+            solBullLaunchTrendService.update(session.param.symbol,session.param.text,
                     session.replaySeries,structural,currentRegime);
             ethBearTrendService.update(session.param.symbol,session.param.text,
                     session.replaySeries,structural,currentRegime);
@@ -626,15 +731,32 @@ public class BacktestService {
     private void decorateTrendPosition(Position position,String strategy,String symbol,String timeframe,
                                        TrendLifecycleSnapshot lifecycle,Signal signal,BarSeries series){
         if(position==null)return;
-        if("binanceTrend".equalsIgnoreCase(strategy)&&lifecycle!=null)
+        String baseStrategy=SymbolStrategyNames.baseName(strategy);
+        if("binanceTrend".equalsIgnoreCase(baseStrategy)&&lifecycle!=null)
             position.entryLifecyclePhase=lifecycle.phase;
-        else if("ethStructuralBullTrend".equalsIgnoreCase(strategy)){
+        else if("ethStructuralBullTrend".equalsIgnoreCase(baseStrategy)){
             position.entryLifecyclePhase="TRIGGERED";
             position.ethSoftStopPrice=ethBullTrendService.currentSoftStop(symbol,timeframe);
         }
-        else if("solMomentumBullTrend".equalsIgnoreCase(strategy))
+        else if("btcStructuralBullTrend".equalsIgnoreCase(baseStrategy)){
             position.entryLifecyclePhase="TRIGGERED";
-        else if("ethStructuralBearTrend".equalsIgnoreCase(strategy)){
+            position.btcSoftStopPrice=btcBullTrendService.currentSoftStop(symbol,timeframe);
+        }
+        else if("solMomentumBullTrend".equalsIgnoreCase(baseStrategy)){
+            position.entryLifecyclePhase="TRIGGERED";
+            position.solSoftStopPrice=solBullTrendService.currentSoftStop(symbol,timeframe);
+        }
+        else if("solBullLaunchTrend".equalsIgnoreCase(baseStrategy)){
+            position.entryLifecyclePhase="TRIGGERED";
+            position.solSoftStopPrice=solBullLaunchTrendService.currentSoftStop(symbol,timeframe);
+        }
+        else if("btcBullLaunchTrend".equalsIgnoreCase(baseStrategy)){
+            position.entryLifecyclePhase="TRIGGERED";
+            position.ethSoftStopPrice=solBullLaunchTrendService.currentSoftStop(symbol,timeframe);
+        }
+        else if("ethStructuralBearTrend".equalsIgnoreCase(baseStrategy)
+                ||"solStructuralBearTrend".equalsIgnoreCase(baseStrategy)
+                ||"btcStructuralBearTrend".equalsIgnoreCase(baseStrategy)){
             EthBearMultiTimeframeSnapshot bear=ethBearMultiTimeframeContextService.current(symbol);
             position.entryLifecyclePhase="TRIGGERED|1D_"+bear.dailyState+"|4H_"+bear.fourHourTrend
                     +"|1H_"+bear.oneHourPhase;
@@ -642,7 +764,7 @@ public class BacktestService {
             position.regime=position.regime==null||position.regime.length()==0?context:position.regime+"|"+context;
             position.ethBearSoftStopPrice=ethBearTrendService.currentSoftStop(symbol,timeframe);
         }
-        else if("binanceChannel".equalsIgnoreCase(strategy)
+        else if("binanceChannel".equalsIgnoreCase(baseStrategy)
                 &&"ETHUSDT".equalsIgnoreCase(symbol)&&"15M".equalsIgnoreCase(timeframe)){
             position.entryLifecyclePhase="ETH_CHANNEL_BREAKOUT";
             int end=series==null?-1:series.getEndIndex();
@@ -656,14 +778,53 @@ public class BacktestService {
     }
 
     private void prepareEthMultiTimeframe(BacktestParam param,boolean prepareBear){
-        if(param==null||!"ETHUSDT".equalsIgnoreCase(param.symbol)||!"15M".equalsIgnoreCase(param.text))return;
-        List<TTbookOhlc> oneHour=queryService.queryLocalOhlc(param.symbol,"1h",param.beginDate,param.endDate);
-        List<TTbookOhlc> fourHour=queryService.queryLocalOhlc(param.symbol,"4h",param.beginDate,param.endDate);
+        if(param==null||!("ETHUSDT".equalsIgnoreCase(param.symbol)
+                ||"BTCUSDT".equalsIgnoreCase(param.symbol))||!"15M".equalsIgnoreCase(param.text))return;
+        String contextBegin="BTCUSDT".equalsIgnoreCase(param.symbol)
+                ?LocalDate.parse(param.beginDate).minusDays(120).toString():param.beginDate;
+        List<TTbookOhlc> oneHour=queryService.queryLocalOhlc(param.symbol,"1h",contextBegin,param.endDate);
+        List<TTbookOhlc> fourHour=queryService.queryLocalOhlc(param.symbol,"4h",contextBegin,param.endDate);
         ethMultiTimeframeContextService.prepare(param.symbol,oneHour,fourHour);
         if(prepareBear){
             List<TTbookOhlc> daily=queryService.queryLocalOhlc(param.symbol,"1d",param.beginDate,param.endDate);
             ethBearMultiTimeframeContextService.prepare(param.symbol,daily,oneHour,fourHour);
         }else ethBearMultiTimeframeContextService.prepare(param.symbol,oneHour,fourHour);
+    }
+
+    private void prepareBtcStructuralBullMultiTimeframe(BacktestParam param){
+        if(param==null||!"BTCUSDT".equalsIgnoreCase(param.symbol)||!"15M".equalsIgnoreCase(param.text))return;
+        String begin=LocalDate.parse(param.beginDate).minusDays(120).toString();
+        List<TTbookOhlc> oneHour=queryService.queryLocalOhlc(param.symbol,"1h",begin,param.endDate);
+        List<TTbookOhlc> fourHour=queryService.queryLocalOhlc(param.symbol,"4h",begin,param.endDate);
+        btcMultiTimeframeContextService.prepare(param.symbol,oneHour,fourHour);
+    }
+
+    private void prepareSolMultiTimeframe(BacktestParam param){
+        prepareSolMultiTimeframe(param,false);
+    }
+
+    private void prepareBtcLaunchMultiTimeframe(BacktestParam param){
+        if(param==null||!"BTCUSDT".equalsIgnoreCase(param.symbol)||!"15M".equalsIgnoreCase(param.text))return;
+        String begin=LocalDate.parse(param.beginDate).minusDays(120).toString();
+        List<TTbookOhlc> oneHour=queryService.queryLocalOhlc(param.symbol,"1h",begin,param.endDate);
+        List<TTbookOhlc> fourHour=queryService.queryLocalOhlc(param.symbol,"4h",begin,param.endDate);
+        solBullLaunchContextService.prepare(param.symbol,oneHour,fourHour);
+    }
+
+    private void prepareSolMultiTimeframe(BacktestParam param,boolean prepareBear){
+        if(param==null||!"SOLUSDT".equalsIgnoreCase(param.symbol)
+                ||!"15M".equalsIgnoreCase(param.text))return;
+        List<TTbookOhlc> oneHour=queryService.queryLocalOhlc(
+                param.symbol,"1h",param.beginDate,param.endDate);
+        List<TTbookOhlc> fourHour=queryService.queryLocalOhlc(
+                param.symbol,"4h",param.beginDate,param.endDate);
+        solMultiTimeframeContextService.prepare(param.symbol,oneHour,fourHour);
+        solBullLaunchContextService.prepare(param.symbol,oneHour,fourHour);
+        if(prepareBear){
+            List<TTbookOhlc> daily=queryService.queryLocalOhlc(
+                    param.symbol,"1d",param.beginDate,param.endDate);
+            ethBearMultiTimeframeContextService.prepare(param.symbol,daily,oneHour,fourHour);
+        }
     }
 
     private BacktestResult finishSession(SingleStrategySession session) {

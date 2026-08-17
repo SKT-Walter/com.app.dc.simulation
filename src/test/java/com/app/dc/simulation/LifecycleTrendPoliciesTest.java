@@ -35,6 +35,15 @@ public class LifecycleTrendPoliciesTest {
                 Arrays.asList(score("ethStructuralBullTrend",90,70)),null));
     }
 
+    @Test public void actionableSolTriggerTakesPriorityFromOrdinaryStrategy(){
+        LifecycleTrendPriorityPolicy policy=new LifecycleTrendPriorityPolicy();
+        StrategyEvaluationContext context=solContext(true);
+        Assert.assertEquals("solMomentumBullTrendSOL",policy.priorityStrategy(context,
+                Arrays.asList(score("solMomentumBullTrendSOL",80,70)),"binanceRangeSOL"));
+        Assert.assertNull(policy.priorityStrategy(solContext(false),
+                Arrays.asList(score("solMomentumBullTrendSOL",90,70)),"binanceRangeSOL"));
+    }
+
     @Test public void lifecyclePositionRejectsForeignButNotOwnerSignal(){
         LifecycleTrendPositionOwnershipPolicy policy=new LifecycleTrendPositionOwnershipPolicy();
         Position position=new Position();position.strategyName="ethStructuralBullTrend";
@@ -46,6 +55,21 @@ public class LifecycleTrendPoliciesTest {
         Assert.assertFalse(policy.shouldHandoffSameDirection(position,"ethStructuralBearTrend",Side.SELL));
         position.strategyName="binanceRange";
         Assert.assertFalse(policy.blocksForeignReversal(position,"donchianReversion"));
+        position.strategyName="solBullLaunchTrendSOL";
+        Assert.assertTrue(policy.blocksForeignReversal(position,"binanceRangeSOL"));
+        Assert.assertFalse(policy.shouldHandoffSameDirection(position,
+                "solMomentumBullTrendSOL",Side.BUY));
+    }
+
+    @Test public void actionableSolLaunchHasPriorityButMatureTriggerWinsTie(){
+        LifecycleTrendPriorityPolicy policy=new LifecycleTrendPriorityPolicy();
+        StrategyEvaluationContext launch=solLaunchContext(false,true);
+        Assert.assertEquals("solBullLaunchTrendSOL",policy.priorityStrategy(launch,
+                Arrays.asList(score("solBullLaunchTrendSOL",80,67)),null));
+        StrategyEvaluationContext both=solLaunchContext(true,true);
+        Assert.assertEquals("solMomentumBullTrendSOL",policy.priorityStrategy(both,
+                Arrays.asList(score("solMomentumBullTrendSOL",80,67),
+                        score("solBullLaunchTrendSOL",90,67)),null));
     }
 
     private StrategyEvaluationContext context(boolean triggered){
@@ -57,6 +81,32 @@ public class LifecycleTrendPoliciesTest {
         return new StrategyEvaluationContext("ETHUSDT","15M",100,null,null,regime,null,
                 StructuralTrendSnapshot.warmup(),TrendCompressionSnapshot.none(),
                 TrendLifecycleSnapshot.none(),eth,BullTrendSnapshot.none("solMomentumBullTrend"));
+    }
+
+    private StrategyEvaluationContext solContext(boolean triggered){
+        BacktestRegime regime=new BacktestRegime();regime.tradeable=true;regime.trend="UP";
+        regime.volatility="NORMAL";regime.confidence=.8;
+        BullTrendSnapshot sol=new BullTrendSnapshot("solMomentumBullTrend",
+                triggered?BullTrendSnapshot.TRIGGERED:BullTrendSnapshot.ARMED,"TEST",.9,
+                triggered,95,"TEST",100);
+        return new StrategyEvaluationContext("SOLUSDT","15M",100,null,null,regime,null,
+                StructuralTrendSnapshot.warmup(),TrendCompressionSnapshot.none(),
+                TrendLifecycleSnapshot.none(),BullTrendSnapshot.none("ethStructuralBullTrend"),sol);
+    }
+
+    private StrategyEvaluationContext solLaunchContext(boolean matureTriggered,boolean launchTriggered){
+        BacktestRegime regime=new BacktestRegime();regime.tradeable=true;regime.trend="UP";
+        regime.volatility="NORMAL";regime.confidence=.8;
+        BullTrendSnapshot mature=new BullTrendSnapshot("solMomentumBullTrend",
+                matureTriggered?BullTrendSnapshot.TRIGGERED:BullTrendSnapshot.OBSERVING,
+                "TEST",.9,matureTriggered,95,"MATURE",100);
+        BullTrendSnapshot launch=new BullTrendSnapshot("solBullLaunchTrend",
+                launchTriggered?BullTrendSnapshot.TRIGGERED:BullTrendSnapshot.OBSERVING,
+                "TEST",.9,launchTriggered,95,"LAUNCH",100);
+        return new StrategyEvaluationContext("SOLUSDT","15M",100,null,null,regime,null,
+                StructuralTrendSnapshot.warmup(),TrendCompressionSnapshot.none(),
+                TrendLifecycleSnapshot.none(),BullTrendSnapshot.none("ethStructuralBullTrend"),
+                mature,launch,null);
     }
 
     private DeterministicScoreCard score(String name,double value,double threshold){

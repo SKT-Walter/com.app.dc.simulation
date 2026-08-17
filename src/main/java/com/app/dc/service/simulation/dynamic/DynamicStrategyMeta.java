@@ -5,11 +5,26 @@ import java.util.List;
 
 public class DynamicStrategyMeta {
     public String strategyName;
+    public String baseStrategyName;
+    public String supportedSymbol;
     public String family;
     public boolean enabled = true;
     public double minimumScore = 60;
     public List<String> supportedRegimes = new ArrayList<String>();
     public List<String> requiredFeatures = new ArrayList<String>();
+
+    public DynamicStrategyMeta copyAs(String name, String symbol) {
+        DynamicStrategyMeta copy = new DynamicStrategyMeta();
+        copy.strategyName = name;
+        copy.baseStrategyName = strategyName;
+        copy.supportedSymbol = symbol;
+        copy.family = family;
+        copy.enabled = enabled;
+        copy.minimumScore = minimumScore;
+        copy.supportedRegimes = new ArrayList<String>(supportedRegimes);
+        copy.requiredFeatures = new ArrayList<String>(requiredFeatures);
+        return copy;
+    }
 
     public boolean supports(BacktestRegime regime) {
         if (!enabled || regime == null || !regime.tradeable) return false;

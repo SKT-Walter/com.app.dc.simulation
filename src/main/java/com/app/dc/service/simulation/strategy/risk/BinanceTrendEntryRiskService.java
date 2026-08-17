@@ -4,6 +4,7 @@ import com.app.dc.po.Side;
 import com.app.dc.po.Signal;
 import com.app.dc.service.simulation.deterministic.StructuralTrendSnapshot;
 import com.app.dc.service.simulation.strategy.BinanceStrategyMath;
+import com.app.dc.service.simulation.strategy.SymbolStrategyNames;
 import com.app.dc.service.simulation.strategy.profile.SymbolStrategyProfileService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,10 +31,10 @@ public class BinanceTrendEntryRiskService {
     public boolean apply(String strategyName, String symbol, String timeframe,
                          Signal signal, BarSeries series,
                          StructuralTrendSnapshot structural) {
-        if (!"binanceTrend".equalsIgnoreCase(strategyName) || signal == null
+        if (!"binanceTrend".equalsIgnoreCase(SymbolStrategyNames.baseName(strategyName)) || signal == null
                 || series == null || (signal.side != Side.BUY && signal.side != Side.SELL))
             return false;
-        boolean changed = applyTakeProfit(symbol, timeframe, signal, series);
+        boolean changed = applyTakeProfit(strategyName,symbol, timeframe, signal, series);
         if (structural == null || !structural.ready) return changed;
         boolean counterStructure = signal.side == Side.SELL && structural.isBull()
                 || signal.side == Side.BUY && structural.isBear();
@@ -52,11 +53,11 @@ public class BinanceTrendEntryRiskService {
         return true;
     }
 
-    private boolean applyTakeProfit(String symbol, String timeframe, Signal signal,
+    private boolean applyTakeProfit(String strategyName,String symbol, String timeframe, Signal signal,
                                     BarSeries series) {
         if (strategyProfiles == null) return false;
         Double takeProfitPct = strategyProfiles.takeProfitPct(
-                symbol, timeframe, "binanceTrend");
+                symbol, timeframe, strategyName);
         if (takeProfitPct == null || !Double.isFinite(takeProfitPct)
                 || takeProfitPct <= 0) return false;
         double close = BinanceStrategyMath.close(series, series.getEndIndex());

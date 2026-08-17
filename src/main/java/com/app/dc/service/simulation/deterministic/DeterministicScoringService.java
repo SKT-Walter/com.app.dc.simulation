@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import com.app.dc.service.simulation.strategy.SymbolStrategyNames;
 
 /** Combines family market suitability with one pure setup scorer per concrete strategy. */
 @Service
@@ -34,7 +35,7 @@ public class DeterministicScoringService {
     public void validateCatalog() {
         for (DynamicStrategyMeta meta : catalog.all()) {
             if (!meta.enabled) continue;
-            StrategySetupScorer scorer = scorers.get(meta.strategyName.toLowerCase(Locale.ROOT));
+            StrategySetupScorer scorer = scorers.get(SymbolStrategyNames.baseName(meta.strategyName).toLowerCase(Locale.ROOT));
             if (scorer == null) throw new IllegalStateException("missing deterministic scorer: " + meta.strategyName);
             if (!meta.family.equalsIgnoreCase(scorer.family()))
                 throw new IllegalStateException("scorer family mismatch: " + meta.strategyName);
@@ -50,7 +51,7 @@ public class DeterministicScoringService {
     }
 
     public DeterministicScoreCard score(StrategyEvaluationContext context, DynamicStrategyMeta meta) {
-        StrategySetupScorer scorer = scorers.get(meta.strategyName.toLowerCase(Locale.ROOT));
+        StrategySetupScorer scorer = scorers.get(SymbolStrategyNames.baseName(meta.strategyName).toLowerCase(Locale.ROOT));
         if (scorer == null) throw new IllegalStateException("missing deterministic scorer: " + meta.strategyName);
         StrategySetupScore setup = scorer.score(context);
         DeterministicScoreCard card = new DeterministicScoreCard();
@@ -116,7 +117,7 @@ public class DeterministicScoringService {
                 : Math.max(t.closeLocation, 1 - t.closeLocation);
         put(card, "closeQuality", 10 * closeQuality);
         put(card, "structure", 5 * t.structureStrength);
-        if ("compressionBreak".equalsIgnoreCase(card.strategyName)
+        if ("compressionBreak".equalsIgnoreCase(SymbolStrategyNames.baseName(card.strategyName))
                 && x.trendCompression != null && x.trendCompression.triggered)
             put(card, "trendCompression", 15);
         if (t.volumeRatio < 1) { card.penalty += 10; card.penaltyFactors.add("突破缺少成交量"); }

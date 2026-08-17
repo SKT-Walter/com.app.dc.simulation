@@ -157,13 +157,17 @@ public class BinanceBacktestMarketGuard {
         if (StringUtils.isBlank(strategyName)) {
             return "trend";
         }
-        String name = strategyName.trim();
+        String name = SymbolStrategyNames.baseName(strategyName.trim());
         if ("binanceChannel".equalsIgnoreCase(name)) {
             return "channel";
         }
         if ("binanceTrend".equalsIgnoreCase(name)
                 || "ethStructuralBullTrend".equalsIgnoreCase(name)
+                || "btcStructuralBullTrend".equalsIgnoreCase(name)
+                || "btcBullLaunchTrend".equalsIgnoreCase(name)
+                || "btcStructuralBearTrend".equalsIgnoreCase(name)
                 || "ethStructuralBearTrend".equalsIgnoreCase(name)
+                || "solStructuralBearTrend".equalsIgnoreCase(name)
                 || "solMomentumBullTrend".equalsIgnoreCase(name)
                 || "breakoutRetestContinuationTrend".equalsIgnoreCase(name)
                 || "emaPullbackBuy".equalsIgnoreCase(name)

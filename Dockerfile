@@ -22,6 +22,8 @@ COPY salt-formula/SIMSvr/files/config/ /srv/dc/dc/${SERVICE_NAME}/config/
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
-    && mkdir -p /srv/dc/control /srv/dc/data /srv/dc/log /srv/dc/tpc/tpc /srv/dc/dc/${SERVICE_NAME}
+    && mkdir -p /srv/dc/control /srv/dc/data /srv/dc/log /srv/dc/tpc/tpc /srv/dc/dc/${SERVICE_NAME} \
+    && ln -s /srv/dc/data /srv/dc/dc/${SERVICE_NAME}/data \
+    && ln -s /srv/dc/log /srv/dc/dc/${SERVICE_NAME}/log
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

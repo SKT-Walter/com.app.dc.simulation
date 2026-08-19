@@ -42,8 +42,7 @@ import com.app.dc.strategy.core.strategy.trend.bull.SolBullLaunchContextService;
 import com.app.dc.strategy.core.strategy.trend.bear.BearTrendSnapshot;
 import com.app.dc.strategy.core.strategy.trend.bear.EthStructuralBearTrendService;
 import com.app.dc.strategy.core.strategy.trend.bear.EthBearMultiTimeframeContextService;
-import com.app.dc.strategy.core.strategy.trend.bear.EthBearMultiTimeframeSnapshot;
-import com.app.dc.strategy.core.strategy.BinanceStrategyMath;
+import com.app.dc.strategy.core.strategy.runtime.StrategyPositionInitializer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
@@ -112,6 +111,7 @@ public class BacktestService {
     @Autowired private EthStructuralBearTrendService ethBearTrendService;
     @Autowired private EthBearMultiTimeframeContextService ethBearMultiTimeframeContextService;
     @Autowired private LifecycleTrendPositionOwnershipPolicy lifecyclePositionOwnership;
+    @Autowired private StrategyPositionInitializer positionInitializer;
 
     public StrategyRunResponse run(BacktestParam param) throws Exception {
         BacktestParam req = normalizeParam(param);
@@ -732,51 +732,7 @@ public class BacktestService {
 
     private void decorateTrendPosition(Position position,String strategy,String symbol,String timeframe,
                                        TrendLifecycleSnapshot lifecycle,Signal signal,BarSeries series){
-        if(position==null)return;
-        String baseStrategy=SymbolStrategyNames.baseName(strategy);
-        if("binanceTrend".equalsIgnoreCase(baseStrategy)&&lifecycle!=null)
-            position.entryLifecyclePhase=lifecycle.phase;
-        else if("ethStructuralBullTrend".equalsIgnoreCase(baseStrategy)){
-            position.entryLifecyclePhase="TRIGGERED";
-            position.ethSoftStopPrice=ethBullTrendService.currentSoftStop(symbol,timeframe);
-        }
-        else if("btcStructuralBullTrend".equalsIgnoreCase(baseStrategy)){
-            position.entryLifecyclePhase="TRIGGERED";
-            position.btcSoftStopPrice=btcBullTrendService.currentSoftStop(symbol,timeframe);
-        }
-        else if("solMomentumBullTrend".equalsIgnoreCase(baseStrategy)){
-            position.entryLifecyclePhase="TRIGGERED";
-            position.solSoftStopPrice=solBullTrendService.currentSoftStop(symbol,timeframe);
-        }
-        else if("solBullLaunchTrend".equalsIgnoreCase(baseStrategy)){
-            position.entryLifecyclePhase="TRIGGERED";
-            position.solSoftStopPrice=solBullLaunchTrendService.currentSoftStop(symbol,timeframe);
-        }
-        else if("btcBullLaunchTrend".equalsIgnoreCase(baseStrategy)){
-            position.entryLifecyclePhase="TRIGGERED";
-            position.ethSoftStopPrice=solBullLaunchTrendService.currentSoftStop(symbol,timeframe);
-        }
-        else if("ethStructuralBearTrend".equalsIgnoreCase(baseStrategy)
-                ||"solStructuralBearTrend".equalsIgnoreCase(baseStrategy)
-                ||"btcStructuralBearTrend".equalsIgnoreCase(baseStrategy)){
-            EthBearMultiTimeframeSnapshot bear=ethBearMultiTimeframeContextService.current(symbol);
-            position.entryLifecyclePhase="TRIGGERED|1D_"+bear.dailyState+"|4H_"+bear.fourHourTrend
-                    +"|1H_"+bear.oneHourPhase;
-            String context="1D_"+bear.dailyState+"|4H_"+bear.fourHourTrend+"|1H_"+bear.oneHourPhase;
-            position.regime=position.regime==null||position.regime.length()==0?context:position.regime+"|"+context;
-            position.ethBearSoftStopPrice=ethBearTrendService.currentSoftStop(symbol,timeframe);
-        }
-        else if("binanceChannel".equalsIgnoreCase(baseStrategy)
-                &&"ETHUSDT".equalsIgnoreCase(symbol)&&"15M".equalsIgnoreCase(timeframe)){
-            position.entryLifecyclePhase="ETH_CHANNEL_BREAKOUT";
-            int end=series==null?-1:series.getEndIndex();
-            if(end>series.getBeginIndex())position.channelBreakoutLevel=
-                    BinanceStrategyMath.highestHigh(series,end-1,20);
-        }
-        else return;
-        position.trendTriggerType=signal==null?null:signal.remark;
-        position.entryAtr=series==null?Double.NaN:BinanceStrategyMath.atr(
-                series,series.getEndIndex(),14);
+        positionInitializer.initialize(position,strategy,symbol,timeframe,lifecycle,signal,series);
     }
 
     private void prepareEthMultiTimeframe(BacktestParam param,boolean prepareBear){

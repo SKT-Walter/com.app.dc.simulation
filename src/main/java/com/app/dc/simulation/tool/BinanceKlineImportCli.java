@@ -217,7 +217,7 @@ public class BinanceKlineImportCli {
         row.startTime = startTime;
         row.endTime = endTime;
         row.securityID = symbol;
-        row.text = options.interval;
+        row.text = normalizeStorageInterval(options.interval);
         row.fmtTime = FMT_TIME.format(openDateTime);
         row.open = new BigDecimal(item.getString(1));
         row.high = new BigDecimal(item.getString(2));
@@ -408,6 +408,10 @@ public class BinanceKlineImportCli {
 
     private static String normalizeInterval(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ENGLISH);
+    }
+
+    static String normalizeStorageInterval(String value) {
+        return value == null ? "" : value.trim().toUpperCase(Locale.ENGLISH);
     }
 
     private static class DbConfig {

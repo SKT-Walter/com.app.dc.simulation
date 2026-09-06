@@ -14,6 +14,7 @@ import com.app.dc.service.simulation.BacktestTradeService;
 import com.app.dc.service.simulation.scene.DeepSeekSceneTimelineService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.Bar;
 import org.ta4j.core.BarSeries;
@@ -25,6 +26,15 @@ import java.util.List;
 @Service
 @Slf4j
 public class VersionedBacktestRunner {
+
+    @Value("${strategy.runtime.signalEconomics.enabled:true}")
+    private boolean signalEconomicsEnabled;
+
+    @Value("${strategy.runtime.signalEconomics.estimatedRoundTripCostPct:0.08}")
+    private double estimatedRoundTripCostPct;
+
+    @Value("${strategy.runtime.signalEconomics.minTargetCostMultiple:2.0}")
+    private double minTargetCostMultiple;
 
     @Autowired
     private BacktestService legacyBacktestService;
@@ -165,10 +175,14 @@ public class VersionedBacktestRunner {
                 incrementRejectReason(result, "missing_dynamic_stop_take");
                 continue;
             }
-
             if (sceneCursor != null && !sceneMatched) {
                 sceneMetrics.blockedSignalCount++;
                 incrementRejectReason(result, "scene_mismatch");
+                continue;
+            }
+            if (signalEconomicsEnabled && SignalEconomicsPolicy.shouldReject(signal,
+                    estimatedRoundTripCostPct, minTargetCostMultiple)) {
+                incrementRejectReason(result, "signal_economics_target_too_close");
                 continue;
             }
 

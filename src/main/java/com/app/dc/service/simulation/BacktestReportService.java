@@ -3193,6 +3193,9 @@ public class BacktestReportService {
         if ("full-period execution produced no bars".equalsIgnoreCase(value)) {
             return "\u5b8c\u6574\u5468\u671f\u6267\u884c\u6ca1\u6709\u53ef\u7528 K \u7ebf";
         }
+        if ("signal_economics_target_too_close".equalsIgnoreCase(value)) {
+            return "\u6b62\u76c8\u7a7a\u95f4\u592a\u5c0f\uff0c\u65e0\u6cd5\u8986\u76d6\u624b\u7eed\u8d39\u548c\u6ed1\u70b9";
+        }
         if ("slice_count < 3".equalsIgnoreCase(value)) {
             return "slice_count < 3";
         }

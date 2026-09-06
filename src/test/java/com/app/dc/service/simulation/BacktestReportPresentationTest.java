@@ -69,6 +69,8 @@ public class BacktestReportPresentationTest {
                 translate(service, "window_mode is not SCENE_CONDITIONED_WALK_FORWARD"));
         Assert.assertEquals("\u5b8c\u6574\u5468\u671f\u6267\u884c\u53d1\u73b0\u7f3a\u5c11\u52a8\u6001\u6b62\u635f\u6b62\u76c8\u7684\u4fe1\u53f7",
                 translate(service, "full-period execution found signals without dynamic stop/take"));
+        Assert.assertEquals("\u6b62\u76c8\u7a7a\u95f4\u592a\u5c0f\uff0c\u65e0\u6cd5\u8986\u76d6\u624b\u7eed\u8d39\u548c\u6ed1\u70b9",
+                translate(service, "signal_economics_target_too_close"));
     }
 
     private String invoke(BacktestReportService service, String name, Map<String, Object> value) throws Exception {

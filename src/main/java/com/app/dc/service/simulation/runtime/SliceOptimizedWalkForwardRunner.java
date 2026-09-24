@@ -41,6 +41,9 @@ public class SliceOptimizedWalkForwardRunner {
     @Autowired
     private BacktestOptimizationService backtestOptimizationService;
 
+    @Autowired
+    private ExecutionStressService executionStressService;
+
     public BacktestModels.BacktestResult run(StrategyCandidateRow candidate,
                                              BacktestParam rawParam,
                                              List<TTbookOhlc> ohlcList,
@@ -120,6 +123,8 @@ public class SliceOptimizedWalkForwardRunner {
         BigDecimal fitPnl = BigDecimal.ZERO;
         BigDecimal validatePnl = BigDecimal.ZERO;
         BigDecimal forwardPnl = BigDecimal.ZERO;
+        BigDecimal stressedValidatePnl = BigDecimal.ZERO;
+        BigDecimal stressedForwardPnl = BigDecimal.ZERO;
         BigDecimal totalValidateFee = BigDecimal.ZERO;
         BigDecimal forwardScoreSum = BigDecimal.ZERO;
         BigDecimal validateScoreSum = BigDecimal.ZERO;
@@ -156,6 +161,8 @@ public class SliceOptimizedWalkForwardRunner {
             fitPnl = fitPnl.add(nz(fitResult.totalPnl));
             validatePnl = validatePnl.add(nz(validateResult.totalPnl));
             forwardPnl = forwardPnl.add(nz(forwardResult.totalPnl));
+            stressedValidatePnl = stressedValidatePnl.add(executionAdjustedPnl(validateResult));
+            stressedForwardPnl = stressedForwardPnl.add(executionAdjustedPnl(forwardResult));
             totalValidateFee = totalValidateFee.add(nz(validateResult.totalFee));
             validateScoreSum = validateScoreSum.add(nz(validateResult.totalPnl));
             forwardScoreSum = forwardScoreSum.add(nz(forwardResult.totalReturnPct));
@@ -177,8 +184,8 @@ public class SliceOptimizedWalkForwardRunner {
                 : scale(forwardScoreSum.divide(BigDecimal.valueOf(slices.size()), 6, RoundingMode.HALF_UP));
         aggregate.forwardScore = aggregate.forwardAuxScore;
         aggregate.totalFee = aggregate.totalFee == null ? BigDecimal.ZERO : aggregate.totalFee;
-        aggregate.feeAdjustedValidatePnl = scale(validatePnl);
-        aggregate.feeAdjustedForwardPnl = scale(forwardPnl);
+        aggregate.feeAdjustedValidatePnl = scale(stressedValidatePnl);
+        aggregate.feeAdjustedForwardPnl = scale(stressedForwardPnl);
         aggregate.finalCapital = scale(nz(aggregate.initialCapital).add(aggregate.validatePnl));
         aggregate.totalReturnPct = nz(aggregate.initialCapital).compareTo(BigDecimal.ZERO) <= 0
                 ? BigDecimal.ZERO
@@ -213,6 +220,12 @@ public class SliceOptimizedWalkForwardRunner {
             aggregate.fullPeriodSafety = runFullPeriodSafety(candidate, param, rows, representativeParamSet);
         }
         return aggregate;
+    }
+
+    private BigDecimal executionAdjustedPnl(BacktestModels.BacktestResult result) {
+        return executionStressService == null
+                ? nz(result == null ? null : result.totalPnl)
+                : executionStressService.adjustedPnl(result);
     }
 
     private SliceSelection selectBestParamForSlice(StrategyCandidateRow candidate,

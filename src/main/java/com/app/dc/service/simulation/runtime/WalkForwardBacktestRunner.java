@@ -32,6 +32,9 @@ public class WalkForwardBacktestRunner {
     @Autowired
     private BacktestSupportService supportService;
 
+    @Autowired
+    private ExecutionStressService executionStressService;
+
     public BacktestModels.BacktestResult run(StrategyCandidateRow candidate,
                                              BacktestParam rawParam,
                                              List<TTbookOhlc> ohlcList,
@@ -84,6 +87,8 @@ public class WalkForwardBacktestRunner {
         BigDecimal fitPnl = BigDecimal.ZERO;
         BigDecimal validatePnl = BigDecimal.ZERO;
         BigDecimal forwardPnl = BigDecimal.ZERO;
+        BigDecimal stressedValidatePnl = BigDecimal.ZERO;
+        BigDecimal stressedForwardPnl = BigDecimal.ZERO;
         BigDecimal forwardScoreSum = BigDecimal.ZERO;
 
         int barsPerDay = resolveBarsPerDay(param.text);
@@ -129,6 +134,8 @@ public class WalkForwardBacktestRunner {
             fitPnl = fitPnl.add(nz(calcTotalPnl(fitResult)));
             validatePnl = validatePnl.add(nz(calcTotalPnl(validateResult)));
             forwardPnl = forwardPnl.add(nz(calcTotalPnl(forwardResult)));
+            stressedValidatePnl = stressedValidatePnl.add(executionAdjustedPnl(validateResult));
+            stressedForwardPnl = stressedForwardPnl.add(executionAdjustedPnl(forwardResult));
             forwardScoreSum = forwardScoreSum.add(nz(forwardResult.totalReturnPct));
 
             aggregate.sliceResults.add(buildSlice(candidate, param, sliceNo, slice, fitResult, validateResult, forwardResult));
@@ -153,8 +160,8 @@ public class WalkForwardBacktestRunner {
         aggregate.validatePnl = scale(validatePnl);
         aggregate.forwardPnl = scale(forwardPnl);
         aggregate.totalPnl = scale(validatePnl.add(forwardPnl));
-        aggregate.feeAdjustedValidatePnl = aggregate.validatePnl;
-        aggregate.feeAdjustedForwardPnl = aggregate.forwardPnl;
+        aggregate.feeAdjustedValidatePnl = scale(stressedValidatePnl);
+        aggregate.feeAdjustedForwardPnl = scale(stressedForwardPnl);
         aggregate.windowMode = WINDOW_MODE;
         aggregate.forwardScore = slices.isEmpty()
                 ? BigDecimal.ZERO
@@ -193,7 +200,7 @@ public class WalkForwardBacktestRunner {
             aggregate.overfitPass = 1;
             aggregate.overfitReason = "";
         }
-        log.info("WalkForwardBacktestRunner end, strategy:{}@{}, symbol:{}, sliceCount:{}, fitPnl:{}, validatePnl:{}, forwardPnl:{}, totalPnl:{}, overfitPass:{}, overfitReason:{}",
+        log.info("WalkForwardBacktestRunner end, strategy:{}@{}, symbol:{}, sliceCount:{}, fitPnl:{}, validatePnl:{}, forwardPnl:{}, stressedValidatePnl:{}, stressedForwardPnl:{}, totalPnl:{}, overfitPass:{}, overfitReason:{}",
                 candidate.strategyName,
                 candidate.strategyVersion,
                 param.symbol,
@@ -201,11 +208,19 @@ public class WalkForwardBacktestRunner {
                 aggregate.fitPnl,
                 aggregate.validatePnl,
                 aggregate.forwardPnl,
+                aggregate.feeAdjustedValidatePnl,
+                aggregate.feeAdjustedForwardPnl,
                 aggregate.totalPnl,
                 aggregate.overfitPass,
                 aggregate.overfitReason);
 
         return aggregate;
+    }
+
+    private BigDecimal executionAdjustedPnl(BacktestModels.BacktestResult result) {
+        return executionStressService == null
+                ? nz(calcTotalPnl(result))
+                : executionStressService.adjustedPnl(result);
     }
 
     private BacktestModels.BacktestResult initAggregateResult(StrategyCandidateRow candidate, BacktestParam param) {

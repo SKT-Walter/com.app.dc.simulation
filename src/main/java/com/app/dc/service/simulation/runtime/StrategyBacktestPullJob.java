@@ -644,6 +644,7 @@ public class StrategyBacktestPullJob {
                                        BinanceKlineAutofillService.AutofillTriggerResult autofillResult,
                                        String autofillError) {
         StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
+        copyWorkflowControls(task, envelope);
         envelope.backtestParam = extractCompactBacktestParam(task, resolvedParam);
         envelope.suspendDetail = error.getDetail();
         envelope.recoveryPlan = buildRecoveryPlan(error, nextRetryTime, autofillResult, autofillError);
@@ -702,6 +703,8 @@ public class StrategyBacktestPullJob {
                 StrategyBacktestTaskPayloadEnvelope existing =
                         JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
                 if (existing != null) {
+                    envelope.workflowMode = existing.workflowMode;
+                    envelope.workflowImprovementFlowType = existing.workflowImprovementFlowType;
                     envelope.suspendDetail = existing.suspendDetail;
                     envelope.recoveryPlan = existing.recoveryPlan;
                 }
@@ -729,6 +732,12 @@ public class StrategyBacktestPullJob {
             StrategyBacktestTaskPayloadEnvelope envelope =
                     JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
             if (envelope != null) {
+                if (!isBlank(envelope.workflowMode)) {
+                    merged.put("workflowMode", envelope.workflowMode);
+                }
+                if (!isBlank(envelope.workflowImprovementFlowType)) {
+                    merged.put("workflowImprovementFlowType", envelope.workflowImprovementFlowType);
+                }
                 if (envelope.backtestParam != null) {
                     merged.put("backtestParam", compactBacktestParam(envelope.backtestParam));
                 }
@@ -765,6 +774,23 @@ public class StrategyBacktestPullJob {
             merged.put("backtestParam", compact);
         }
         return merged;
+    }
+
+    private void copyWorkflowControls(StrategyBacktestTaskRow task,
+                                      StrategyBacktestTaskPayloadEnvelope target) {
+        if (task == null || target == null || isBlank(task.payload)) {
+            return;
+        }
+        try {
+            StrategyBacktestTaskPayloadEnvelope existing =
+                    JsonUtils.Deserialize(task.payload, StrategyBacktestTaskPayloadEnvelope.class);
+            if (existing != null) {
+                target.workflowMode = existing.workflowMode;
+                target.workflowImprovementFlowType = existing.workflowImprovementFlowType;
+            }
+        } catch (Exception e) {
+            log.warn("copyWorkflowControls parse payload ignored, task:{}", task.id, e);
+        }
     }
 
     private BacktestParam extractCompactBacktestParam(StrategyBacktestTaskRow task, BacktestParam resolvedParam) {

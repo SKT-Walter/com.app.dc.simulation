@@ -49,6 +49,8 @@ public class StrategyBacktestPullJobTest {
 
         StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
         envelope.backtestParam = backtestParam;
+        envelope.workflowMode = "live_recheck";
+        envelope.workflowImprovementFlowType = "LIVE_RECHECK";
         envelope.runningProgress = Collections.<String, Object>singletonMap("phase", "optimize");
         task.payload = JsonUtils.Serializer(envelope);
 
@@ -68,6 +70,8 @@ public class StrategyBacktestPullJobTest {
         Assert.assertNotNull(compactBacktestParam);
         Assert.assertEquals("", String.valueOf(compactBacktestParam.get("strategyPayload")));
         Assert.assertEquals("TRXUSDT", String.valueOf(compactBacktestParam.get("symbol")));
+        Assert.assertEquals("live_recheck", String.valueOf(root.get("workflowMode")));
+        Assert.assertEquals("LIVE_RECHECK", String.valueOf(root.get("workflowImprovementFlowType")));
         Assert.assertFalse(root.containsKey("runningProgress"));
         Assert.assertEquals("/tmp/report.html", String.valueOf(savedTaskResult.get("reportPath")));
         Assert.assertTrue(payload.length() < task.payload.length());
@@ -89,6 +93,8 @@ public class StrategyBacktestPullJobTest {
 
         StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
         envelope.backtestParam = backtestParam;
+        envelope.workflowMode = "live_recheck";
+        envelope.workflowImprovementFlowType = "LIVE_RECHECK";
         task.payload = JsonUtils.Serializer(envelope);
 
         Map<String, Object> progress = new LinkedHashMap<String, Object>();
@@ -107,6 +113,8 @@ public class StrategyBacktestPullJobTest {
         Assert.assertNotNull(compactBacktestParam);
         Assert.assertEquals("", String.valueOf(compactBacktestParam.get("strategyPayload")));
         Assert.assertEquals("SOLUSDT", String.valueOf(compactBacktestParam.get("symbol")));
+        Assert.assertEquals("live_recheck", String.valueOf(root.get("workflowMode")));
+        Assert.assertEquals("LIVE_RECHECK", String.valueOf(root.get("workflowImprovementFlowType")));
         Assert.assertEquals("walk_forward", String.valueOf(runningProgress.get("phase")));
         Assert.assertTrue(payload.length() < task.payload.length());
     }

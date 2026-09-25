@@ -79,7 +79,7 @@ public class SliceOptimizedSceneConditionedWalkForwardRunnerTest {
         param.symbols = "BTCUSDT";
         param.text = "1d";
         param.beginDate = "2026-01-01";
-        param.endDate = "2026-01-10";
+        param.endDate = "2026-01-14";
         param.initialCapital = BigDecimal.valueOf(10000D);
         param.entryMakerFeeRatePct = BigDecimal.ZERO;
         param.exitTakerFeeRatePct = BigDecimal.ZERO;
@@ -101,7 +101,7 @@ public class SliceOptimizedSceneConditionedWalkForwardRunnerTest {
     private List<TTbookOhlc> bars() {
         List<TTbookOhlc> rows = new ArrayList<TTbookOhlc>();
         DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 14; i++) {
             LocalDate date = LocalDate.of(2026, 1, 1).plusDays(i);
             LocalDateTime start = date.atStartOfDay();
             TTbookOhlc row = new TTbookOhlc();

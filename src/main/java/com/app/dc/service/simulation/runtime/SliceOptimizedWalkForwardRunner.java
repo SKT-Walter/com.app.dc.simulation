@@ -612,7 +612,10 @@ public class SliceOptimizedWalkForwardRunner {
                 break;
             }
             slices.add(slice);
-            cursor = cursor.plusDays(forwardWindowDays);
+            // Keep validation and forward evidence disjoint across slices. Moving only by the
+            // forward window repeats validation dates and can count one trade multiple times.
+            cursor = cursor.plusDays(
+                    WalkForwardWindowPolicy.sliceStepDays(validateWindowDays, forwardWindowDays));
         }
         return slices;
     }

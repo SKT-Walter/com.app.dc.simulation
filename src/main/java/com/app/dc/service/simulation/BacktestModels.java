@@ -8,7 +8,7 @@ import java.util.Map;
 
 public final class BacktestModels {
 
-    public static final String EXECUTION_MODEL_VERSION = "v3_scene_conditioned_walk_forward";
+    public static final String EXECUTION_MODEL_VERSION = "v4_non_overlapping_walk_forward";
     public static final String SCENE_CONDITIONED_WINDOW_MODE = "SCENE_CONDITIONED_WALK_FORWARD";
 
     private BacktestModels() {

@@ -40,11 +40,21 @@ public class WalkForwardBacktestRunnerTest {
         param.exitTakerFeeRatePct = BigDecimal.ZERO;
 
         List<TTbookOhlc> rows = buildRows(LocalDate.of(2025, 10, 20), 220);
-        BacktestModels.BacktestResult result = runner.run(candidate, param, rows, 120, 30, 14, 3);
+        BacktestModels.BacktestResult result = runner.run(candidate, param, rows, 120, 30, 14, 2);
 
-        Assert.assertEquals(Integer.valueOf(4), result.sliceCount);
+        Assert.assertEquals(Integer.valueOf(2), result.sliceCount);
         Assert.assertEquals("2025-10-20", fakeRunner.beginDates.get(0));
         Assert.assertEquals("2026-02-16", fakeRunner.endDates.get(0));
+        Assert.assertEquals("2026-02-17", fakeRunner.beginDates.get(1));
+        Assert.assertEquals("2026-03-18", fakeRunner.endDates.get(1));
+        Assert.assertEquals("2026-03-19", fakeRunner.beginDates.get(2));
+        Assert.assertEquals("2026-04-01", fakeRunner.endDates.get(2));
+        Assert.assertEquals("2025-12-03", fakeRunner.beginDates.get(3));
+        Assert.assertEquals("2026-04-01", fakeRunner.endDates.get(3));
+        Assert.assertEquals("2026-04-02", fakeRunner.beginDates.get(4));
+        Assert.assertEquals("2026-05-01", fakeRunner.endDates.get(4));
+        Assert.assertEquals("2026-05-02", fakeRunner.beginDates.get(5));
+        Assert.assertEquals("2026-05-15", fakeRunner.endDates.get(5));
     }
 
     @Test
@@ -70,9 +80,9 @@ public class WalkForwardBacktestRunnerTest {
         param.exitTakerFeeRatePct = BigDecimal.ZERO;
 
         List<TTbookOhlc> rows = buildRowsWithPartialFirstDay(LocalDate.of(2025, 10, 20), 220, 44);
-        BacktestModels.BacktestResult result = runner.run(candidate, param, rows, 120, 30, 14, 3);
+        BacktestModels.BacktestResult result = runner.run(candidate, param, rows, 120, 30, 14, 2);
 
-        Assert.assertEquals(Integer.valueOf(4), result.sliceCount);
+        Assert.assertEquals(Integer.valueOf(2), result.sliceCount);
         Assert.assertEquals("2025-10-20", fakeRunner.beginDates.get(0));
         Assert.assertEquals("2026-02-16", fakeRunner.endDates.get(0));
     }

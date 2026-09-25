@@ -199,6 +199,7 @@ public final class BacktestModels {
         public String textScope;
         public String paramSetJson = "{}";
         public BigDecimal fitPnl = BigDecimal.ZERO;
+        public BigDecimal feeAdjustedFitPnl;
         public BigDecimal validatePnl = BigDecimal.ZERO;
         public BigDecimal forwardPnl = BigDecimal.ZERO;
         public BigDecimal totalPnl = BigDecimal.ZERO;

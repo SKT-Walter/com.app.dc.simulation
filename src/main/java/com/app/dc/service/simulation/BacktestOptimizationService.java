@@ -39,6 +39,7 @@ public class BacktestOptimizationService {
     private static final String MODE_RANDOM_LOCAL = "RANDOM_LOCAL";
     private static final String MODE_FULL_GRID_2D = "FULL_GRID_2D";
     private static final String OBJECTIVE_PROFIT_FIRST = "PROFIT_FIRST";
+    private static final String OBJECTIVE_FEE_ADJUSTED_PROFIT_FIRST = "FEE_ADJUSTED_PROFIT_FIRST";
 
     public OptimizationPlan buildPlan(String parametersJson) {
         StrategyParametersJson parsed = StrategyParametersSupport.parse(parametersJson);
@@ -241,10 +242,11 @@ public class BacktestOptimizationService {
         if (trials == null || trials.isEmpty()) {
             return;
         }
+        final OptimizationPlan effectivePlan = plan == null ? new OptimizationPlan() : plan;
         Collections.sort(trials, new Comparator<OptimizationTrial>() {
             @Override
             public int compare(OptimizationTrial left, OptimizationTrial right) {
-                int fit = nz(right.fitPnl).compareTo(nz(left.fitPnl));
+                int fit = fitRankingPnl(right, effectivePlan).compareTo(fitRankingPnl(left, effectivePlan));
                 if (fit != 0) {
                     return fit;
                 }
@@ -263,6 +265,16 @@ public class BacktestOptimizationService {
             trial.neighborAvgPnl = BigDecimal.ZERO;
             trial.neighborWorstPnl = BigDecimal.ZERO;
         }
+    }
+
+    private BigDecimal fitRankingPnl(OptimizationTrial trial, OptimizationPlan plan) {
+        if (plan != null
+                && OBJECTIVE_FEE_ADJUSTED_PROFIT_FIRST.equals(plan.objective)
+                && trial != null
+                && trial.feeAdjustedFitPnl != null) {
+            return trial.feeAdjustedFitPnl;
+        }
+        return nz(trial == null ? null : trial.fitPnl);
     }
 
     public OptimizationTrial buildTrial(int trialNo,
@@ -951,6 +963,9 @@ public class BacktestOptimizationService {
 
     private String normalizeObjective(String value) {
         String objective = string(value, OBJECTIVE_PROFIT_FIRST).toUpperCase(Locale.ENGLISH);
+        if (OBJECTIVE_FEE_ADJUSTED_PROFIT_FIRST.equals(objective)) {
+            return OBJECTIVE_FEE_ADJUSTED_PROFIT_FIRST;
+        }
         if (OBJECTIVE_PROFIT_FIRST.equals(objective)) {
             return OBJECTIVE_PROFIT_FIRST;
         }

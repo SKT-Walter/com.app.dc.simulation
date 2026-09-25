@@ -302,6 +302,7 @@ public class BacktestReportService {
             row.put("phase", s(trial.phase));
             row.put("rank", nzInt(trial.rank));
             row.put("fitPnl", scale(trial.fitPnl));
+            row.put("feeAdjustedFitPnl", scale(trial.feeAdjustedFitPnl));
             row.put("validatePnl", scale(trial.validatePnl));
             row.put("forwardPnl", scale(trial.forwardPnl));
             row.put("totalPnl", scale(trial.totalPnl));

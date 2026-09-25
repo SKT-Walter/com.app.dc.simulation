@@ -50,6 +50,28 @@ public class BacktestOptimizationServiceTest {
         Assert.assertEquals(coarse.size(), new java.util.LinkedHashSet<Map<String, Object>>(coarse).size());
     }
 
+    @Test
+    public void feeAdjustedFitObjectiveShouldRejectHighTurnoverGrossWinner() {
+        BacktestOptimizationService.OptimizationPlan plan = service.buildPlan("{"
+                + "\"optimizationSupported\":true,"
+                + "\"defaultParams\":{\"lookback\":20},"
+                + "\"parameterSchema\":{\"parameters\":[{\"name\":\"lookback\",\"type\":\"int\",\"candidates\":[10,20]}]},"
+                + "\"optimizationProfile\":{\"objective\":\"FEE_ADJUSTED_PROFIT_FIRST\"}"
+                + "}");
+
+        BacktestModels.OptimizationTrial highTurnover = trial(1, "COARSE", 200, 0, 0, 200, 1, 0);
+        highTurnover.feeAdjustedFitPnl = BigDecimal.valueOf(-30);
+        BacktestModels.OptimizationTrial netWinner = trial(2, "COARSE", 120, 0, 0, 120, 1, 0);
+        netWinner.feeAdjustedFitPnl = BigDecimal.valueOf(40);
+
+        List<BacktestModels.OptimizationTrial> trials = java.util.Arrays.asList(highTurnover, netWinner);
+        service.rankFitTrials(plan, trials);
+
+        Assert.assertEquals("FEE_ADJUSTED_PROFIT_FIRST", plan.objective);
+        Assert.assertEquals(Integer.valueOf(1), netWinner.rank);
+        Assert.assertEquals(Integer.valueOf(2), highTurnover.rank);
+    }
+
     private BacktestModels.OptimizationTrial trial(int trialNo,
                                                    String phase,
                                                    double fitPnl,

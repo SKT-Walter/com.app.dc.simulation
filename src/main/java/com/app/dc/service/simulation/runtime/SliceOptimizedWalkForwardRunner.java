@@ -31,6 +31,7 @@ public class SliceOptimizedWalkForwardRunner {
 
     private static final String WINDOW_MODE = "WALK_FORWARD";
     private static final String MODE_FULL_GRID_2D = "FULL_GRID_2D";
+    private static final String OBJECTIVE_FEE_ADJUSTED_PROFIT_FIRST = "FEE_ADJUSTED_PROFIT_FIRST";
 
     @Autowired
     private VersionedBacktestRunner versionedBacktestRunner;
@@ -270,7 +271,7 @@ public class SliceOptimizedWalkForwardRunner {
             selection.paramSet = defaultParamSet;
             selection.fitResult = fitResult;
             selection.selectionObjective = plan == null ? "" : plan.objective;
-            selection.fitScore = nz(fitResult.totalPnl);
+            selection.fitScore = fitSelectionScore(plan, fitResult);
             selection.fragileBest = 1;
             selection.optimizationTrials = Collections.emptyList();
             return selection;
@@ -298,7 +299,7 @@ public class SliceOptimizedWalkForwardRunner {
         selection.paramSet = best.paramSet;
         selection.fitResult = best.fitResult;
         selection.selectionObjective = plan == null ? "" : plan.objective;
-        selection.fitScore = nz(best.fitResult.totalPnl);
+        selection.fitScore = fitSelectionScore(plan, best.fitResult);
         selection.fragileBest = bestRanked != null && bestRanked.fragileBest != null ? bestRanked.fragileBest.intValue() : 0;
         selection.neighborAvgPnl = bestRanked == null ? BigDecimal.ZERO : nz(bestRanked.neighborAvgPnl);
         selection.neighborWorstPnl = bestRanked == null ? BigDecimal.ZERO : nz(bestRanked.neighborWorstPnl);
@@ -388,6 +389,7 @@ public class SliceOptimizedWalkForwardRunner {
             row.textScope = baseParam == null ? "" : baseParam.text;
             row.paramSetJson = trial.paramSetJson;
             row.fitPnl = nz(trial.fitResult == null ? null : trial.fitResult.totalPnl);
+            row.feeAdjustedFitPnl = executionAdjustedPnl(trial.fitResult);
             row.totalPnl = row.fitPnl;
             row.maxDrawdownPct = nz(trial.fitResult == null ? null : trial.fitResult.maxDrawdownPct);
             row.overfitPass = 1;
@@ -402,6 +404,13 @@ public class SliceOptimizedWalkForwardRunner {
             results.add(row);
         }
         return results;
+    }
+
+    private BigDecimal fitSelectionScore(BacktestOptimizationService.OptimizationPlan plan,
+                                         BacktestModels.BacktestResult result) {
+        return plan != null && OBJECTIVE_FEE_ADJUSTED_PROFIT_FIRST.equalsIgnoreCase(plan.objective)
+                ? executionAdjustedPnl(result)
+                : nz(result == null ? null : result.totalPnl);
     }
 
     private BacktestModels.BacktestResult runWindow(StrategyCandidateRow candidate,

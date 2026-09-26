@@ -45,6 +45,7 @@ public class StrategyBacktestPullJobTest {
         backtestParam.beginDate = "2026-01-01";
         backtestParam.endDate = "2026-06-12";
         backtestParam.strategyPayload = repeat("X", 200000);
+        backtestParam.optimizationObjective = "FEE_ADJUSTED_PROFIT_FIRST";
         backtestParam.strategyParams.put("atrLength", 21);
 
         StrategyBacktestTaskPayloadEnvelope envelope = new StrategyBacktestTaskPayloadEnvelope();
@@ -70,6 +71,8 @@ public class StrategyBacktestPullJobTest {
         Assert.assertNotNull(compactBacktestParam);
         Assert.assertEquals("", String.valueOf(compactBacktestParam.get("strategyPayload")));
         Assert.assertEquals("TRXUSDT", String.valueOf(compactBacktestParam.get("symbol")));
+        Assert.assertEquals("FEE_ADJUSTED_PROFIT_FIRST",
+                String.valueOf(compactBacktestParam.get("optimizationObjective")));
         Assert.assertEquals("live_recheck", String.valueOf(root.get("workflowMode")));
         Assert.assertEquals("LIVE_RECHECK", String.valueOf(root.get("workflowImprovementFlowType")));
         Assert.assertFalse(root.containsKey("runningProgress"));

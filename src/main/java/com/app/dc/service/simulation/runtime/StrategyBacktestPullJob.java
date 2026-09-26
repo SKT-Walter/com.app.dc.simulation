@@ -830,6 +830,7 @@ public class StrategyBacktestPullJob {
         copy.runtimeType = source.runtimeType;
         copy.scene = source.scene;
         copy.strategyPayload = "";
+        copy.optimizationObjective = source.optimizationObjective;
         copy.strategyParams = source.strategyParams == null
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(source.strategyParams);

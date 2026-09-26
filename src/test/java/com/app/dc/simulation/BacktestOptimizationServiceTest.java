@@ -72,6 +72,20 @@ public class BacktestOptimizationServiceTest {
         Assert.assertEquals(Integer.valueOf(2), highTurnover.rank);
     }
 
+    @Test
+    public void taskObjectiveShouldOverrideCandidateProfileWithoutMutatingOtherSettings() {
+        BacktestOptimizationService.OptimizationPlan plan = service.buildPlan("{"
+                + "\"optimizationSupported\":true,"
+                + "\"defaultParams\":{\"lookback\":20},"
+                + "\"parameterSchema\":{\"parameters\":[{\"name\":\"lookback\",\"type\":\"int\",\"candidates\":[10,20]}]},"
+                + "\"optimizationProfile\":{\"mode\":\"RANDOM_LOCAL\",\"objective\":\"PROFIT_FIRST\",\"topN\":7}"
+                + "}", "FEE_ADJUSTED_PROFIT_FIRST");
+
+        Assert.assertEquals("FEE_ADJUSTED_PROFIT_FIRST", plan.objective);
+        Assert.assertEquals("RANDOM_LOCAL", plan.optimizationMode);
+        Assert.assertEquals(7, plan.topN);
+    }
+
     private BacktestModels.OptimizationTrial trial(int trialNo,
                                                    String phase,
                                                    double fitPnl,

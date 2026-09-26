@@ -114,7 +114,7 @@ public class BacktestService {
         }
 
         BacktestOptimizationService.OptimizationPlan plan =
-                backtestOptimizationService.buildPlan(candidate.parametersJson);
+                backtestOptimizationService.buildPlan(candidate.parametersJson, req.optimizationObjective);
         WindowConfig windowConfig = resolveWindowConfig(plan, fitWindowDays, validateWindowDays, forwardWindowDays);
         log.info("BacktestService run start, strategy:{}@{}, symbols:{}, text:{}, range:{}~{}, runtimeType:{}, scene:{}, optimizationSupported:{}, optimizationMode:{}, objective:{}, window:{}/{}/{}, minSliceCount:{}",
                 candidate.strategyName,
@@ -664,6 +664,7 @@ public class BacktestService {
         target.runtimeType = source.runtimeType;
         target.scene = source.scene;
         target.strategyPayload = source.strategyPayload;
+        target.optimizationObjective = source.optimizationObjective;
         target.strategyParams = new LinkedHashMap<String, Object>();
         if (source.strategyParams != null && !source.strategyParams.isEmpty()) {
             target.strategyParams.putAll(source.strategyParams);

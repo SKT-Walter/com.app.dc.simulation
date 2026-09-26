@@ -441,6 +441,7 @@ public class WalkForwardBacktestRunner {
         target.runtimeType = source.runtimeType;
         target.scene = source.scene;
         target.strategyPayload = source.strategyPayload;
+        target.optimizationObjective = source.optimizationObjective;
         target.strategyParams = new LinkedHashMap<String, Object>();
         if (source.strategyParams != null && !source.strategyParams.isEmpty()) {
             target.strategyParams.putAll(source.strategyParams);

@@ -271,6 +271,7 @@ public class WorkbenchService {
         param.runtimeType = blankTo(candidate.runtimeType, "CLASSPATH");
         param.scene = candidate.scene;
         param.strategyPayload = candidate.payload;
+        param.optimizationObjective = text(request, "optimizationObjective", "");
         param.symbol = text(request, "symbol", "");
         param.symbols = StringUtils.isNotBlank(param.symbol) ? param.symbol : text(request, "symbols", "");
         param.text = requiredText(request, "text");
@@ -314,6 +315,7 @@ public class WorkbenchService {
         data.put("text", param.text);
         data.put("beginDate", param.beginDate);
         data.put("endDate", param.endDate);
+        data.put("optimizationObjective", param.optimizationObjective);
         data.put("status", "PENDING");
         data.put("created", Boolean.TRUE);
         return data;

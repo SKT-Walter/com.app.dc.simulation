@@ -18,6 +18,12 @@ public class BacktestParam {
 
     public String strategyPayload;
 
+    /**
+     * Optional task-scoped optimizer objective. When blank, the candidate's
+     * optimization profile remains authoritative.
+     */
+    public String optimizationObjective;
+
     public Map<String, Object> strategyParams = new LinkedHashMap<String, Object>();
 
     public String symbol;

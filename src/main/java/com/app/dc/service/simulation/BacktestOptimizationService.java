@@ -42,11 +42,18 @@ public class BacktestOptimizationService {
     private static final String OBJECTIVE_FEE_ADJUSTED_PROFIT_FIRST = "FEE_ADJUSTED_PROFIT_FIRST";
 
     public OptimizationPlan buildPlan(String parametersJson) {
+        return buildPlan(parametersJson, "");
+    }
+
+    public OptimizationPlan buildPlan(String parametersJson, String objectiveOverride) {
         StrategyParametersJson parsed = StrategyParametersSupport.parse(parametersJson);
         OptimizationPlan plan = new OptimizationPlan();
         plan.optimizationSupported = StrategyParametersSupport.isOptimizationSupported(parametersJson);
         plan.optimizationMode = normalizeMode(string(parsed.optimizationProfile.get("mode"), MODE_LAYERED_GRID));
         plan.objective = normalizeObjective(string(parsed.optimizationProfile.get("objective"), OBJECTIVE_PROFIT_FIRST));
+        if (objectiveOverride != null && !objectiveOverride.trim().isEmpty()) {
+            plan.objective = normalizeObjective(objectiveOverride);
+        }
         plan.topN = Math.max(1, intValue(parsed.optimizationProfile.get("topN"), DEFAULT_TOP_N));
         plan.maxFullGrid = Math.max(1, intValue(parsed.optimizationProfile.get("maxFullGrid"), DEFAULT_MAX_FULL_GRID));
         plan.maxCoarseCandidates = Math.max(1,

@@ -36,6 +36,12 @@ public class VersionedBacktestRunner {
     @Value("${strategy.runtime.signalEconomics.minTargetCostMultiple:2.0}")
     private double minTargetCostMultiple;
 
+    @Value("${strategy.runtime.signalEconomics.minStopCostMultiple:1.5}")
+    private double minStopCostMultiple;
+
+    @Value("${strategy.runtime.signalEconomics.minNetRewardRisk:1.2}")
+    private double minNetRewardRisk;
+
     @Autowired
     private BacktestService legacyBacktestService;
 
@@ -180,9 +186,12 @@ public class VersionedBacktestRunner {
                 incrementRejectReason(result, "scene_mismatch");
                 continue;
             }
-            if (signalEconomicsEnabled && SignalEconomicsPolicy.shouldReject(signal,
-                    estimatedRoundTripCostPct, minTargetCostMultiple)) {
-                incrementRejectReason(result, "signal_economics_target_too_close");
+            String signalEconomicsRejectReason = signalEconomicsEnabled
+                    ? SignalEconomicsPolicy.rejectionReason(signal, estimatedRoundTripCostPct,
+                    minTargetCostMultiple, minStopCostMultiple, minNetRewardRisk)
+                    : "";
+            if (!signalEconomicsRejectReason.isEmpty()) {
+                incrementRejectReason(result, signalEconomicsRejectReason);
                 continue;
             }
 

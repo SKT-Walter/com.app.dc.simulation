@@ -42,9 +42,22 @@ jobs:
 
       - name: Build SIMSvr
         run: |
+          set -o pipefail
           mvn -B -U clean package dependency:copy-dependencies \
             -DskipTests \
-            -DoutputDirectory=target/dependency
+            -DoutputDirectory=target/dependency 2>&1 | tee /tmp/simsvr-maven-build.log
+
+      - name: Publish Maven failure diagnostic
+        if: failure()
+        run: |
+          {
+            echo '### SIMSvr Maven build failure'
+            echo '```text'
+            tail -n 120 /tmp/simsvr-maven-build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          detail="$( { grep -E '\[ERROR\]|BUILD FAILURE|COMPILATION ERROR|Failed to execute goal|cannot find symbol' /tmp/simsvr-maven-build.log || true; } | tail -n 20 | tr '\n' ' ' | cut -c1-2000)"
+          echo "::error title=SIMSvr Maven build failure::${detail:-See workflow summary for the Maven failure tail}"
 
       - name: Verify build output
         run: |

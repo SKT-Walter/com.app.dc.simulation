@@ -955,6 +955,12 @@ public class StrategyAutoPublishService {
             decision.replaceReason = "replace legacy backtest baseline with realistic execution model result";
             return decision;
         }
+        if (!gt(baseline.forwardScore, 0D)) {
+            decision.replaceReason = latestBaselineMode
+                    ? "replace latest live baseline with non-positive forward score"
+                    : "replace active baseline with non-positive forward score";
+            return decision;
+        }
         if (shouldAllowLossAwareBaselineReplace(candidate, active, latestBaselineMode, symbolScope)) {
             StrategyLiveTradeStatsRow stats = loadTodayTradeStats(candidate, active, symbolScope);
             if (isSevereActiveLoss(stats)) {

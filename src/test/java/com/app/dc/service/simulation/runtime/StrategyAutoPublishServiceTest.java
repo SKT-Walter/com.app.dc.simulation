@@ -262,6 +262,24 @@ public class StrategyAutoPublishServiceTest {
         Assert.assertEquals("replace legacy backtest baseline with realistic execution model result", decision.reason);
     }
 
+    @Test
+    public void maybePublishShouldReplaceActiveBaselineWithNonPositiveForwardScore() throws Exception {
+        StrategyAutoPublishService service = new StrategyAutoPublishService();
+        StubAutoPublishDao dao = new StubAutoPublishDao();
+        dao.active = active("live_acc3", "v12", "BTCUSDT");
+        dao.baseline = baseline(-0.01d, 999999d);
+        wirePublishConfig(service, dao);
+
+        StrategyAutoPublishDecision decision = service.maybePublish(
+                task("bt_degraded_forward"), candidate("v13"), response("BTCUSDT"));
+
+        Assert.assertTrue(decision.published);
+        Assert.assertEquals("REPLACE", decision.action);
+        Assert.assertEquals("replace active baseline with non-positive forward score", decision.reason);
+        Assert.assertEquals(1, dao.insertedRegistryRows.size());
+        Assert.assertEquals(1, dao.insertedReleaseEvents.size());
+    }
+
     private static void wirePublishConfig(StrategyAutoPublishService service, StubAutoPublishDao dao) throws Exception {
         setField(service, "enabled", true);
         setField(service, "publishSource", "test_publish");

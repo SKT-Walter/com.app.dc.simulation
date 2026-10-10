@@ -71,13 +71,19 @@ public class BacktestQueryService {
             args.add(endDate.trim());
         }
 
-        sql.append(" ORDER BY startTime ASC");
+        // kline_view can expose more than one source row for the same bar when
+        // legacy HHmmss fmtTime values coexist with canonical datetime values.
+        // Returning both bars makes the replay depend on ClickHouse tie order.
+        // Prefer the canonical fmtTime row and keep exactly one deterministic
+        // bar per startTime; endTime/fmtTime are stable secondary tie breakers.
+        sql.append(" ORDER BY startTime ASC,(length(fmtTime)>=10) DESC,endTime DESC,fmtTime ASC")
+                .append(" LIMIT 1 BY startTime");
         return new QueryAndArgs(sql.toString(), args);
     }
 
     public QueryAndArgs buildOhlcCountSql(String symbol, String text, String beginDate, String endDate) {
         StringBuilder sql = new StringBuilder();
-        sql.append("SELECT count(1) AS count FROM dc.kline_view WHERE 1=1");
+        sql.append("SELECT uniqExact(startTime) AS count FROM dc.kline_view WHERE 1=1");
 
         List<Object> args = new ArrayList<Object>();
         if (StringUtils.isNotBlank(symbol)) {

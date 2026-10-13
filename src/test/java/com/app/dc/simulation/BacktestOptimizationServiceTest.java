@@ -86,6 +86,52 @@ public class BacktestOptimizationServiceTest {
         Assert.assertEquals(7, plan.topN);
     }
 
+    @Test
+    public void fitSampleFloorShouldPreferStatisticallyUsableCandidate() {
+        BacktestOptimizationService.OptimizationPlan plan = service.buildPlan("{"
+                + "\"optimizationSupported\":true,"
+                + "\"defaultParams\":{\"lookback\":20},"
+                + "\"parameterSchema\":{\"parameters\":[{\"name\":\"lookback\",\"type\":\"int\",\"candidates\":[10,20]}]},"
+                + "\"optimizationProfile\":{\"objective\":\"FEE_ADJUSTED_PROFIT_FIRST\",\"minFitTradesPerSlice\":12}"
+                + "}");
+
+        BacktestModels.OptimizationTrial sparseWinner = trial(1, "COARSE", 500, 0, 0, 500, 1, 0);
+        sparseWinner.feeAdjustedFitPnl = BigDecimal.valueOf(450);
+        sparseWinner.tradeCount = 3;
+        BacktestModels.OptimizationTrial usable = trial(2, "COARSE", 100, 0, 0, 100, 1, 0);
+        usable.feeAdjustedFitPnl = BigDecimal.valueOf(70);
+        usable.tradeCount = 14;
+
+        List<BacktestModels.OptimizationTrial> trials = java.util.Arrays.asList(sparseWinner, usable);
+        service.rankFitTrials(plan, trials);
+
+        Assert.assertEquals(12, plan.minFitTradesPerSlice);
+        Assert.assertEquals(Integer.valueOf(1), usable.rank);
+        Assert.assertEquals(Integer.valueOf(2), sparseWinner.rank);
+    }
+
+    @Test
+    public void disabledFitSampleFloorShouldPreserveFeeAdjustedRanking() {
+        BacktestOptimizationService.OptimizationPlan plan = service.buildPlan("{"
+                + "\"optimizationSupported\":true,"
+                + "\"defaultParams\":{\"lookback\":20},"
+                + "\"parameterSchema\":{\"parameters\":[{\"name\":\"lookback\",\"type\":\"int\",\"candidates\":[10,20]}]},"
+                + "\"optimizationProfile\":{\"objective\":\"FEE_ADJUSTED_PROFIT_FIRST\"}"
+                + "}");
+
+        BacktestModels.OptimizationTrial sparseWinner = trial(1, "COARSE", 500, 0, 0, 500, 1, 0);
+        sparseWinner.feeAdjustedFitPnl = BigDecimal.valueOf(450);
+        sparseWinner.tradeCount = 3;
+        BacktestModels.OptimizationTrial frequentLoser = trial(2, "COARSE", 100, 0, 0, 100, 1, 0);
+        frequentLoser.feeAdjustedFitPnl = BigDecimal.valueOf(70);
+        frequentLoser.tradeCount = 14;
+
+        List<BacktestModels.OptimizationTrial> trials = java.util.Arrays.asList(sparseWinner, frequentLoser);
+        service.rankFitTrials(plan, trials);
+
+        Assert.assertEquals(Integer.valueOf(1), sparseWinner.rank);
+    }
+
     private BacktestModels.OptimizationTrial trial(int trialNo,
                                                    String phase,
                                                    double fitPnl,

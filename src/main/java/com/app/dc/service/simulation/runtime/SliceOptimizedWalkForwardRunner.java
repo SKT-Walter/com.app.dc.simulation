@@ -390,6 +390,7 @@ public class SliceOptimizedWalkForwardRunner {
             row.paramSetJson = trial.paramSetJson;
             row.fitPnl = nz(trial.fitResult == null ? null : trial.fitResult.totalPnl);
             row.feeAdjustedFitPnl = executionAdjustedPnl(trial.fitResult);
+            row.tradeCount = Integer.valueOf(nzInt(trial.fitResult == null ? null : trial.fitResult.tradeCount));
             row.totalPnl = row.fitPnl;
             row.maxDrawdownPct = nz(trial.fitResult == null ? null : trial.fitResult.maxDrawdownPct);
             row.overfitPass = 1;

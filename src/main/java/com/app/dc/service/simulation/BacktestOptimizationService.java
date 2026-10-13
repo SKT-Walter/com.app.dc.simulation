@@ -68,6 +68,8 @@ public class BacktestOptimizationService {
                 intValue(parsed.optimizationProfile.get("forwardWindowDays"), DEFAULT_FORWARD_WINDOW_DAYS));
         plan.minSliceCount = Math.max(1,
                 intValue(parsed.optimizationProfile.get("minSliceCount"), DEFAULT_MIN_SLICE_COUNT));
+        plan.minFitTradesPerSlice = Math.max(0,
+                intValue(parsed.optimizationProfile.get("minFitTradesPerSlice"), 0));
         plan.randomSeed = longValue(parsed.optimizationProfile.get("randomSeed"), DEFAULT_RANDOM_SEED);
         plan.minForwardContribution = decimalValue(
                 parsed.optimizationProfile.get("minForwardContribution"),
@@ -88,7 +90,7 @@ public class BacktestOptimizationService {
         if (plan.dimensions.isEmpty()) {
             plan.optimizationSupported = false;
         }
-        log.info("BacktestOptimizationService buildPlan, optimizationSupported:{}, mode:{}, objective:{}, dimensions:{}, fullGridParams:{}, topN:{}, maxCoarseCandidates:{}, maxFineCandidates:{}, window:{}/{}/{}, minSliceCount:{}, minForwardContribution:{}",
+        log.info("BacktestOptimizationService buildPlan, optimizationSupported:{}, mode:{}, objective:{}, dimensions:{}, fullGridParams:{}, topN:{}, maxCoarseCandidates:{}, maxFineCandidates:{}, window:{}/{}/{}, minSliceCount:{}, minFitTradesPerSlice:{}, minForwardContribution:{}",
                 plan.optimizationSupported,
                 plan.optimizationMode,
                 plan.objective,
@@ -101,6 +103,7 @@ public class BacktestOptimizationService {
                 plan.validateWindowDays,
                 plan.forwardWindowDays,
                 plan.minSliceCount,
+                plan.minFitTradesPerSlice,
                 plan.minForwardContribution);
         return plan;
     }
@@ -253,6 +256,10 @@ public class BacktestOptimizationService {
         Collections.sort(trials, new Comparator<OptimizationTrial>() {
             @Override
             public int compare(OptimizationTrial left, OptimizationTrial right) {
+                int sample = compareFitSampleFloor(left, right, effectivePlan);
+                if (sample != 0) {
+                    return sample;
+                }
                 int fit = fitRankingPnl(right, effectivePlan).compareTo(fitRankingPnl(left, effectivePlan));
                 if (fit != 0) {
                     return fit;
@@ -272,6 +279,26 @@ public class BacktestOptimizationService {
             trial.neighborAvgPnl = BigDecimal.ZERO;
             trial.neighborWorstPnl = BigDecimal.ZERO;
         }
+    }
+
+    private int compareFitSampleFloor(OptimizationTrial left,
+                                      OptimizationTrial right,
+                                      OptimizationPlan plan) {
+        int floor = plan == null ? 0 : plan.minFitTradesPerSlice;
+        if (floor <= 0) {
+            return 0;
+        }
+        int leftTrades = intValue(left == null ? null : left.tradeCount);
+        int rightTrades = intValue(right == null ? null : right.tradeCount);
+        boolean leftPass = leftTrades >= floor;
+        boolean rightPass = rightTrades >= floor;
+        if (leftPass != rightPass) {
+            return leftPass ? -1 : 1;
+        }
+        if (!leftPass) {
+            return Integer.compare(rightTrades, leftTrades);
+        }
+        return 0;
     }
 
     private BigDecimal fitRankingPnl(OptimizationTrial trial, OptimizationPlan plan) {
@@ -1058,6 +1085,7 @@ public class BacktestOptimizationService {
         public int validateWindowDays = DEFAULT_VALIDATE_WINDOW_DAYS;
         public int forwardWindowDays = DEFAULT_FORWARD_WINDOW_DAYS;
         public int minSliceCount = DEFAULT_MIN_SLICE_COUNT;
+        public int minFitTradesPerSlice = 0;
         public long randomSeed = DEFAULT_RANDOM_SEED;
         public BigDecimal minForwardContribution = DEFAULT_MIN_FORWARD_CONTRIBUTION;
         public Set<String> lockedParams = new LinkedHashSet<String>();

@@ -200,6 +200,7 @@ public final class BacktestModels {
         public String paramSetJson = "{}";
         public BigDecimal fitPnl = BigDecimal.ZERO;
         public BigDecimal feeAdjustedFitPnl;
+        public Integer tradeCount = 0;
         public BigDecimal validatePnl = BigDecimal.ZERO;
         public BigDecimal forwardPnl = BigDecimal.ZERO;
         public BigDecimal totalPnl = BigDecimal.ZERO;

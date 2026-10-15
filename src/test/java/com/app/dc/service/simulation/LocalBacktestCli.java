@@ -81,7 +81,10 @@ public class LocalBacktestCli {
                     + ", forwardPnl=" + response.forwardPnl + ", totalPnl=" + response.totalPnl);
             System.out.println("bestRank=" + response.bestRank + ", bestParamSetJson=" + response.bestParamSetJson);
             Map<String, Object> summary = buildSummary(response);
-            System.out.println("LOCAL_BACKTEST_RESULT=" + JsonUtils.Serializer(summary));
+            Map<String, Object> consoleSummary = new LinkedHashMap<String, Object>(summary);
+            consoleSummary.remove("validateTrades");
+            consoleSummary.remove("sliceResults");
+            System.out.println("LOCAL_BACKTEST_RESULT=" + JsonUtils.Serializer(consoleSummary));
             if (!blank(cli.resultFile)) {
                 Path output = Paths.get(cli.resultFile).toAbsolutePath().normalize();
                 if (output.getParent() != null) {
@@ -154,6 +157,12 @@ public class LocalBacktestCli {
         summary.put("optimizationObjective", response.optimizationObjective);
         summary.put("optimizationTrials", response.trials == null
                 ? Collections.emptyList() : response.trials);
+        if (Boolean.getBoolean("trainer.backtest.includeValidateTrades") && result != null) {
+            summary.put("validateTrades", result.tradeList == null
+                    ? Collections.emptyList() : result.tradeList);
+            summary.put("sliceResults", result.sliceResults == null
+                    ? Collections.emptyList() : result.sliceResults);
+        }
         String qualificationReason = qualificationReason(result);
         summary.put("qualified", "qualified".equals(qualificationReason));
         summary.put("qualificationReason", qualificationReason);

@@ -49,6 +49,14 @@ public class LocalBacktestCli {
             if (!blank(cli.candidateArtifactUri)) {
                 installLocalCandidate(service, cli);
             }
+            String localResearchInputDir = System.getProperty(
+                    "trainer.backtest.localResearchInputDir", "").trim();
+            if (!blank(localResearchInputDir)) {
+                LocalResearchMarketData.install(service, Paths.get(localResearchInputDir),
+                        cli.symbol, cli.text, cli.beginDate, cli.endDate,
+                        System.getProperty("trainer.backtest.localBarsSha256", ""),
+                        System.getProperty("trainer.backtest.localScenesSha256", ""));
+            }
             BacktestParam param = new BacktestParam();
             param.strategyName = cli.strategyName;
             param.strategyVersion = cli.strategyVersion;
@@ -81,6 +89,11 @@ public class LocalBacktestCli {
                     + ", forwardPnl=" + response.forwardPnl + ", totalPnl=" + response.totalPnl);
             System.out.println("bestRank=" + response.bestRank + ", bestParamSetJson=" + response.bestParamSetJson);
             Map<String, Object> summary = buildSummary(response);
+            if (!blank(localResearchInputDir)) {
+                summary.put("marketDataSource", "local_ready_tsv");
+                summary.put("localBarsSha256", System.getProperty("trainer.backtest.localBarsSha256"));
+                summary.put("localScenesSha256", System.getProperty("trainer.backtest.localScenesSha256"));
+            }
             System.out.println("LOCAL_BACKTEST_RESULT=" + JsonUtils.Serializer(summary));
             if (!blank(cli.resultFile)) {
                 Path output = Paths.get(cli.resultFile).toAbsolutePath().normalize();

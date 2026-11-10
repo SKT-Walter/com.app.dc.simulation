@@ -93,8 +93,20 @@ public class LocalBacktestCli {
                 summary.put("marketDataSource", "local_ready_tsv");
                 summary.put("localBarsSha256", System.getProperty("trainer.backtest.localBarsSha256"));
                 summary.put("localScenesSha256", System.getProperty("trainer.backtest.localScenesSha256"));
+                String holdoutBegin = System.getProperty("trainer.backtest.localHoldoutBegin", "");
+                if (!blank(holdoutBegin) && Boolean.TRUE.equals(summary.get("qualified"))) {
+                    Map<String, Object> holdout = LocalHoldoutReplay.run(context, service, param, holdoutBegin);
+                    summary.put("holdout", holdout);
+                    if (!Boolean.TRUE.equals(holdout.get("passed"))) {
+                        summary.put("qualified", false);
+                        summary.put("qualificationReason", "chronological_holdout_failed");
+                    }
+                }
             }
-            System.out.println("LOCAL_BACKTEST_RESULT=" + JsonUtils.Serializer(summary));
+            Map<String, Object> consoleSummary = new LinkedHashMap<String, Object>(summary);
+            consoleSummary.remove("validateTrades");
+            consoleSummary.remove("holdout");
+            System.out.println("LOCAL_BACKTEST_RESULT=" + JsonUtils.Serializer(consoleSummary));
             if (!blank(cli.resultFile)) {
                 Path output = Paths.get(cli.resultFile).toAbsolutePath().normalize();
                 if (output.getParent() != null) {
@@ -167,6 +179,10 @@ public class LocalBacktestCli {
         summary.put("optimizationObjective", response.optimizationObjective);
         summary.put("optimizationTrials", response.trials == null
                 ? Collections.emptyList() : response.trials);
+        if (Boolean.getBoolean("trainer.backtest.includeValidateTrades") && result != null) {
+            summary.put("validateTrades", result.tradeList);
+            summary.put("sliceResults", result.sliceResults);
+        }
         String qualificationReason = qualificationReason(result);
         summary.put("qualified", "qualified".equals(qualificationReason));
         summary.put("qualificationReason", qualificationReason);
